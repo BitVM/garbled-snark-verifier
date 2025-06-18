@@ -1085,7 +1085,8 @@ mod tests {
     #[test]
     fn test_fq6_double() {
         let a = Fq6::random();
-        let circuit = Fq6::double(Fq6::wires_set(a));
+        let mut circuit = Fq6::double(Fq6::wires_set(a));
+        circuit.optimize_consts();
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();

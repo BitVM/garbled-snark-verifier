@@ -161,10 +161,7 @@ pub trait Fp254Impl {
         let mut circuit = Circuit::empty();
 
         let shift_wire = Rc::new(RefCell::new(Wire::new()));
-        let x = a[0].clone();
-        let not_x = Rc::new(RefCell::new(Wire::new()));
-        circuit.add(Gate::not(x.clone(), not_x.clone()));
-        circuit.add(Gate::and(x.clone(), not_x.clone(), shift_wire.clone()));
+        circuit.add_const(false, a[0].clone(), shift_wire.clone());
         let mut aa = a.clone();
         let u = aa.pop().unwrap();
         let mut shifted_wires = vec![shift_wire];
