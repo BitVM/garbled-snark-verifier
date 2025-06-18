@@ -1,5 +1,12 @@
+use std::{
+    collections::{HashMap, HashSet},
+    hash::{Hash, Hasher},
+    ptr,
+};
+
 use crate::{bag::*, core::gate::GateCount};
 
+#[derive(Clone)]
 pub struct Circuit(pub Wires, pub Vec<Gate>);
 
 impl Circuit {
@@ -22,6 +29,22 @@ impl Circuit {
 
     pub fn add(&mut self, gate: Gate) {
         self.1.push(gate);
+    }
+
+    pub fn add_const(&mut self, value: bool, arbitrary_input: Wirex, output: Wirex) {
+        if value {
+            self.1.push(Gate::xnor(
+                arbitrary_input.clone(),
+                arbitrary_input.clone(),
+                output,
+            ));
+        } else {
+            self.1.push(Gate::xor(
+                arbitrary_input.clone(),
+                arbitrary_input.clone(),
+                output,
+            ));
+        }
     }
 
     pub fn add_wire(&mut self, wire: Wirex) {
@@ -67,6 +90,191 @@ impl Circuit {
             xnor,
             nimp,
             nsor,
+        }
+    }
+
+    /// Propagates constants throughout the circuit, removing gates where possible.
+    pub fn optimize_consts(&mut self) {
+        self.optimize_with_explicit_consts(Default::default());
+    }
+
+    /// Like optimize_consts, but with an option to consider certain inputs as constants (useful in testing)
+    pub fn optimize_with_explicit_consts(&mut self, const_wires: Vec<(Wirex, bool)>) {
+        /// A wrapper around a `Wire` that implements `Hash` based on the address of the `Wire`.
+        #[derive(Clone, PartialEq, Eq)]
+        pub struct HashedByAddr<T>(pub Rc<RefCell<T>>);
+        impl<T> Hash for HashedByAddr<T> {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                let rc = &self.0;
+                ptr::hash(&**rc, state)
+            }
+        }
+
+        
+        let const_wires: HashMap<HashedByAddr<Wire>, bool> = HashMap::from_iter(
+            const_wires
+                .into_iter()
+                .map(|(wire, val)| (HashedByAddr(wire.clone()), val)),
+        );
+
+        let global_true = Rc::new(RefCell::new(Wire::new()));
+        let global_false = Rc::new(RefCell::new(Wire::new()));
+
+        let mut new_gates = Vec::new();
+        new_gates.push(Gate::xor(
+            self.1[0].wire_a.clone(),
+            self.1[0].wire_a.clone(),
+            global_false.clone(),
+        ));
+        new_gates.push(Gate::xnor(
+            self.1[0].wire_a.clone(),
+            self.1[0].wire_a.clone(),
+            global_true.clone(),
+        ));
+
+        let mut wire_substitutions = HashMap::new();
+
+        for (wire, val) in const_wires.iter() {
+            if *val {
+                wire_substitutions.insert(wire.clone(), global_true.clone());
+            } else {
+                wire_substitutions.insert(wire.clone(), global_false.clone());
+            }
+        }
+
+        let output_wires =
+            HashSet::<_>::from_iter(self.0.iter().map(|wire| HashedByAddr(wire.clone())));
+
+        for gate in &mut self.1.iter() {
+            let mut gate = gate.clone();
+
+            if let Some(substitution) = wire_substitutions.get(&HashedByAddr(gate.wire_a.clone())) {
+                gate.wire_a = substitution.clone();
+            }
+            if let Some(substitution) = wire_substitutions.get(&HashedByAddr(gate.wire_b.clone())) {
+                gate.wire_b = substitution.clone();
+            }
+
+            // if this gate has an output that is an output if the circuit, we keep it so that
+            // the output actually gets written to. This can be optimized, but in practice,
+            // at the top-level circuit this case is not likely to occur, so probably not worth
+            // it
+            if output_wires.contains(&HashedByAddr(gate.wire_c.clone())) {
+                new_gates.push(gate.clone());
+                continue;
+            }
+
+            let const_val = |x: &Wirex| {
+                if Rc::ptr_eq(x, &global_true) {
+                    Some(true)
+                } else if Rc::ptr_eq(x, &global_false) {
+                    Some(false)
+                } else {
+                    None
+                }
+            };
+
+            let val_a = const_val(&gate.wire_a);
+            let val_b = const_val(&gate.wire_b);
+
+            let mut set_value = |wire: Wirex, value: bool| {
+                if value {
+                    wire_substitutions.insert(HashedByAddr(wire), global_true.clone());
+                } else {
+                    wire_substitutions.insert(HashedByAddr(wire), global_false.clone());
+                }
+            };
+
+            match (gate.name.as_str(), val_a, val_b) {
+                ("and", Some(a), Some(b)) => {
+                    set_value(gate.wire_c.clone(), a && b);
+                }
+                ("and", Some(false), _) | ("and", _, Some(false)) => {
+                    set_value(gate.wire_c.clone(), false);
+                }
+                ("and", Some(true), _) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_b.clone());
+                }
+                ("and", _, Some(true)) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_a.clone());
+                }
+                ("or", Some(a), Some(b)) => {
+                    set_value(gate.wire_c.clone(), a || b);
+                }
+                ("or", Some(true), _) | ("or", _, Some(true)) => {
+                    set_value(gate.wire_c.clone(), true);
+                }
+                ("or", Some(false), _) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_b.clone());
+                }
+                ("or", _, Some(false)) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_a.clone());
+                }
+                ("xor", Some(a), Some(b)) => {
+                    set_value(gate.wire_c.clone(), a ^ b);
+                }
+                ("xor", Some(false), _) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_b.clone());
+                }
+                ("xor", _, Some(false)) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_a.clone());
+                }
+                ("nand", Some(a), Some(b)) => {
+                    set_value(gate.wire_c.clone(), !(a && b));
+                }
+                ("nand", Some(false), _) | ("nand", _, Some(false)) => {
+                    set_value(gate.wire_c.clone(), true);
+                }
+                ("inv", Some(a), Some(_)) | ("not", Some(a), Some(_)) => {
+                    set_value(gate.wire_c.clone(), !a);
+                }
+                ("xnor", Some(a), Some(b)) => {
+                    set_value(gate.wire_c.clone(), !(a ^ b));
+                }
+                ("xnor", Some(true), _) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_a.clone());
+                }
+                ("xnor", _, Some(true)) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_b.clone());
+                }
+                ("nimp", Some(a), Some(b)) => {
+                    set_value(gate.wire_c.clone(), a && !b);
+                }
+                ("nimp", _, Some(true)) => {
+                    set_value(gate.wire_c.clone(), false);
+                }
+                ("nimp", Some(true), _) => {
+                    wire_substitutions
+                        .insert(HashedByAddr(gate.wire_c.clone()), gate.wire_b.clone());
+                }
+
+                // special cases: deterministic output from dynamic input
+                ("xor", _, _) if Rc::ptr_eq(&gate.wire_a, &gate.wire_b) => {
+                    set_value(gate.wire_c.clone(), false);
+                }
+                ("xnor", _, _) if Rc::ptr_eq(&gate.wire_a, &gate.wire_b) => {
+                    set_value(gate.wire_c.clone(), true);
+                }
+                _ => {
+                    new_gates.push(gate.clone());
+                }
+            }
+        }
+
+        if new_gates.len() < self.1.len() {
+            println!(
+                "Removed {} gates from the circuit",
+                self.1.len() as isize - new_gates.len() as isize
+            );
+            self.1 = new_gates;
         }
     }
 }

@@ -166,7 +166,8 @@ mod tests {
     #[test]
     fn test_fq_double() {
         let a = Fq::random();
-        let circuit = Fq::double(Fq::wires_set(a));
+        let mut circuit = Fq::double(Fq::wires_set(a));
+        circuit.optimize_consts();
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
@@ -178,7 +179,9 @@ mod tests {
     #[test]
     fn test_fq_half() {
         let a = Fq::random();
-        let circuit = Fq::half(Fq::wires_set(a));
+        let mut circuit = Fq::half(Fq::wires_set(a));
+       
+        circuit.optimize_consts();
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
@@ -203,7 +206,8 @@ mod tests {
     fn test_fq_mul() {
         let a = Fq::random();
         let b = Fq::random();
-        let circuit = Fq::mul(Fq::wires_set(a), Fq::wires_set(b));
+        let mut circuit = Fq::mul(Fq::wires_set(a), Fq::wires_set(b));
+        circuit.optimize_consts();
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
