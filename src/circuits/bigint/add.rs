@@ -372,7 +372,7 @@ mod tests {
             gate.evaluate();
         }
         let c = biguint_from_wires(circuit.0);
-        assert_eq!(c, (a + b)  % biguint_two_pow_254());
+        assert_eq!(c, (a + b) % biguint_two_pow_254());
     }
 
     #[test]

@@ -34,6 +34,21 @@ impl Wire {
         }
     }
 
+    pub fn const_one() -> Self {
+        let label0 = S::random();
+        let label1 = S::random();
+        let hash0 = label0.hash();
+        let hash1 = label1.hash();
+        Self {
+            label0,
+            label1,
+            hash0,
+            hash1,
+            value: Some(true),
+            label: Some(label1), // Corresponds to bit = 1
+        }
+    }
+
     pub fn select(&self, selector: bool) -> S {
         if selector { self.label1 } else { self.label0 }
     }
