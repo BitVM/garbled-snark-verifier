@@ -334,4 +334,31 @@ mod tests {
         let c = Fq::from_wires(circuit.0);
         assert_eq!(c + c + c + c + c + c, a);
     }
+
+    #[test]
+    fn test_fq_exp_by_constant() {
+        let a =  Fq::random();
+        let b = 1000u64;
+        let expect_a_to_power_of_b = a.pow(vec![b]);
+
+        let circuit = Fq::exp_by_constant(Fq::wires_set(a), ark_bn254::Fq::from(b));
+        circuit.gate_counts().print();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        let c = Fq::from_wires(circuit.0);
+        assert_eq!(expect_a_to_power_of_b, c);
+    }
+    
+    #[test]
+    fn test_fq_sqrt() {
+        let a =  ark_bn254::Fq::from(81u64);
+        let circuit = Fq::sqrt(Fq::wires_set(a));
+        circuit.gate_counts().print();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        let c = Fq::from_wires(circuit.0);
+        assert_eq!(c * c, a);
+    }
 }

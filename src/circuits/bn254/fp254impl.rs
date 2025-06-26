@@ -227,6 +227,48 @@ pub trait Fp254Impl {
         circuit
     }
 
+    fn exp_by_constant(a: Wires, b: ark_bn254::Fq) -> Circuit {
+        assert_eq!(a.len(), Self::N_BITS);
+        let mut circuit = Circuit::empty();
+
+        if b == ark_bn254::Fq::ZERO {
+            circuit.add_wires(Fq::wires_set(ark_bn254::Fq::ONE));
+            return circuit;
+        }
+
+        if b == ark_bn254::Fq::ONE {
+            circuit.add_wires(a);
+            return circuit;
+        }
+
+        let b_bits = Fq::to_bits(b);
+        let mut i = Self::N_BITS - 1;
+        while !b_bits[i] {
+            i -= 1;
+        }
+
+        let mut result = a.clone();
+        for b_bit in b_bits.iter().rev().skip(Self::N_BITS - i) {
+            let result_square = circuit.extend(Self::square(result.clone()));
+            if *b_bit {
+                result = circuit.extend(Self::mul(a.clone(), result_square));
+            } else {
+                result = result_square;
+            }
+        }
+        circuit.add_wires(result);
+        circuit
+    }
+
+    //   x = a^((p+1)/4) mod p
+    fn sqrt(a: Wires) -> Circuit {
+        assert_eq!(a.len(), Self::N_BITS);
+        let mut circuit = Circuit::empty();
+        let modulus_add_1_div_4 = ark_bn254::Fq::from_str("5472060717959818805561601436314318772137091100104008585924551046643952123904").unwrap();
+        circuit.extend(Self::exp_by_constant(a, modulus_add_1_div_4));
+        circuit
+    }
+
     fn montgomery_reduce(x: Wires) -> Circuit {
         let mut circuit = Circuit::empty();
 
