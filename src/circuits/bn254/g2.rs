@@ -4,6 +4,10 @@ use ark_std::rand::SeedableRng;
 use rand::{Rng, rng};
 use rand_chacha::ChaCha20Rng;
 
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use num_bigint::BigUint;
+use crate::circuits::bigint::utils::{bits_from_biguint_n, biguint_from_bits};
+use num_traits::ToBytes;
 pub struct G2Projective;
 
 impl G2Projective {
@@ -125,10 +129,25 @@ impl G2Affine {
         bits
     }
 
+    pub fn to_bits_c(u: ark_bn254::G2Affine) -> Vec<bool> {
+        let mut bits = Vec::new();
+        let mut tmp = Vec::new();
+        u.serialize_with_mode(&mut tmp, ark_serialize::Compress::Yes).unwrap();
+        println!("from_bits_unchecked_c: {:?}, tmp.len = {}", BigUint::from_bytes_le(&tmp), tmp.len());
+        bits.extend(bits_from_biguint_n(BigUint::from_bytes_le(&tmp), 64));
+        bits
+    }
+
     pub fn from_bits(bits: Vec<bool>) -> ark_bn254::G2Affine {
         let bits1 = &bits[0..Fq2::N_BITS].to_vec();
         let bits2 = &bits[Fq2::N_BITS..Fq2::N_BITS * 2].to_vec();
         ark_bn254::G2Affine::new(Fq2::from_bits(bits1.clone()), Fq2::from_bits(bits2.clone()))
+    }
+
+    pub fn from_bits_c(bits: Vec<bool>) -> ark_bn254::G2Affine {
+        let bits1 = &bits[0..512].to_vec();
+        let le_bytes = biguint_from_bits(bits1.clone()).to_le_bytes();
+        ark_bn254::G2Affine::deserialize_with_mode(&*le_bytes, ark_serialize::Compress::Yes, ark_serialize::Validate::Yes).unwrap()
     }
 
     pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G2Affine {
@@ -139,6 +158,16 @@ impl G2Affine {
             y: Fq2::from_bits(bits2.clone()),
             infinity: false,
         }
+    }
+
+    pub fn from_bits_unchecked_c(bits: Vec<bool>) -> ark_bn254::G2Affine {
+        let bits1 = &bits[0..512].to_vec();
+        
+        let tmp = biguint_from_bits(bits1.clone());
+        println!("from_bits_unchecked_c: {:?}", tmp);
+
+        let le_bytes = tmp.to_bytes_le();
+        ark_bn254::G2Affine::deserialize_with_mode(&le_bytes[..], ark_serialize::Compress::Yes, ark_serialize::Validate::Yes).unwrap()
     }
 
     pub fn wires_set(u: ark_bn254::G2Affine) -> Wires {
@@ -152,6 +181,18 @@ impl G2Affine {
             .collect()
     }
 
+    // convert G2Affine to compressed wires
+    pub fn wires_set_c(u: ark_bn254::G2Affine) -> Wires {
+      Self::to_bits_c(u)[0..256 * 2]
+          .iter()
+          .map(|bit| {
+              let wire = new_wirex();
+              wire.borrow_mut().set(*bit);
+              wire
+          })
+          .collect()
+    }
+
     pub fn wires_set_montgomery(u: ark_bn254::G2Affine) -> Wires {
         Self::wires_set(Self::as_montgomery(u))
     }
@@ -160,8 +201,16 @@ impl G2Affine {
         Self::from_bits(wires.iter().map(|wire| wire.borrow().get_value()).collect())
     }
 
+    pub fn from_wires_c(wires: Wires) -> ark_bn254::G2Affine {
+        Self::from_bits_c(wires.iter().map(|wire| wire.borrow().get_value()).collect())
+    }
+
     pub fn from_wires_unchecked(wires: Wires) -> ark_bn254::G2Affine {
         Self::from_bits_unchecked(wires.iter().map(|wire| wire.borrow().get_value()).collect())
+    }
+
+    pub fn from_wires_unchecked_c(wires: Wires) -> ark_bn254::G2Affine {
+        Self::from_bits_unchecked_c(wires.iter().map(|wire| wire.borrow().get_value()).collect())
     }
 
     pub fn from_montgomery_wires_unchecked(wires: Wires) -> ark_bn254::G2Affine {
@@ -189,6 +238,16 @@ mod tests {
         println!("u: {:?}", u);
         let b = G2Affine::to_bits(u);
         let v = G2Affine::from_bits(b);
+        println!("v: {:?}", v);
+        assert_eq!(u, v);
+    }
+
+    #[test]
+    fn test_g2a_random_c() {
+        let u = G2Affine::random();
+        println!("u: {:?}", u);
+        let b = G2Affine::to_bits_c(u);
+        let v = G2Affine::from_bits_c(b);
         println!("v: {:?}", v);
         assert_eq!(u, v);
     }
