@@ -264,7 +264,7 @@ pub trait Fp254Impl {
     fn sqrt(a: Wires) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
-        let modulus_add_1_div_4 = ark_bn254::Fq::from_str("5472060717959818805561601436314318772137091100104008585924551046643952123904").unwrap();
+        let modulus_add_1_div_4 = ark_bn254::Fq::from_str("5472060717959818805561601436314318772174077789324455915672259473661306552146").unwrap();
         circuit.extend(Self::exp_by_constant(a, modulus_add_1_div_4));
         circuit
     }
