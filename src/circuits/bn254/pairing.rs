@@ -1357,28 +1357,21 @@ fn deserialize_compressed_g1(p_c: Wires) -> Circuit {
     let is_negative = r[248].clone();
     let is_infinity = r[249].clone();
 
-    let mut gates = vec![];
-    let mut cleared_bits = vec![];
-
     for i in 0..256 {
         if i == 248 {
             let cleared_bit = new_wirex();
-            gates.push(Gate::xor(r[i].clone(), is_negative.clone(), cleared_bit.clone()));
-            cleared_bits.push(cleared_bit);
+            circuit.add(Gate::xor(r[i].clone(), is_negative.clone(), cleared_bit.clone()));
         } else if i == 249 {
             let cleared_bit = new_wirex();
-            gates.push(Gate::xor(r[i].clone(), is_infinity.clone(), cleared_bit.clone()));
-            cleared_bits.push(cleared_bit);
-        } else {
-            cleared_bits.push(r[i].clone());
+            circuit.add(Gate::xor(r[i].clone(), is_infinity.clone(), cleared_bit.clone()));
         }
     }
 
     // calculate y
-    let g_x2 = Fq::square(cleared_bits[0..254].to_vec());
+    let g_x2 = Fq::square(r[0..254].to_vec());
     let x2 = circuit.extend(g_x2);
-    
-    let g_x3 = Fq::mul(x2, cleared_bits[0..254].to_vec());
+
+    let g_x3 = Fq::mul(x2, r[0..254].to_vec());
     let x3 = circuit.extend(g_x3);
 
     let g_y2 = Fq::add_constant(x3,ark_bn254::Fq::from(3u32));
@@ -1386,17 +1379,17 @@ fn deserialize_compressed_g1(p_c: Wires) -> Circuit {
 
     let b = ark_bn254::Fq::from_str(Fq::MODULUS_ADD_1_DIV_4).unwrap();
 
-    //let g_y = Fq::exp_by_constant(y2, b);
-    //let y = circuit.extend(g_y);
+    let g_y = Fq::exp_by_constant(y2, b);
+    let y = circuit.extend(g_y);
 
-    //let g_neg_y = Fq::neg(y.clone()); 
-    //let neg_y = circuit.extend(g_neg_y);
+    let g_neg_y = Fq::neg(y.clone());
+    let neg_y = circuit.extend(g_neg_y);
 
-    //let final_y = circuit.extend(U254::select(neg_y, y, is_negative));
+    let final_y = circuit.extend(U254::select(neg_y, y, is_negative));
 
-    circuit.add_wires(cleared_bits[0..254].to_vec()); // x, y, is_negative, is_infinity
-    //circuit.add_wires(final_y); 
-    //circuit.add_wire(is_infinity); 
+    circuit.add_wires(r[0..254].to_vec()); // x, y, is_negative, is_infinity
+    circuit.add_wires(final_y);
+    circuit.add_wire(is_infinity);
 
     circuit 
 }
@@ -1860,14 +1853,14 @@ mod tests {
         }
         let x = Fq::from_wires(circuit.0[0..Fq::N_BITS].to_vec());
         println!("x: {:?}", x);
-        //let y = Fq::from_wires(circuit.0[Fq::N_BITS..2 * Fq::N_BITS].to_vec());
-        //let is_negative = circuit.0[2 * Fq::N_BITS].clone();
+        let y = Fq::from_wires(circuit.0[Fq::N_BITS..2 * Fq::N_BITS].to_vec());
+        let is_negative = circuit.0[2 * Fq::N_BITS].clone();
 
-        //assert!(!is_negative.borrow().get_value());
-        //println!("is_negative: {:?}", is_negative);
+        assert!(!is_negative.borrow().get_value());
+        println!("is_negative: {:?}", is_negative);
 
-        //let actual_p = ark_bn254::G1Affine::new(x, y);
-        //assert_eq!(actual_p, p);
+        let actual_p = ark_bn254::G1Affine::new(x, y);
+        assert_eq!(actual_p, p);
     }
 
     #[test]

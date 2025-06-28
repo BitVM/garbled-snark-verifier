@@ -247,7 +247,6 @@ pub trait Fp254Impl {
         while !b_bits[i] {
             i -= 1;
         }
-        println!("bits: from {} to {}", Self::N_BITS - i, Self::N_BITS);
 
         let mut result = a.clone();
         for b_bit in b_bits.iter().rev().skip(Self::N_BITS - i) {
