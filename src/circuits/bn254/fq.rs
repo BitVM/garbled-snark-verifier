@@ -337,9 +337,13 @@ mod tests {
 
     #[test]
     fn test_fq_exp_by_constant() {
+        use std::str::FromStr;
+        use ark_ff::PrimeField;
         let a =  Fq::random();
-        let b = 1000u64;
-        let expect_a_to_power_of_b = a.pow(vec![b]);
+        let b = ark_bn254::Fq::from_str(
+            Fq::MODULUS_ADD_1_DIV_4
+        ).unwrap();
+        let expect_a_to_power_of_b = a.pow(b.into_bigint());
 
         let circuit = Fq::exp_by_constant(Fq::wires_set(a), ark_bn254::Fq::from(b));
         circuit.gate_counts().print();
@@ -352,13 +356,18 @@ mod tests {
     
     #[test]
     fn test_fq_sqrt() {
-        let a =  ark_bn254::Fq::from(81u64);
-        let circuit = Fq::sqrt(Fq::wires_set(a));
+        use std::str::FromStr;
+        let a = Fq::random();
+        let aa = a * a;
+        let b = ark_bn254::Fq::from_str(
+            Fq::MODULUS_ADD_1_DIV_4
+        ).unwrap();
+        let circuit = Fq::exp_by_constant(Fq::wires_set(aa), ark_bn254::Fq::from(b));
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
         let c = Fq::from_wires(circuit.0);
-        assert_eq!(c * c, a);
+        assert_eq!(c * c, aa);
     }
 }

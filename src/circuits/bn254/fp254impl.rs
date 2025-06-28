@@ -17,6 +17,7 @@ pub trait Fp254Impl {
     const MONTGOMERY_M_INVERSE: &'static str; // MODULUS^-1 modulo R
     const MONTGOMERY_R_INVERSE: &'static str; // R^-1 modulo MODULUS
     const N_BITS: usize;
+    const MODULUS_ADD_1_DIV_4: &'static str = "5472060717959818805561601436314318772174077789324455915672259473661306552146"; // (MODULUS+1)/4 
 
     fn modulus_as_biguint() -> BigUint {
         BigUint::from_str(Self::MODULUS).unwrap()
@@ -246,6 +247,7 @@ pub trait Fp254Impl {
         while !b_bits[i] {
             i -= 1;
         }
+        println!("bits: from {} to {}", Self::N_BITS - i, Self::N_BITS);
 
         let mut result = a.clone();
         for b_bit in b_bits.iter().rev().skip(Self::N_BITS - i) {
@@ -257,15 +259,6 @@ pub trait Fp254Impl {
             }
         }
         circuit.add_wires(result);
-        circuit
-    }
-
-    //   x = a^((p+1)/4) mod p
-    fn sqrt(a: Wires) -> Circuit {
-        assert_eq!(a.len(), Self::N_BITS);
-        let mut circuit = Circuit::empty();
-        let modulus_add_1_div_4 = ark_bn254::Fq::from_str("5472060717959818805561601436314318772174077789324455915672259473661306552146").unwrap();
-        circuit.extend(Self::exp_by_constant(a, modulus_add_1_div_4));
         circuit
     }
 
