@@ -230,12 +230,12 @@ pub trait Fp254Impl {
         circuit
     }
 
-    fn exp_by_constant(a: Wires, b: ark_bn254::Fq) -> Circuit {
+    fn exp_by_constant_montgomery(a: Wires, b: ark_bn254::Fq) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
 
         if b.is_zero() {
-            circuit.add_wires(Fq::wires_set(ark_bn254::Fq::ONE));
+            circuit.add_wires(Fq::wires_set_montgomery(ark_bn254::Fq::ONE));
             return circuit;
         }
 
@@ -252,9 +252,9 @@ pub trait Fp254Impl {
 
         let mut result = a.clone();
         for b_bit in b_bits.iter().rev().skip(Self::N_BITS - i) {
-            let result_square = circuit.extend(Self::square(result.clone()));
+            let result_square = circuit.extend(Self::square_montgomery(result.clone()));
             if *b_bit {
-                result = circuit.extend(Self::mul(a.clone(), result_square));
+                result = circuit.extend(Self::mul_montgomery(a.clone(), result_square));
             } else {
                 result = result_square;
             }

@@ -97,13 +97,13 @@ impl Fq {
     }
 
     // check if x is a quadratic non-residue (QNR) in Fq
-    pub fn is_qnr(x: Wires) -> Circuit {
+    pub fn is_qnr_montgomery(x: Wires) -> Circuit {
         let mut circuit = Circuit::empty();
         // 1. Compute y = x^((p - 1)/2)
         //let exp = ark_bn254::Fq::from_str("10944121435919637611123202872628637544348155578648911831344518947322613104291").unwrap();
         let exp = ark_bn254::Fq::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO);
 
-        let y = circuit.extend(Fq::exp_by_constant(x.clone(), exp));
+        let y = circuit.extend(Fq::exp_by_constant_montgomery(x.clone(), exp));
 
         // neg_one = MODULUS - 1
         let neg_one = BigUint::from_str(
@@ -116,10 +116,10 @@ impl Fq {
         circuit
     }
 
-    pub fn sqrt(a: Wires) -> Circuit {
+    pub fn sqrt_montgomery(a: Wires) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
-        let b = circuit.extend(Self::exp_by_constant(
+        let b = circuit.extend(Self::exp_by_constant_montgomery(
             a,
             ark_bn254::Fq::from_str(Self::MODULUS_ADD_1_DIV_4).unwrap(),
         ));
@@ -132,6 +132,7 @@ impl Fq {
 mod tests {
     use super::*;
     use ark_ff::{AdditiveGroup, Field};
+    use ark_std::test_rng;
 
     #[test]
     fn test_fq_random() {
@@ -369,43 +370,44 @@ mod tests {
     }
 
     #[test]
-    fn test_fq_exp_by_constant() {
+    fn test_fq_exp_by_constant_montgomery() {
         use ark_ff::PrimeField;
-        use std::str::FromStr;
-        let a = Fq::random();
-        let b = ark_bn254::Fq::from_str(Fq::MODULUS_ADD_1_DIV_4).unwrap();
-        let expect_a_to_power_of_b = a.pow(b.into_bigint());
+        let ut = |b: u32| {
+            let a = Fq::random();
+            let b = ark_bn254::Fq::from(b);
+            let expect_a_to_power_of_b = a.pow(b.into_bigint());
 
-        let circuit = Fq::exp_by_constant(Fq::wires_set(a), ark_bn254::Fq::from(b));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
-        let c = Fq::from_wires(circuit.0);
-        assert_eq!(expect_a_to_power_of_b, c);
+            let circuit =
+                Fq::exp_by_constant_montgomery(Fq::wires_set_montgomery(a), ark_bn254::Fq::from(b));
+            circuit.gate_counts().print();
+            for mut gate in circuit.1 {
+                gate.evaluate();
+            }
+            let c = Fq::from_montgomery_wires(circuit.0);
+            assert_eq!(expect_a_to_power_of_b, c);
+        };
+        ut(0);
+        ut(1);
+        ut(u32::rand(&mut test_rng()));
     }
 
     #[test]
-    fn test_fq_sqrt() {
+    fn test_fq_sqrt_montgomery() {
         let a = Fq::random();
         let aa = a * a;
-        let circuit = Fq::sqrt(Fq::wires_set(aa));
-        //let b = ark_bn254::Fq::from_str(
-        //    Fq::MODULUS_ADD_1_DIV_4
-        //).unwrap();
-        //let circuit = Fq::exp_by_constant(Fq::wires_set(aa), ark_bn254::Fq::from(b));
+        let circuit = Fq::sqrt_montgomery(Fq::wires_set_montgomery(aa));
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
-        let c = Fq::from_wires(circuit.0);
+        let c = Fq::from_montgomery_wires(circuit.0);
         assert_eq!(c * c, aa);
     }
 
     #[test]
-    fn test_fq_is_square_root() {
+    fn test_fq_is_qnr_montgomery() {
         let a = Fq::random();
-        let circuit = Fq::is_qnr(Fq::wires_set(a));
+        let circuit = Fq::is_qnr_montgomery(Fq::wires_set(a));
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();

@@ -168,10 +168,7 @@ impl G2Affine {
 
     pub fn from_bits_unchecked_c(bits: Vec<bool>) -> ark_bn254::G2Affine {
         let bits1 = &bits[0..512].to_vec();
-
         let tmp = biguint_from_bits(bits1.clone());
-        println!("from_bits_unchecked_c: {:?}", tmp);
-
         let le_bytes = tmp.to_bytes_le();
         ark_bn254::G2Affine::deserialize_with_mode(
             &le_bytes[..],

@@ -1361,11 +1361,11 @@ fn deserialize_compressed_g1_circuit(p_c: Wires) -> Circuit {
     println!("is_infinity: {:?}", is_infinity);
 
     // calculate y
-    let x2 = circuit.extend(Fq::square(x.clone()));
-    let x3 = circuit.extend(Fq::mul(x2, x.clone()));
+    let x2 = circuit.extend(Fq::square_montgomery(x.clone()));
+    let x3 = circuit.extend(Fq::mul_montgomery(x2, x.clone()));
     let y2 = circuit.extend(Fq::add_constant(x3, ark_bn254::Fq::from(3u32)));
 
-    let y = circuit.extend(Fq::sqrt(y2));
+    let y = circuit.extend(Fq::sqrt_montgomery(y2));
 
     let neg_y = circuit.extend(Fq::neg(y.clone()));
 
@@ -1405,13 +1405,13 @@ fn deserialize_compressed_g2_circuit(p_c: Wires) -> Circuit {
     println!("is_infinity: {:?}", is_infinity);
 
     // calculate y
-    let x2 = circuit.extend(Fq2::square(x.clone()));
-    let x3 = circuit.extend(Fq2::mul(x2, x.clone()));
+    let x2 = circuit.extend(Fq2::square_montgomery(x.clone()));
+    let x3 = circuit.extend(Fq2::mul_montgomery(x2, x.clone()));
 
     let b = ark_bn254::Fq2::new(ark_bn254::Fq::from(9), ark_bn254::Fq::one());
     let y2 = circuit.extend(Fq2::add_constant(x3, b));
 
-    let y = circuit.extend(Fq2::sqrt(y2));
+    let y = circuit.extend(Fq2::sqrt_montgomery(y2));
 
     let neg_y = circuit.extend(Fq2::neg(y.clone()));
 
