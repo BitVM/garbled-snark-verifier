@@ -4,6 +4,8 @@ use crate::{
 };
 use ark_ff::{Field, Fp2Config, UniformRand};
 use ark_std::rand::SeedableRng;
+use num_bigint::BigUint;
+use num_traits::{One, Zero};
 use rand::{Rng, rng};
 use rand_chacha::ChaCha20Rng;
 
@@ -485,6 +487,126 @@ impl Fq2 {
         circuit.add_wires(wires_2);
         circuit
     }
+
+    fn exp_by_constant(a: Wires, b: ark_bn254::Fq) -> Circuit {
+        assert_eq!(a.len(), Self::N_BITS);
+        let mut circuit = Circuit::empty();
+
+        if b.is_zero() {
+            circuit.add_wires(Fq2::wires_set(ark_bn254::Fq2::ONE));
+            return circuit;
+        }
+
+        if b.is_one() {
+            circuit.add_wires(a);
+            return circuit;
+        }
+
+        let b_bits = Fq::to_bits(b);
+        let mut i = Fq::N_BITS - 1;
+        while !b_bits[i] {
+            i -= 1;
+        }
+
+        let mut result = a.clone();
+        for b_bit in b_bits.iter().rev().skip(Fq::N_BITS - i) {
+            let result_square = circuit.extend(Self::square(result.clone()));
+            if *b_bit {
+                result = circuit.extend(Self::mul(a.clone(), result_square));
+            } else {
+                result = result_square;
+            }
+        }
+        circuit.add_wires(result);
+        circuit
+    }
+
+    fn norm(c0: Wires, c1: Wires) -> Circuit {
+        assert_eq!(c0.len(), Fq::N_BITS);
+        assert_eq!(c1.len(), Fq::N_BITS);
+        let mut circuit = Circuit::empty();
+
+        let c0_square = circuit.extend(Fq::square(c0.clone()));
+        let c1_square = circuit.extend(Fq::square(c1.clone()));
+
+        let c1_mul_nonresidue = circuit.extend(Fq::mul_by_constant(
+            c1_square,
+            ark_bn254::Fq2Config::NONRESIDUE,
+        ));
+        let norm = circuit.extend(Fq::sub(c0_square, c1_mul_nonresidue));
+
+        circuit.add_wires(norm);
+        circuit
+    }
+
+    // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
+    // Assume that the square root exists.
+    pub fn sqrt(a: Wires) -> Circuit {
+        use crate::circuits::bigint::U254;
+        let mut c0 = Vec::new();
+        c0.extend_from_slice(&a[0..Fq::N_BITS]);
+
+        let mut c1 = Vec::new();
+        c1.extend_from_slice(&a[Fq::N_BITS..Fq2::N_BITS]);
+
+        let mut circuit = Circuit::empty();
+
+        // Case 1: c1 == 0
+        let is_c1_zero = circuit.extend(U254::equal_constant(c1.clone(), BigUint::ZERO)); // output: 1 if c1 == 0
+
+        let c0_sqrt = circuit.extend(Fq::sqrt(c0.clone())); // sqrt(c0)
+
+        let inverse_nonresidue =
+            circuit.extend(Fq::inverse(Fq::wires_set(ark_bn254::Fq2Config::NONRESIDUE))); // 1 / NONRESIDUE
+
+        let c0_div_nonresidue = circuit.extend(Fq::mul(c0.clone(), inverse_nonresidue)); // c0 / NONRESIDUE
+        let c1_sqrt = circuit.extend(Fq::sqrt(c0_div_nonresidue));
+
+        let is_qnr = circuit.extend(Fq::is_qnr(c0.clone()));
+        let part1 = (
+            circuit.extend(U254::select(
+                c0_sqrt.clone(),
+                Fq::wires_set(ark_bn254::Fq::zero()),
+                is_qnr[0].clone(),
+            )),
+            circuit.extend(U254::select(
+                Fq::wires_set(ark_bn254::Fq::zero()),
+                c1_sqrt,
+                is_qnr[0].clone(),
+            )),
+        );
+
+        // Case 2: general
+        let alpha = circuit.extend(Fq2::norm(c0.clone(), c1.clone())); // c0² - NONRESIDUE·c1²
+        let alpha_sqrt = circuit.extend(Fq::sqrt(alpha.clone())); // sqrt(norm)
+
+        let delta_plus = circuit.extend(Fq::add(alpha_sqrt.clone(), c0.clone())); // α + c0
+
+        let inv_two = ark_bn254::Fq::from(2u8).inverse().unwrap(); // 1/2
+        let delta = circuit.extend(Fq::mul_by_constant(delta_plus, inv_two)); // (α + c0)/2
+
+        let is_qnr = circuit.extend(Fq::is_qnr(delta.clone())); // δ is a qnr 
+
+        let delta_alt = circuit.extend(Fq::sub(c0.clone(), alpha_sqrt)); // c0 - α
+        let delta_alt_half = circuit.extend(Fq::mul_by_constant(delta_alt, inv_two));
+
+        let delta_final = circuit.extend(U254::select(delta, delta_alt_half, is_qnr[0].clone()));
+
+        let c0_final = circuit.extend(Fq::sqrt(delta_final.clone())); // sqrt(δ)
+        let c0_inv = circuit.extend(Fq::inverse(c0_final.clone()));
+        let c1_half = circuit.extend(Fq::mul_by_constant(c1.clone(), inv_two));
+        let c1_final = circuit.extend(Fq::mul(c0_inv.clone(), c1_half)); // c1 / (2 * c0)
+
+        let part2 = (c0_final, c1_final);
+
+        // Select between case 1 and case 2
+        let final_c0 = circuit.extend(U254::select(part1.0, part2.0, is_c1_zero[0].clone()));
+        let final_c1 = circuit.extend(U254::select(part1.1, part2.1, is_c1_zero[0].clone()));
+        circuit.add_wires(final_c0);
+        circuit.add_wires(final_c1);
+
+        circuit
+    }
 }
 
 #[cfg(test)]
@@ -792,5 +914,38 @@ mod tests {
         }
         let c = Fq2::from_wires(circuit.0);
         assert_eq!(c + c + c + c + c + c, a);
+    }
+
+    #[test]
+    fn test_fq2_exp_by_constant() {
+        use ark_ff::PrimeField;
+        use std::str::FromStr;
+
+        let a = Fq2::random();
+        let b = ark_bn254::Fq::from_str("10000").unwrap();
+
+        let expect_a_to_power_of_b = a.pow(b.into_bigint());
+
+        let circuit = Fq2::exp_by_constant(Fq2::wires_set(a), ark_bn254::Fq::from(b));
+        circuit.gate_counts().print();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        let c = Fq2::from_wires(circuit.0);
+        assert_eq!(expect_a_to_power_of_b, c);
+    }
+
+    #[test]
+    fn test_fq2_norm() {
+        let r = Fq2::random();
+        let expected_norm = ark_bn254::Fq::from(r.norm());
+
+        let circuit = Fq2::norm(Fq::wires_set(r.c0.clone()), Fq::wires_set(r.c1.clone()));
+        circuit.gate_counts().print();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        let c = Fq::from_wires(circuit.0);
+        assert_eq!(c, expected_norm);
     }
 }

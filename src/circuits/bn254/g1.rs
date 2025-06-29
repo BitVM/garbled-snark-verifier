@@ -11,9 +11,9 @@ use rand::{Rng, rng};
 use rand_chacha::ChaCha20Rng;
 use std::{cmp::min, iter::zip};
 
+use crate::circuits::bigint::utils::{biguint_from_bits, bits_from_biguint};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use num_bigint::BigUint;
-use crate::circuits::bigint::utils::{bits_from_biguint, biguint_from_bits};
 use num_traits::ToBytes;
 
 pub struct G1Projective;
@@ -608,7 +608,8 @@ impl G1Affine {
     pub fn to_bits_c(u: ark_bn254::G1Affine) -> Vec<bool> {
         let mut bits = Vec::new();
         let mut tmp = Vec::new();
-        u.serialize_with_mode(&mut tmp, ark_serialize::Compress::Yes).unwrap();
+        u.serialize_with_mode(&mut tmp, ark_serialize::Compress::Yes)
+            .unwrap();
         bits.extend(bits_from_biguint(BigUint::from_bytes_le(&tmp)));
         bits
     }
@@ -622,7 +623,12 @@ impl G1Affine {
     pub fn from_bits_c(bits: Vec<bool>) -> ark_bn254::G1Affine {
         let bits1 = &bits[0..256].to_vec();
         let le_bytes = biguint_from_bits(bits1.clone()).to_le_bytes();
-        ark_bn254::G1Affine::deserialize_with_mode(&*le_bytes, ark_serialize::Compress::Yes, ark_serialize::Validate::Yes).unwrap()
+        ark_bn254::G1Affine::deserialize_with_mode(
+            &*le_bytes,
+            ark_serialize::Compress::Yes,
+            ark_serialize::Validate::Yes,
+        )
+        .unwrap()
     }
 
     pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G1Affine {
@@ -638,7 +644,12 @@ impl G1Affine {
     pub fn from_bits_unchecked_c(bits: Vec<bool>) -> ark_bn254::G1Affine {
         let bits1 = &bits[0..256].to_vec();
         let le_bytes = biguint_from_bits(bits1.clone()).to_le_bytes();
-        ark_bn254::G1Affine::deserialize_with_mode(&*le_bytes, ark_serialize::Compress::Yes, ark_serialize::Validate::Yes).unwrap()
+        ark_bn254::G1Affine::deserialize_with_mode(
+            &*le_bytes,
+            ark_serialize::Compress::Yes,
+            ark_serialize::Validate::Yes,
+        )
+        .unwrap()
     }
 
     pub fn wires() -> Wires {

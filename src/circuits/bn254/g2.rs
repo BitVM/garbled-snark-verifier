@@ -4,9 +4,9 @@ use ark_std::rand::SeedableRng;
 use rand::{Rng, rng};
 use rand_chacha::ChaCha20Rng;
 
+use crate::circuits::bigint::utils::{biguint_from_bits, bits_from_biguint_n};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use num_bigint::BigUint;
-use crate::circuits::bigint::utils::{bits_from_biguint_n, biguint_from_bits};
 use num_traits::ToBytes;
 pub struct G2Projective;
 
@@ -132,8 +132,9 @@ impl G2Affine {
     pub fn to_bits_c(u: ark_bn254::G2Affine) -> Vec<bool> {
         let mut bits = Vec::new();
         let mut tmp = Vec::new();
-        u.serialize_with_mode(&mut tmp, ark_serialize::Compress::Yes).unwrap();
-        println!("from_bits_unchecked_c: {:?}, tmp.len = {}", BigUint::from_bytes_le(&tmp), tmp.len());
+        u.serialize_with_mode(&mut tmp, ark_serialize::Compress::Yes)
+            .unwrap();
+        //println!("from_bits_unchecked_c: {:?}, tmp.len = {}", BigUint::from_bytes_le(&tmp), tmp.len());
         bits.extend(bits_from_biguint_n(BigUint::from_bytes_le(&tmp), 64));
         bits
     }
@@ -147,7 +148,12 @@ impl G2Affine {
     pub fn from_bits_c(bits: Vec<bool>) -> ark_bn254::G2Affine {
         let bits1 = &bits[0..512].to_vec();
         let le_bytes = biguint_from_bits(bits1.clone()).to_le_bytes();
-        ark_bn254::G2Affine::deserialize_with_mode(&*le_bytes, ark_serialize::Compress::Yes, ark_serialize::Validate::Yes).unwrap()
+        ark_bn254::G2Affine::deserialize_with_mode(
+            &*le_bytes,
+            ark_serialize::Compress::Yes,
+            ark_serialize::Validate::Yes,
+        )
+        .unwrap()
     }
 
     pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G2Affine {
@@ -162,12 +168,17 @@ impl G2Affine {
 
     pub fn from_bits_unchecked_c(bits: Vec<bool>) -> ark_bn254::G2Affine {
         let bits1 = &bits[0..512].to_vec();
-        
+
         let tmp = biguint_from_bits(bits1.clone());
         println!("from_bits_unchecked_c: {:?}", tmp);
 
         let le_bytes = tmp.to_bytes_le();
-        ark_bn254::G2Affine::deserialize_with_mode(&le_bytes[..], ark_serialize::Compress::Yes, ark_serialize::Validate::Yes).unwrap()
+        ark_bn254::G2Affine::deserialize_with_mode(
+            &le_bytes[..],
+            ark_serialize::Compress::Yes,
+            ark_serialize::Validate::Yes,
+        )
+        .unwrap()
     }
 
     pub fn wires_set(u: ark_bn254::G2Affine) -> Wires {
@@ -183,14 +194,14 @@ impl G2Affine {
 
     // convert G2Affine to compressed wires
     pub fn wires_set_c(u: ark_bn254::G2Affine) -> Wires {
-      Self::to_bits_c(u)[0..256 * 2]
-          .iter()
-          .map(|bit| {
-              let wire = new_wirex();
-              wire.borrow_mut().set(*bit);
-              wire
-          })
-          .collect()
+        Self::to_bits_c(u)[0..256 * 2]
+            .iter()
+            .map(|bit| {
+                let wire = new_wirex();
+                wire.borrow_mut().set(*bit);
+                wire
+            })
+            .collect()
     }
 
     pub fn wires_set_montgomery(u: ark_bn254::G2Affine) -> Wires {

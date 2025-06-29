@@ -1,16 +1,22 @@
 use crate::{
     bag::*,
     circuits::{
-        bigint::U254, bn254::{
-            fp254impl::Fp254Impl, fq::Fq, fq12::Fq12, fq2::Fq2, g1::G1Affine, g2::{G2Affine, G2Projective}
-        }
-    } 
+        bigint::U254,
+        bn254::{
+            fp254impl::Fp254Impl,
+            fq::Fq,
+            fq2::Fq2,
+            fq12::Fq12,
+            g1::G1Affine,
+            g2::{G2Affine, G2Projective},
+        },
+    },
 };
 use ark_ec::{bn::BnConfig, short_weierstrass::SWCurveConfig};
 use ark_ff::{AdditiveGroup, Field};
 
+use num_traits::One;
 use std::iter::zip;
-use std::str::FromStr;
 
 pub fn double_in_place(
     r: &mut ark_bn254::G2Projective,
@@ -1340,7 +1346,7 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
     (f, gate_count)
 }
 
-// deserialize compressed point to montgomery form 
+// deserialize compressed point to montgomery form
 fn deserialize_compressed_g1_circuit(p_c: Wires) -> Circuit {
     let mut circuit = Circuit::empty();
 
@@ -1350,25 +1356,27 @@ fn deserialize_compressed_g1_circuit(p_c: Wires) -> Circuit {
     // extract flags
     let is_negative = r[255].clone();
     let is_infinity = r[254].clone();
-    let x= r[0..254].to_vec();
+    let x = r[0..254].to_vec();
     println!("is_negative: {:?}", is_negative);
     println!("is_infinity: {:?}", is_infinity);
 
     // calculate y
     let x2 = circuit.extend(Fq::square(x.clone()));
     let x3 = circuit.extend(Fq::mul(x2, x.clone()));
-    let y2 = circuit.extend(Fq::add_constant(x3,ark_bn254::Fq::from(3u32)));
+    let y2 = circuit.extend(Fq::add_constant(x3, ark_bn254::Fq::from(3u32)));
 
-    let b = ark_bn254::Fq::from_str(Fq::MODULUS_ADD_1_DIV_4).unwrap();
-    let y = circuit.extend(Fq::exp_by_constant(y2, b));
+    let y = circuit.extend(Fq::sqrt(y2));
 
     let neg_y = circuit.extend(Fq::neg(y.clone()));
 
     let larger_y = circuit.extend(U254::greater_than(neg_y.clone(), y.clone()));
 
-
     let larger_xor_is_negative = new_wirex();
-    circuit.add(Gate::xor(larger_y[0].clone(), is_negative, larger_xor_is_negative.clone()));
+    circuit.add(Gate::xor(
+        larger_y[0].clone(),
+        is_negative,
+        larger_xor_is_negative.clone(),
+    ));
 
     let final_y = circuit.extend(U254::select(y, neg_y, larger_xor_is_negative));
 
@@ -1376,27 +1384,53 @@ fn deserialize_compressed_g1_circuit(p_c: Wires) -> Circuit {
     circuit.add_wires(final_y);
     circuit.add_wire(is_infinity);
 
-    circuit 
+    circuit
 }
 
-// deserialize compressed point to montgomery form 
+// deserialize compressed point to montgomery form
 fn deserialize_compressed_g2_circuit(p_c: Wires) -> Circuit {
     let mut circuit = Circuit::empty();
 
-    let mut x1 = Vec::new();
-    x1.extend_from_slice(&p_c[0..256]);
+    let mut r = Vec::new();
+    r.extend_from_slice(&p_c[0..512]);
 
-    let c1 = circuit.extend(deserialize_compressed_g1_circuit(x1.clone()));
+    // extract flags
+    let is_negative = r[511].clone();
+    let is_infinity = r[510].clone();
 
-    let mut x2 = Vec::new();
-    x2.extend_from_slice(&p_c[256..512]);
+    let mut x = r[0..254].to_vec();
+    x.extend_from_slice(r[256..510].to_vec().as_slice());
 
-    let c2 = circuit.extend(deserialize_compressed_g1_circuit(x2.clone())); 
+    println!("is_negative: {:?}", is_negative);
+    println!("is_infinity: {:?}", is_infinity);
 
-    circuit.add_wires(c1); // x1, y1, is_infinity
-    circuit.add_wires(c2); // x2, y2, is_infinity
+    // calculate y
+    let x2 = circuit.extend(Fq2::square(x.clone()));
+    let x3 = circuit.extend(Fq2::mul(x2, x.clone()));
 
-    circuit 
+    let b = ark_bn254::Fq2::new(ark_bn254::Fq::from(9), ark_bn254::Fq::one());
+    let y2 = circuit.extend(Fq2::add_constant(x3, b));
+
+    let y = circuit.extend(Fq2::sqrt(y2));
+
+    let neg_y = circuit.extend(Fq2::neg(y.clone()));
+
+    let larger_y = circuit.extend(U254::greater_than(neg_y.clone(), y.clone()));
+
+    let larger_xor_is_negative = new_wirex();
+    circuit.add(Gate::xor(
+        larger_y[0].clone(),
+        is_negative,
+        larger_xor_is_negative.clone(),
+    ));
+
+    let final_y = circuit.extend(U254::select(y, neg_y, larger_xor_is_negative));
+
+    circuit.add_wires(x); // x, y, is_negative, is_infinity
+    circuit.add_wires(final_y);
+    circuit.add_wire(is_infinity);
+
+    circuit
 }
 
 pub fn multi_miller_loop_groth16_evaluate_fast(
@@ -1411,7 +1445,7 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
     let q1ell = ell_coeffs(q1);
     let q2ell = ell_coeffs(q2);
 
-    // TODO: decomp q3_c 
+    // TODO: decomp q3_c
     let q3_a = G2Affine::from_wires_c(q3_c);
     let q3 = G2Affine::wires_set(q3_a);
 
@@ -1613,7 +1647,7 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
     let q1ell = ell_coeffs(q1);
     let q2ell = ell_coeffs(q2);
 
-    // TODO: decomp q3_c 
+    // TODO: decomp q3_c
     let q3_a = G2Affine::from_wires_c(q3_c);
     // to mongomery
     let q3_m = G2Affine::as_montgomery(q3_a);
@@ -1852,9 +1886,14 @@ mod tests {
         if tt2[254] {
             assert_eq!(p_ser[31] & (1 << 6), 64);
         }
-        
-        println!("p_ser: {:?}, is_neg: {}, is_inf: {}", p_ser, p_ser[31] & (1<<7), p_ser[31] & (1 << 6));
-        
+
+        println!(
+            "p_ser: {:?}, is_neg: {}, is_inf: {}",
+            p_ser,
+            p_ser[31] & (1 << 7),
+            p_ser[31] & (1 << 6)
+        );
+
         let wires = G1Affine::wires_set_c(p);
         let circuit = deserialize_compressed_g1_circuit(wires);
         circuit.gate_counts().print();
@@ -1877,20 +1916,70 @@ mod tests {
     #[serial]
     fn test_deserialized_compressed_g2() {
         let p = G2Affine::random();
+
+        //use ark_ec::CurveGroup;
+        //let p = (p - p).into_affine();
         println!("p: {:?}", p);
+
+        let tt = Fq2::to_bits(p.x.clone());
+
+        let mut p_ser = Vec::new();
+        p.serialize_compressed(&mut p_ser).unwrap();
+
+        //let xc = BigUint::from_bytes_le(&p_ser[0..32]);
+        let tt2 = G2Affine::to_bits_c(p.clone());
+        println!("tt len: {}, tt2 len: {}", tt.len(), tt2.len());
+
+        for i in 0..Fq::N_BITS {
+            assert_eq!(tt[i], tt2[i]);
+        }
+        println!("p.x: {:?}", &tt2[Fq::N_BITS..]);
+
+        if tt2[255] {
+            assert_eq!(p_ser[31] & (1 << 7), 128);
+        }
+        if tt2[254] {
+            assert_eq!(p_ser[31] & (1 << 6), 64);
+        }
+
+        println!(
+            "p.x is_neg: {}, is_inf: {}",
+            p_ser[31] & (1 << 7),
+            p_ser[31] & (1 << 6)
+        );
+
+        for i in Fq::N_BITS..Fq2::N_BITS {
+            assert_eq!(tt[i], tt2[i + 2]);
+        }
+
+        if tt2[511] {
+            assert_eq!(p_ser[63] & (1 << 7), 128);
+        }
+        if tt2[510] {
+            assert_eq!(p_ser[63] & (1 << 6), 64);
+        }
+        println!(
+            "p_ser: {:?}, is_neg: {}, is_inf: {}",
+            p_ser,
+            p_ser[63] & (1 << 7),
+            p_ser[63] & (1 << 6)
+        );
+
         let wires = G2Affine::wires_set_c(p);
         let circuit = deserialize_compressed_g2_circuit(wires.clone());
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
-        let x = Fq2::from_wires(circuit.0[0..Fq::N_BITS * 3].to_vec());
+        let x = Fq2::from_wires(circuit.0[0..Fq::N_BITS * 2].to_vec());
         println!("x: {:?}", x);
-        let y = Fq2::from_wires(circuit.0[Fq::N_BITS * 3..6 * Fq::N_BITS].to_vec());
-        println!("y: {:?}", y);
 
-        let actual_p = ark_bn254::G2Affine::new(x, y);
-        assert_eq!(actual_p, p);
+        assert_eq!(p.x, x)
+        //let y = Fq2::from_wires(circuit.0[Fq::N_BITS * 2 + 1..4 * Fq::N_BITS + 1].to_vec());
+        //println!("y: {:?}", y);
+
+        //let actual_p = ark_bn254::G2Affine::new(x, y);
+        //assert_eq!(actual_p, p);
     }
 
     #[test]

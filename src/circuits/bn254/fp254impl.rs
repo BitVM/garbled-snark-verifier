@@ -8,6 +8,7 @@ use crate::{
 };
 use ark_ff::{AdditiveGroup, Field};
 use num_bigint::BigUint;
+use num_traits::{One, Zero};
 use std::str::FromStr;
 
 pub trait Fp254Impl {
@@ -17,7 +18,8 @@ pub trait Fp254Impl {
     const MONTGOMERY_M_INVERSE: &'static str; // MODULUS^-1 modulo R
     const MONTGOMERY_R_INVERSE: &'static str; // R^-1 modulo MODULUS
     const N_BITS: usize;
-    const MODULUS_ADD_1_DIV_4: &'static str = "5472060717959818805561601436314318772174077789324455915672259473661306552146"; // (MODULUS+1)/4 
+    const MODULUS_ADD_1_DIV_4: &'static str =
+        "5472060717959818805561601436314318772174077789324455915672259473661306552146"; // (MODULUS+1)/4 
 
     fn modulus_as_biguint() -> BigUint {
         BigUint::from_str(Self::MODULUS).unwrap()
@@ -232,12 +234,12 @@ pub trait Fp254Impl {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
 
-        if b == ark_bn254::Fq::ZERO {
+        if b.is_zero() {
             circuit.add_wires(Fq::wires_set(ark_bn254::Fq::ONE));
             return circuit;
         }
 
-        if b == ark_bn254::Fq::ONE {
+        if b.is_one() {
             circuit.add_wires(a);
             return circuit;
         }
