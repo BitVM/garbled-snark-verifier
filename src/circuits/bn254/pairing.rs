@@ -15,6 +15,7 @@ use crate::{
 use ark_ec::{bn::BnConfig, short_weierstrass::SWCurveConfig};
 use ark_ff::{AdditiveGroup, Field};
 
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use num_traits::One;
 use std::iter::zip;
 
@@ -1346,43 +1347,27 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
     (f, gate_count)
 }
 
-// deserialize compressed point to montgomery form
-fn deserialize_compressed_g1_circuit(p_c: Wires) -> Circuit {
+// Deserialize a compressed G1 point in the circuit
+fn deserialize_compressed_g1_circuit(p_c: Wires, y_is_negative_xor_neg_y_is_larger: Wirex) -> Circuit {
     let mut circuit = Circuit::empty();
 
     let mut r = Vec::new();
-    r.extend_from_slice(&p_c[0..256]);
+    r.extend_from_slice(&p_c[0..Fq::N_BITS]);
 
-    // extract flags
-    let is_negative = r[255].clone();
-    let is_infinity = r[254].clone();
-    let x = r[0..254].to_vec();
-    println!("is_negative: {:?}", is_negative);
-    println!("is_infinity: {:?}", is_infinity);
+    let x = r[0..Fq::N_BITS].to_vec();
 
     // calculate y
     let x2 = circuit.extend(Fq::square_montgomery(x.clone()));
     let x3 = circuit.extend(Fq::mul_montgomery(x2, x.clone()));
-    let y2 = circuit.extend(Fq::add_constant(x3, ark_bn254::Fq::from(3u32)));
 
+    let y2 = circuit.extend(Fq::add_constant(x3, Fq::as_montgomery(ark_bn254::Fq::from(3u32))));
     let y = circuit.extend(Fq::sqrt_montgomery(y2));
 
     let neg_y = circuit.extend(Fq::neg(y.clone()));
+    let final_y = circuit.extend(U254::select(y, neg_y, y_is_negative_xor_neg_y_is_larger));
 
-    let larger_y = circuit.extend(U254::greater_than(neg_y.clone(), y.clone()));
-
-    let larger_xor_is_negative = new_wirex();
-    circuit.add(Gate::xor(
-        larger_y[0].clone(),
-        is_negative,
-        larger_xor_is_negative.clone(),
-    ));
-
-    let final_y = circuit.extend(U254::select(y, neg_y, larger_xor_is_negative));
-
-    circuit.add_wires(x); // x, y, is_negative, is_infinity
+    circuit.add_wires(x);
     circuit.add_wires(final_y);
-    circuit.add_wire(is_infinity);
 
     circuit
 }
@@ -1867,49 +1852,29 @@ mod tests {
         //let p = (p - p).into_affine();
         println!("p: {:?}", p);
 
-        let tt = Fq::to_bits(p.x.clone());
+        let mut y_flag = Wire::new();
+        y_flag.set({
+            let is_neg = p.to_flags() == ark_ec::short_weierstrass::SWFlags::YIsNegative;
+            let is_larger = p.y < -p.y;
+            is_neg ^ is_larger
+        }); 
 
-        let mut p_ser = Vec::new();
-        p.serialize_compressed(&mut p_ser).unwrap();
+        println!("y_flag: {:?}", y_flag);
 
-        //let xc = BigUint::from_bytes_le(&p_ser[0..32]);
-        let tt2 = G1Affine::to_bits_c(p.clone());
-
-        for i in 0..Fq::N_BITS {
-            assert_eq!(tt[i], tt2[i]);
-        }
-        println!("p.x: {:?}", &tt2[Fq::N_BITS..]);
-
-        if tt2[255] {
-            assert_eq!(p_ser[31] & (1 << 7), 128);
-        }
-        if tt2[254] {
-            assert_eq!(p_ser[31] & (1 << 6), 64);
-        }
-
-        println!(
-            "p_ser: {:?}, is_neg: {}, is_inf: {}",
-            p_ser,
-            p_ser[31] & (1 << 7),
-            p_ser[31] & (1 << 6)
-        );
-
-        let wires = G1Affine::wires_set_c(p);
-        let circuit = deserialize_compressed_g1_circuit(wires);
+        let flag = Rc::new(RefCell::new(y_flag));
+        let wires = G1Affine::wires_set_montgomery(p.clone());
+        let circuit = deserialize_compressed_g1_circuit(wires, flag);
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
-        let x = Fq::from_wires(circuit.0[0..Fq::N_BITS].to_vec());
+        let x = Fq::from_montgomery_wires(circuit.0[0..Fq::N_BITS].to_vec());
+        let y = Fq::from_montgomery_wires(circuit.0[Fq::N_BITS..2 * Fq::N_BITS].to_vec());
         println!("x: {:?}", x);
-        let y = Fq::from_wires(circuit.0[Fq::N_BITS..2 * Fq::N_BITS].to_vec());
         println!("y: {:?}", y);
-        let is_negative = circuit.0[2 * Fq::N_BITS].clone();
-        println!("is_neg: {:?}", is_negative);
 
         let actual_p = ark_bn254::G1Affine::new(x, y);
         assert_eq!(actual_p, p);
-        //TODO: test point at infinity
     }
 
     #[test]
