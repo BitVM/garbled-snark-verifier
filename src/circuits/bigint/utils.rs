@@ -34,6 +34,18 @@ pub fn bits_from_biguint(u: BigUint) -> Vec<bool> {
     bits
 }
 
+pub fn bits_from_biguint_n(u: BigUint, n: usize) -> Vec<bool> {
+    let mut bytes = u.to_bytes_le();
+    bytes.extend(vec![0_u8; n - bytes.len()]);
+    let mut bits = Vec::new();
+    for byte in bytes {
+        for i in 0..8 {
+            bits.push(((byte >> i) & 1) == 1)
+        }
+    }
+    bits
+}
+
 pub fn biguint_from_bits(bits: Vec<bool>) -> BigUint {
     let zero = BigUint::ZERO;
     let one = BigUint::from(1_u8);

@@ -8,6 +8,7 @@ use crate::{
 };
 use ark_ff::{AdditiveGroup, Field};
 use num_bigint::BigUint;
+use num_traits::{One, Zero};
 use std::str::FromStr;
 
 pub trait Fp254Impl {
@@ -17,6 +18,8 @@ pub trait Fp254Impl {
     const MONTGOMERY_M_INVERSE: &'static str; // MODULUS^-1 modulo R
     const MONTGOMERY_R_INVERSE: &'static str; // R^-1 modulo MODULUS
     const N_BITS: usize;
+    const MODULUS_ADD_1_DIV_4: &'static str =
+        "5472060717959818805561601436314318772174077789324455915672259473661306552146"; // (MODULUS+1)/4 
 
     fn modulus_as_biguint() -> BigUint {
         BigUint::from_str(Self::MODULUS).unwrap()
@@ -222,6 +225,39 @@ pub trait Fp254Impl {
             let result_double = circuit.extend(Self::double(result.clone()));
             let a_or_zero_i = circuit.extend(Self::self_or_zero(a.clone(), b_wire.clone()));
             result = circuit.extend(Self::add(result_double, a_or_zero_i));
+        }
+        circuit.add_wires(result);
+        circuit
+    }
+
+    fn exp_by_constant_montgomery(a: Wires, b: ark_bn254::Fq) -> Circuit {
+        assert_eq!(a.len(), Self::N_BITS);
+        let mut circuit = Circuit::empty();
+
+        if b.is_zero() {
+            circuit.add_wires(Fq::wires_set_montgomery(ark_bn254::Fq::ONE));
+            return circuit;
+        }
+
+        if b.is_one() {
+            circuit.add_wires(a);
+            return circuit;
+        }
+
+        let b_bits = Fq::to_bits(b);
+        let mut i = Self::N_BITS - 1;
+        while !b_bits[i] {
+            i -= 1;
+        }
+
+        let mut result = a.clone();
+        for b_bit in b_bits.iter().rev().skip(Self::N_BITS - i) {
+            let result_square = circuit.extend(Self::square_montgomery(result.clone()));
+            if *b_bit {
+                result = circuit.extend(Self::mul_montgomery(a.clone(), result_square));
+            } else {
+                result = result_square;
+            }
         }
         circuit.add_wires(result);
         circuit
