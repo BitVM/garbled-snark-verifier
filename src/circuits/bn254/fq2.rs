@@ -579,11 +579,10 @@ impl Fq2 {
                 c0_sqrt.clone(),
                 is_qnr[0].clone(),
             )),
-            circuit.extend(U254::select( c1_sqrt, zero_mont, is_qnr[0].clone())),
+            circuit.extend(U254::select(c1_sqrt, zero_mont, is_qnr[0].clone())),
         );
 
         println!("Calculate general case");
-        /*
         // Case 2: general
         let alpha = circuit.extend(Fq2::norm_montgomery(c0.clone(), c1.clone())); // c0² - NONRESIDUE·c1²
         println!("Calculate alpha_sqrt");
@@ -616,9 +615,10 @@ impl Fq2 {
         let final_c1 = circuit.extend(U254::select(part1.1, part2.1, is_c1_zero[0].clone()));
         circuit.add_wires(final_c0);
         circuit.add_wires(final_c1);
-        */
+        /*
         circuit.add_wires(part1.0);
         circuit.add_wires(part1.1);
+        */
 
         circuit
     }
@@ -975,36 +975,36 @@ mod tests {
         let c = Fq::from_wires(circuit.0);
         assert_eq!(c, Fq::as_montgomery(expected_norm));
     }
-    
-     #[test]
+
+    #[test]
     fn test_fq2_sqrt_montgomery_c1_is_zero() {
         /*
-and:  317170549
-or:   1098274
-xor:  365778175
-nand: 4453890
-not:  2867301
-xnor: 293987
-nimp: 549148
-nsor: 0
+        and:  317170549
+        or:   1098274
+        xor:  365778175
+        nand: 4453890
+        not:  2867301
+        xnor: 293987
+        nimp: 549148
+        nsor: 0
 
-total: 692211324
-nonfree: 323271861
-         */
+        total: 692211324
+        nonfree: 323271861
+                 */
         let mut r = Fq2::random();
         r.c1 = ark_bn254::Fq::ZERO; // Ensure c1 is zero to simplify the test
-        
+
         let rr = r * r;
         let mut bits = Fq::wires_set_montgomery(rr.c0);
         bits.extend_from_slice(Fq::wires_set_montgomery(rr.c1).as_slice());
-        
+
         let circuit = Fq2::sqrt_montgomery(bits);
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
         let c = Fq2::from_montgomery_wires(circuit.0);
-        assert_eq!(c, r); 
+        assert_eq!(c, r);
     }
 
     #[test]
@@ -1014,13 +1014,13 @@ nonfree: 323271861
         println!("r: {}, rr = {}", r, rr);
         let mut bits = Fq::wires_set_montgomery(rr.c0);
         bits.extend_from_slice(Fq::wires_set_montgomery(rr.c1).as_slice());
-        
+
         let circuit = Fq2::sqrt_montgomery(bits);
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
         let c = Fq2::from_montgomery_wires(circuit.0);
-        assert_eq!(c, r); 
+        assert_eq!(c, r);
     }
 }
