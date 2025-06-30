@@ -4,8 +4,6 @@ use ark_std::rand::SeedableRng;
 use rand::{Rng, rng};
 use rand_chacha::ChaCha20Rng;
 
-use crate::circuits::bigint::utils::biguint_from_bits;
-use ark_serialize::CanonicalDeserialize;
 pub struct G2Projective;
 
 impl G2Projective {
@@ -141,18 +139,6 @@ impl G2Affine {
             y: Fq2::from_bits(bits2.clone()),
             infinity: false,
         }
-    }
-
-    pub fn from_bits_unchecked_c(bits: Vec<bool>) -> ark_bn254::G2Affine {
-        let bits1 = &bits[0..512].to_vec();
-        let tmp = biguint_from_bits(bits1.clone());
-        let le_bytes = tmp.to_bytes_le();
-        ark_bn254::G2Affine::deserialize_with_mode(
-            &le_bytes[..],
-            ark_serialize::Compress::Yes,
-            ark_serialize::Validate::Yes,
-        )
-        .unwrap()
     }
 
     pub fn wires_set(u: ark_bn254::G2Affine) -> Wires {
