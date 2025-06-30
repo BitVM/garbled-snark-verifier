@@ -958,4 +958,20 @@ mod tests {
         let c = Fq::from_wires(circuit.0);
         assert_eq!(c, Fq::as_montgomery(expected_norm));
     }
+    
+    #[test]
+    fn test_fq2_sqrt_montgomery() {
+        let r = Fq2::random();
+        let rr = r * r;
+        let mut bits = Fq::wires_set_montgomery(r.c0);
+        bits.extend_from_slice(Fq::wires_set_montgomery(r.c1).as_slice());
+        
+        let circuit = Fq2::sqrt_montgomery(bits);
+        circuit.gate_counts().print();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        let c = Fq2::from_montgomery_wires(circuit.0);
+        assert_eq!(c, rr); 
+    }
 }
