@@ -99,10 +99,8 @@ impl Fq {
     // check if x is a quadratic non-residue (QNR) in Fq
     pub fn is_qnr_montgomery(x: Wires) -> Circuit {
         let mut circuit = Circuit::empty();
-        // 1. Compute y = x^((p - 1)/2)
-        //let exp = ark_bn254::Fq::from_str("10944121435919637611123202872628637544348155578648911831344518947322613104291").unwrap();
+        // y = x^((p - 1)/2)
         let exp = ark_bn254::Fq::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO);
-
         let y = circuit.extend(Fq::exp_by_constant_montgomery(x.clone(), exp));
 
         // neg_one = MODULUS - 1
@@ -110,9 +108,9 @@ impl Fq {
             "21888242871839275222246405745257275088696311157297823662689037894645226208582",
         )
         .unwrap();
-        let is_one = circuit.extend(U254::equal_constant(y, neg_one));
+        let is_qnr = circuit.extend(U254::equal_constant(y, neg_one));
 
-        circuit.add_wires(is_one);
+        circuit.add_wires(is_qnr);
         circuit
     }
 
@@ -406,12 +404,14 @@ mod tests {
 
     #[test]
     fn test_fq_is_qnr_montgomery() {
+        use num_traits::One;
         let a = Fq::random();
-        let circuit = Fq::is_qnr_montgomery(Fq::wires_set(a));
+        let circuit = Fq::is_qnr_montgomery(Fq::wires_set_montgomery(a));
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
         }
-        assert_eq!(circuit.0[0].borrow().get_value(), a.legendre().is_qnr());
+        let is_qnr = Fq::from_montgomery_wires(circuit.0);
+        assert_eq!(is_qnr.is_one(), a.legendre().is_qnr());
     }
 }

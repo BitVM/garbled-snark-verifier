@@ -228,9 +228,9 @@ mod tests {
         println!("proof is correct in rust");
 
         let public = Fr::wires_set(c);
-        let proof_a = G1Affine::wires_set_c(proof.a);
-        let proof_b = G2Affine::wires_set_c(proof.b);
-        let proof_c = G1Affine::wires_set_c(proof.c);
+        let proof_a = G1Affine::wires_set(proof.a);
+        let proof_b = G2Affine::wires_set(proof.b);
+        let proof_c = G1Affine::wires_set(proof.c);
 
         let (result, gate_count) = groth16_verifier_evaluate(public, proof_a, proof_b, proof_c, vk);
         gate_count.print();
@@ -257,9 +257,9 @@ mod tests {
         println!("proof is correct in rust");
 
         let public = Fr::wires_set(c);
-        let proof_a = G1Affine::wires_set_c(proof.a);
-        let proof_b = G2Affine::wires_set_c(proof.b);
-        let proof_c = G1Affine::wires_set_c(proof.c);
+        let proof_a = G1Affine::wires_set_montgomery(proof.a);
+        let proof_b = G2Affine::wires_set_montgomery(proof.b);
+        let proof_c = G1Affine::wires_set_montgomery(proof.c);
 
         let (result, gate_count) =
             groth16_verifier_evaluate_montgomery(public, proof_a, proof_b, proof_c, vk);
