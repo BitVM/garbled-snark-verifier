@@ -267,7 +267,7 @@ pub struct CircuitMetrics {
     pub nimp: usize,
     pub nsor: usize,
 
-    pub fanout: usize,
+    pub fanout: (usize, usize, usize),
 }
 
 impl Add for CircuitMetrics {
@@ -284,7 +284,11 @@ impl Add for CircuitMetrics {
             nimp: self.nimp + other.nimp,
             nsor: self.nsor + other.nsor,
 
-            fanout: self.fanout + other.fanout,
+            fanout: (
+                self.fanout.0 + other.fanout.0,
+                self.fanout.1 + other.fanout.1,
+                self.fanout.2 + other.fanout.2,
+            ),
         }
     }
 }
@@ -300,7 +304,11 @@ impl AddAssign for CircuitMetrics {
         self.nimp = self.nimp + other.nimp;
         self.nsor = self.nsor + other.nsor;
 
-        self.fanout = self.fanout + other.fanout;
+        self.fanout = (
+            self.fanout.0 + other.fanout.0,
+            self.fanout.1 + other.fanout.1,
+            self.fanout.2 + other.fanout.2,
+        );
     }
 }
 
@@ -316,7 +324,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -357,7 +365,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -372,7 +380,7 @@ impl CircuitMetrics {
             nimp: 1078400,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -387,7 +395,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -402,7 +410,7 @@ impl CircuitMetrics {
             nimp: 80880,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -417,7 +425,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -432,7 +440,7 @@ impl CircuitMetrics {
             nimp: 48528,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -447,7 +455,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -462,7 +470,7 @@ impl CircuitMetrics {
             nimp: 121320,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -477,7 +485,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -492,7 +500,7 @@ impl CircuitMetrics {
             nimp: 240452,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -507,7 +515,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -522,7 +530,7 @@ impl CircuitMetrics {
             nimp: 58140,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -537,7 +545,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -552,7 +560,7 @@ impl CircuitMetrics {
             nimp: 99752,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -567,7 +575,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -582,7 +590,7 @@ impl CircuitMetrics {
             nimp: 115928,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -597,7 +605,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 
@@ -612,7 +620,7 @@ impl CircuitMetrics {
             nimp: 80920,
             nsor: 0,
 
-            fanout: 0,
+            fanout: (0, 0, 0),
         }
     }
 }

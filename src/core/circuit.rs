@@ -81,12 +81,20 @@ impl Circuit {
         self.wires.clone()
     }
 
-    pub fn fanout(&self) -> usize {
-        let mut fanout = 0;
+    pub fn fanout(&self) -> (usize, usize, usize) {
+        let mut fanout1 = 0;
+        let mut fanout2 = 0;
+        let mut fanoutmore = 0;
         for gates in self.wires2gates.values() {
-            fanout += gates.len();
+            if gates.len() == 1 {
+                fanout1 += 1;
+            } else if gates.len() == 2 {
+                fanout2 += 1;
+            } else {
+                fanoutmore += 1;
+            }
         }
-        fanout
+        (fanout1, fanout2, fanoutmore)
     }
 
     pub fn circuit_metricss(&self) -> CircuitMetrics {
