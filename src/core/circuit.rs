@@ -35,7 +35,7 @@ impl Circuit {
 
     /// add gates from a circuit, return the wires of the circuit
     pub fn extend(&mut self, circuit: Self) -> Wires {
-        for (_, gate) in circuit.gates {
+        for (_, gate) in circuit.gates.into_iter() {
             self.add(gate);
         }
         circuit.wires
@@ -60,6 +60,12 @@ impl Circuit {
     pub fn add_wires(&mut self, wires: Wires) {
         for wire in wires {
             self.add_wire(wire);
+        }
+    }
+
+    pub fn add_gates(&mut self, gates: Vec<Gate>) {
+        for gate in gates {
+            self.add(gate);
         }
     }
 
