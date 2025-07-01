@@ -293,7 +293,7 @@ mod tests {
         }
 
         let circuit = multiplexer(a.clone(), s.clone(), w);
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
 
         for mut gate in circuit.gates() {
             gate.evaluate();

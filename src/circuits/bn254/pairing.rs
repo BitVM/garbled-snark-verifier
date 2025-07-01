@@ -158,9 +158,9 @@ pub fn double_in_place_circuit_montgomery(r: Wires) -> Circuit {
     circuit
 }
 
-pub fn double_in_place_evaluate(r: Wires) -> ((Wires, Wires, Wires), Wires, GateCount) {
+pub fn double_in_place_evaluate(r: Wires) -> ((Wires, Wires, Wires), Wires, CircuitMetrics) {
     let circuit = double_in_place_circuit(r);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -171,9 +171,11 @@ pub fn double_in_place_evaluate(r: Wires) -> ((Wires, Wires, Wires), Wires, Gate
     ((c0, c1, c2), r, n)
 }
 
-pub fn double_in_place_evaluate_montgomery(r: Wires) -> ((Wires, Wires, Wires), Wires, GateCount) {
+pub fn double_in_place_evaluate_montgomery(
+    r: Wires,
+) -> ((Wires, Wires, Wires), Wires, CircuitMetrics) {
     let circuit = double_in_place_circuit_montgomery(r);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -340,9 +342,9 @@ pub fn add_in_place_circuit_montgomery(r: Wires, q: Wires) -> Circuit {
     circuit
 }
 
-pub fn add_in_place_evaluate(r: Wires, q: Wires) -> ((Wires, Wires, Wires), Wires, GateCount) {
+pub fn add_in_place_evaluate(r: Wires, q: Wires) -> ((Wires, Wires, Wires), Wires, CircuitMetrics) {
     let circuit = add_in_place_circuit(r, q);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -356,9 +358,9 @@ pub fn add_in_place_evaluate(r: Wires, q: Wires) -> ((Wires, Wires, Wires), Wire
 pub fn add_in_place_evaluate_montgomery(
     r: Wires,
     q: Wires,
-) -> ((Wires, Wires, Wires), Wires, GateCount) {
+) -> ((Wires, Wires, Wires), Wires, CircuitMetrics) {
     let circuit = add_in_place_circuit_montgomery(r, q);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -418,32 +420,32 @@ pub fn mul_by_char_circuit_montgomery(r: Wires) -> Circuit {
     circuit
 }
 
-pub fn mul_by_char_evaluate(r: Wires) -> (Wires, GateCount) {
+pub fn mul_by_char_evaluate(r: Wires) -> (Wires, CircuitMetrics) {
     let circuit = mul_by_char_circuit(r);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
     (circuit.wires, n)
 }
 
-pub fn mul_by_char_evaluate_montgomery(r: Wires) -> (Wires, GateCount) {
+pub fn mul_by_char_evaluate_montgomery(r: Wires) -> (Wires, CircuitMetrics) {
     let circuit = mul_by_char_circuit_montgomery(r);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
     (circuit.wires, n)
 }
 
-pub fn g2_affine_neg_evaluate(r: Wires) -> (Wires, GateCount) {
+pub fn g2_affine_neg_evaluate(r: Wires) -> (Wires, CircuitMetrics) {
     let mut circuit = Circuit::empty();
     let x = r[0..Fq2::N_BITS].to_vec();
     let y = r[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
     let new_y = circuit.extend(Fq2::neg(y));
     circuit.add_wires(x);
     circuit.add_wires(new_y);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -479,8 +481,8 @@ pub fn ell_coeffs(q: ark_bn254::G2Affine) -> Vec<(ark_bn254::Fq2, ark_bn254::Fq2
     ellc
 }
 
-pub fn ell_coeffs_evaluate_fast(q: Wires) -> (Vec<(Wires, Wires, Wires)>, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn ell_coeffs_evaluate_fast(q: Wires) -> (Vec<(Wires, Wires, Wires)>, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let mut ellc = Vec::new();
     let mut r = Vec::new();
     r.extend_from_slice(&q[0..Fq2::N_BITS]);
@@ -488,78 +490,78 @@ pub fn ell_coeffs_evaluate_fast(q: Wires) -> (Vec<(Wires, Wires, Wires)>, GateCo
     r.extend_from_slice(&Fq2::wires_set(ark_bn254::Fq2::from(1)));
 
     let (neg_q, gc) = g2_affine_neg_evaluate(q.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     for bit in ark_bn254::Config::ATE_LOOP_COUNT.iter().rev().skip(1) {
         // let (coeffs, new_r, gc) = double_in_place_evaluate(r);
         // ellc.push(coeffs);
-        // gate_count += gc;
+        // circuit_metrics += gc;
         // r = new_r;
         let ((new_r, coeffs), gc) = (
             double_in_place2(G2Projective::from_wires_unchecked(r)),
-            GateCount::double_in_place(),
+            CircuitMetrics::double_in_place(),
         );
         ellc.push((
             Fq2::wires_set(coeffs.0),
             Fq2::wires_set(coeffs.1),
             Fq2::wires_set(coeffs.2),
         ));
-        gate_count += gc;
+        circuit_metrics += gc;
         r = G2Projective::wires_set(new_r);
 
         match bit {
             1 => {
                 // let (coeffs, new_r, gc) = add_in_place_evaluate(r, q.clone());
                 // ellc.push(coeffs);
-                // gate_count += gc;
+                // circuit_metrics += gc;
                 // r = new_r;
                 let ((new_r, coeffs), gc) = (
                     add_in_place2(
                         G2Projective::from_wires_unchecked(r),
                         &G2Affine::from_wires(q.clone()),
                     ),
-                    GateCount::add_in_place(),
+                    CircuitMetrics::add_in_place(),
                 );
                 ellc.push((
                     Fq2::wires_set(coeffs.0),
                     Fq2::wires_set(coeffs.1),
                     Fq2::wires_set(coeffs.2),
                 ));
-                gate_count += gc;
+                circuit_metrics += gc;
                 r = G2Projective::wires_set(new_r);
             }
             -1 => {
                 // let (coeffs, new_r, gc) = add_in_place_evaluate(r, neg_q.clone());
                 // ellc.push(coeffs);
-                // gate_count += gc;
+                // circuit_metrics += gc;
                 // r = new_r;
                 let ((new_r, coeffs), gc) = (
                     add_in_place2(
                         G2Projective::from_wires_unchecked(r),
                         &G2Affine::from_wires(neg_q.clone()),
                     ),
-                    GateCount::add_in_place(),
+                    CircuitMetrics::add_in_place(),
                 );
                 ellc.push((
                     Fq2::wires_set(coeffs.0),
                     Fq2::wires_set(coeffs.1),
                     Fq2::wires_set(coeffs.2),
                 ));
-                gate_count += gc;
+                circuit_metrics += gc;
                 r = G2Projective::wires_set(new_r);
             }
             _ => {}
         }
     }
     let (q1, gc) = mul_by_char_evaluate(q.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (mut q2, gc) = mul_by_char_evaluate(q1.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (new_q2, gc) = g2_affine_neg_evaluate(q2);
-    gate_count += gc;
+    circuit_metrics += gc;
     q2 = new_q2;
 
     // let (coeffs, new_r, gc) = add_in_place_evaluate(r, q1);
-    // gate_count += gc;
+    // circuit_metrics += gc;
     // ellc.push(coeffs);
     // r = new_r;
     let ((new_r, coeffs), gc) = (
@@ -567,18 +569,18 @@ pub fn ell_coeffs_evaluate_fast(q: Wires) -> (Vec<(Wires, Wires, Wires)>, GateCo
             G2Projective::from_wires_unchecked(r),
             &G2Affine::from_wires(q1),
         ),
-        GateCount::add_in_place(),
+        CircuitMetrics::add_in_place(),
     );
     ellc.push((
         Fq2::wires_set(coeffs.0),
         Fq2::wires_set(coeffs.1),
         Fq2::wires_set(coeffs.2),
     ));
-    gate_count += gc;
+    circuit_metrics += gc;
     r = G2Projective::wires_set(new_r);
 
     // let (coeffs, _new_r, gc) = add_in_place_evaluate(r, q2);
-    // gate_count += gc;
+    // circuit_metrics += gc;
     // ellc.push(coeffs);
     // // r = new_r;
     let ((_new_r, coeffs), gc) = (
@@ -586,21 +588,23 @@ pub fn ell_coeffs_evaluate_fast(q: Wires) -> (Vec<(Wires, Wires, Wires)>, GateCo
             G2Projective::from_wires_unchecked(r),
             &G2Affine::from_wires(q2),
         ),
-        GateCount::add_in_place(),
+        CircuitMetrics::add_in_place(),
     );
     ellc.push((
         Fq2::wires_set(coeffs.0),
         Fq2::wires_set(coeffs.1),
         Fq2::wires_set(coeffs.2),
     ));
-    gate_count += gc;
+    circuit_metrics += gc;
     // r = G2Projective::wires_set(new_r);
 
-    (ellc, gate_count)
+    (ellc, circuit_metrics)
 }
 
-pub fn ell_coeffs_evaluate_montgomery_fast(q: Wires) -> (Vec<(Wires, Wires, Wires)>, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn ell_coeffs_evaluate_montgomery_fast(
+    q: Wires,
+) -> (Vec<(Wires, Wires, Wires)>, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let mut ellc = Vec::new();
     let mut r = Vec::new();
     r.extend_from_slice(&q[0..Fq2::N_BITS]);
@@ -608,78 +612,78 @@ pub fn ell_coeffs_evaluate_montgomery_fast(q: Wires) -> (Vec<(Wires, Wires, Wire
     r.extend_from_slice(&Fq2::wires_set_montgomery(ark_bn254::Fq2::from(1)));
 
     let (neg_q, gc) = g2_affine_neg_evaluate(q.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     for bit in ark_bn254::Config::ATE_LOOP_COUNT.iter().rev().skip(1) {
         // let (coeffs, new_r, gc) = double_in_place_evaluate_montgomery(r);
         // ellc.push(coeffs);
-        // gate_count += gc;
+        // circuit_metrics += gc;
         // r = new_r;
         let ((new_r, coeffs), gc) = (
             double_in_place2(G2Projective::from_montgomery_wires_unchecked(r)),
-            GateCount::double_in_place_montgomery(),
+            CircuitMetrics::double_in_place_montgomery(),
         );
         ellc.push((
             Fq2::wires_set_montgomery(coeffs.0),
             Fq2::wires_set_montgomery(coeffs.1),
             Fq2::wires_set_montgomery(coeffs.2),
         ));
-        gate_count += gc;
+        circuit_metrics += gc;
         r = G2Projective::wires_set_montgomery(new_r);
 
         match bit {
             1 => {
                 // let (coeffs, new_r, gc) = add_in_place_evaluate_montgomery(r, q.clone());
                 // ellc.push(coeffs);
-                // gate_count += gc;
+                // circuit_metrics += gc;
                 // r = new_r;
                 let ((new_r, coeffs), gc) = (
                     add_in_place2(
                         G2Projective::from_montgomery_wires_unchecked(r),
                         &G2Affine::from_montgomery_wires_unchecked(q.clone()),
                     ),
-                    GateCount::add_in_place_montgomery(),
+                    CircuitMetrics::add_in_place_montgomery(),
                 );
                 ellc.push((
                     Fq2::wires_set_montgomery(coeffs.0),
                     Fq2::wires_set_montgomery(coeffs.1),
                     Fq2::wires_set_montgomery(coeffs.2),
                 ));
-                gate_count += gc;
+                circuit_metrics += gc;
                 r = G2Projective::wires_set_montgomery(new_r);
             }
             -1 => {
                 // let (coeffs, new_r, gc) = add_in_place_evaluate_montgomery(r, neg_q.clone());
                 // ellc.push(coeffs);
-                // gate_count += gc;
+                // circuit_metrics += gc;
                 // r = new_r;
                 let ((new_r, coeffs), gc) = (
                     add_in_place2(
                         G2Projective::from_montgomery_wires_unchecked(r),
                         &G2Affine::from_montgomery_wires_unchecked(neg_q.clone()),
                     ),
-                    GateCount::add_in_place_montgomery(),
+                    CircuitMetrics::add_in_place_montgomery(),
                 );
                 ellc.push((
                     Fq2::wires_set_montgomery(coeffs.0),
                     Fq2::wires_set_montgomery(coeffs.1),
                     Fq2::wires_set_montgomery(coeffs.2),
                 ));
-                gate_count += gc;
+                circuit_metrics += gc;
                 r = G2Projective::wires_set_montgomery(new_r);
             }
             _ => {}
         }
     }
     let (q1, gc) = mul_by_char_evaluate_montgomery(q.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (mut q2, gc) = mul_by_char_evaluate_montgomery(q1.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (new_q2, gc) = g2_affine_neg_evaluate(q2);
-    gate_count += gc;
+    circuit_metrics += gc;
     q2 = new_q2;
 
     // let (coeffs, new_r, gc) = add_in_place_evaluate_montgomery(r, q1);
-    // gate_count += gc;
+    // circuit_metrics += gc;
     // ellc.push(coeffs);
     // r = new_r;
     let ((new_r, coeffs), gc) = (
@@ -687,18 +691,18 @@ pub fn ell_coeffs_evaluate_montgomery_fast(q: Wires) -> (Vec<(Wires, Wires, Wire
             G2Projective::from_montgomery_wires_unchecked(r),
             &G2Affine::from_montgomery_wires_unchecked(q1),
         ),
-        GateCount::add_in_place_montgomery(),
+        CircuitMetrics::add_in_place_montgomery(),
     );
     ellc.push((
         Fq2::wires_set_montgomery(coeffs.0),
         Fq2::wires_set_montgomery(coeffs.1),
         Fq2::wires_set_montgomery(coeffs.2),
     ));
-    gate_count += gc;
+    circuit_metrics += gc;
     r = G2Projective::wires_set_montgomery(new_r);
 
     // let (coeffs, _new_r, gc) = add_in_place_evaluate_montgomery(r, q2);
-    // gate_count += gc;
+    // circuit_metrics += gc;
     // ellc.push(coeffs);
     // // r = new_r;
     let ((_new_r, coeffs), gc) = (
@@ -706,17 +710,17 @@ pub fn ell_coeffs_evaluate_montgomery_fast(q: Wires) -> (Vec<(Wires, Wires, Wire
             G2Projective::from_montgomery_wires_unchecked(r),
             &G2Affine::from_montgomery_wires_unchecked(q2),
         ),
-        GateCount::add_in_place_montgomery(),
+        CircuitMetrics::add_in_place_montgomery(),
     );
     ellc.push((
         Fq2::wires_set_montgomery(coeffs.0),
         Fq2::wires_set_montgomery(coeffs.1),
         Fq2::wires_set_montgomery(coeffs.2),
     ));
-    gate_count += gc;
+    circuit_metrics += gc;
     // r = G2Projective::wires_set(new_r);
 
-    (ellc, gate_count)
+    (ellc, circuit_metrics)
 }
 
 pub fn ell(
@@ -783,9 +787,9 @@ pub fn ell_circuit_montgomery(f: Wires, coeffs: (Wires, Wires, Wires), p: Wires)
     circuit
 }
 
-pub fn ell_evaluate(f: Wires, coeffs: (Wires, Wires, Wires), p: Wires) -> (Wires, GateCount) {
+pub fn ell_evaluate(f: Wires, coeffs: (Wires, Wires, Wires), p: Wires) -> (Wires, CircuitMetrics) {
     let circuit = ell_circuit(f, coeffs, p);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -796,9 +800,9 @@ pub fn ell_evaluate_montgomery(
     f: Wires,
     coeffs: (Wires, Wires, Wires),
     p: Wires,
-) -> (Wires, GateCount) {
+) -> (Wires, CircuitMetrics) {
     let circuit = ell_circuit_montgomery(f, coeffs, p);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -851,9 +855,9 @@ pub fn ell_by_constant_evaluate(
     f: Wires,
     coeffs: (ark_bn254::Fq2, ark_bn254::Fq2, ark_bn254::Fq2),
     p: Wires,
-) -> (Wires, GateCount) {
+) -> (Wires, CircuitMetrics) {
     let circuit = ell_by_constant_circuit(f, coeffs, p);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -864,9 +868,9 @@ pub fn ell_by_constant_evaluate_montgomery(
     f: Wires,
     coeffs: (ark_bn254::Fq2, ark_bn254::Fq2, ark_bn254::Fq2),
     p: Wires,
-) -> (Wires, GateCount) {
+) -> (Wires, CircuitMetrics) {
     let circuit = ell_by_constant_circuit_montgomery(f, coeffs, p);
-    let n = circuit.gate_counts();
+    let n = circuit.circuit_metricss();
     for mut gate in circuit.gates() {
         gate.evaluate();
     }
@@ -897,10 +901,10 @@ pub fn miller_loop(p: ark_bn254::G1Affine, q: ark_bn254::G2Affine) -> ark_bn254:
     f
 }
 
-pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (qell, gc) = ell_coeffs_evaluate_fast(q);
-    gate_count += gc;
+    circuit_metrics += gc;
     let mut q_ell = qell.iter();
 
     let mut f = Fq12::wires_set(ark_bn254::Fq12::ONE);
@@ -909,10 +913,10 @@ pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
         if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
             let (new_f, gc) = (
                 Fq12::wires_set(Fq12::from_wires(f).square()),
-                GateCount::fq12_square(),
+                CircuitMetrics::fq12_square(),
             ); // Fq12::square_evaluate(f);
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let qell_next = q_ell.next().unwrap().clone();
@@ -926,10 +930,10 @@ pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
                 ),
                 G1Affine::from_wires(p.clone()),
             )),
-            GateCount::ell(),
+            CircuitMetrics::ell(),
         ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
@@ -944,10 +948,10 @@ pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
                     ),
                     G1Affine::from_wires(p.clone()),
                 )),
-                GateCount::ell(),
+                CircuitMetrics::ell(),
             ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
     }
 
@@ -962,10 +966,10 @@ pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
             ),
             G1Affine::from_wires(p.clone()),
         )),
-        GateCount::ell(),
+        CircuitMetrics::ell(),
     ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
     let qell_next = q_ell.next().unwrap().clone();
     let (new_f, gc) = (
         Fq12::wires_set(ell2(
@@ -977,18 +981,18 @@ pub fn miller_loop_evaluate_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
             ),
             G1Affine::from_wires(p.clone()),
         )),
-        GateCount::ell(),
+        CircuitMetrics::ell(),
     ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
-    (f, gate_count)
+    (f, circuit_metrics)
 }
 
-pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (qell, gc) = ell_coeffs_evaluate_montgomery_fast(q);
-    gate_count += gc;
+    circuit_metrics += gc;
     let mut q_ell = qell.iter();
 
     let mut f = Fq12::wires_set_montgomery(ark_bn254::Fq12::ONE);
@@ -997,10 +1001,10 @@ pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, GateC
         if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
             let (new_f, gc) = (
                 Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(f).square()),
-                GateCount::fq12_square_montgomery(),
+                CircuitMetrics::fq12_square_montgomery(),
             ); // Fq12::square_evaluate_montgomery(f);
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let qell_next = q_ell.next().unwrap().clone();
@@ -1014,10 +1018,10 @@ pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, GateC
                 ),
                 G1Affine::from_montgomery_wires_unchecked(p.clone()),
             )),
-            GateCount::ell_montgomery(),
+            CircuitMetrics::ell_montgomery(),
         ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
@@ -1032,10 +1036,10 @@ pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, GateC
                     ),
                     G1Affine::from_montgomery_wires_unchecked(p.clone()),
                 )),
-                GateCount::ell_montgomery(),
+                CircuitMetrics::ell_montgomery(),
             ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
     }
 
@@ -1050,10 +1054,10 @@ pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, GateC
             ),
             G1Affine::from_montgomery_wires_unchecked(p.clone()),
         )),
-        GateCount::ell_montgomery(),
+        CircuitMetrics::ell_montgomery(),
     ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
     let qell_next = q_ell.next().unwrap().clone();
     let (new_f, gc) = (
         Fq12::wires_set_montgomery(ell2(
@@ -1065,12 +1069,12 @@ pub fn miller_loop_evaluate_montgomery_fast(p: Wires, q: Wires) -> (Wires, GateC
             ),
             G1Affine::from_montgomery_wires_unchecked(p.clone()),
         )),
-        GateCount::ell_montgomery(),
+        CircuitMetrics::ell_montgomery(),
     ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
-    (f, gate_count)
+    (f, circuit_metrics)
 }
 
 pub fn multi_miller_loop(
@@ -1124,12 +1128,12 @@ pub fn multi_miller_loop(
     f
 }
 
-pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let mut qells = Vec::new();
     for q in qs {
         let (qell, gc) = ell_coeffs_evaluate_fast(q);
-        gate_count += gc;
+        circuit_metrics += gc;
         qells.push(qell);
     }
     let mut u = Vec::new();
@@ -1148,10 +1152,10 @@ pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires
         if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
             let (new_f, gc) = (
                 Fq12::wires_set(Fq12::from_wires(f).square()),
-                GateCount::fq12_square(),
+                CircuitMetrics::fq12_square(),
             ); // Fq12::square_evaluate(f);
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let qells_next = q_ells.next().unwrap().clone();
@@ -1166,10 +1170,10 @@ pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires
                     ),
                     G1Affine::from_wires(p.clone()),
                 )),
-                GateCount::ell(),
+                CircuitMetrics::ell(),
             ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
@@ -1186,10 +1190,10 @@ pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires
                         ),
                         G1Affine::from_wires(p.clone()),
                     )),
-                    GateCount::ell(),
+                    CircuitMetrics::ell(),
                 ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
                 f = new_f;
-                gate_count += gc;
+                circuit_metrics += gc;
             }
         }
     }
@@ -1206,10 +1210,10 @@ pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires
                 ),
                 G1Affine::from_wires(p.clone()),
             )),
-            GateCount::ell(),
+            CircuitMetrics::ell(),
         ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
     }
     let qells_next = q_ells.next().unwrap().clone();
     for (qell_next, p) in zip(qells_next, ps.clone()) {
@@ -1223,23 +1227,23 @@ pub fn multi_miller_loop_evaluate_fast(ps: Vec<Wires>, qs: Vec<Wires>) -> (Wires
                 ),
                 G1Affine::from_wires(p.clone()),
             )),
-            GateCount::ell(),
+            CircuitMetrics::ell(),
         ); // ell_evaluate(f, q_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
     }
-    (f, gate_count)
+    (f, circuit_metrics)
 }
 
 pub fn multi_miller_loop_evaluate_montgomery_fast(
     ps: Vec<Wires>,
     qs: Vec<Wires>,
-) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let mut qells = Vec::new();
     for q in qs {
         let (qell, gc) = ell_coeffs_evaluate_montgomery_fast(q);
-        gate_count += gc;
+        circuit_metrics += gc;
         qells.push(qell);
     }
     let mut u = Vec::new();
@@ -1258,10 +1262,10 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
         if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
             let (new_f, gc) = (
                 Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(f).square()),
-                GateCount::fq12_square_montgomery(),
+                CircuitMetrics::fq12_square_montgomery(),
             ); // Fq12::square_evaluate_montgomery(f);
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let qells_next = q_ells.next().unwrap().clone();
@@ -1276,10 +1280,10 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
                     ),
                     G1Affine::from_montgomery_wires_unchecked(p.clone()),
                 )),
-                GateCount::ell_montgomery(),
+                CircuitMetrics::ell_montgomery(),
             ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
@@ -1296,10 +1300,10 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
                         ),
                         G1Affine::from_montgomery_wires_unchecked(p.clone()),
                     )),
-                    GateCount::ell_montgomery(),
+                    CircuitMetrics::ell_montgomery(),
                 ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
                 f = new_f;
-                gate_count += gc;
+                circuit_metrics += gc;
             }
         }
     }
@@ -1316,10 +1320,10 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
                 ),
                 G1Affine::from_montgomery_wires_unchecked(p.clone()),
             )),
-            GateCount::ell_montgomery(),
+            CircuitMetrics::ell_montgomery(),
         ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
     }
     let qells_next = q_ells.next().unwrap().clone();
     for (qell_next, p) in zip(qells_next, ps.clone()) {
@@ -1333,12 +1337,12 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
                 ),
                 G1Affine::from_montgomery_wires_unchecked(p.clone()),
             )),
-            GateCount::ell_montgomery(),
+            CircuitMetrics::ell_montgomery(),
         ); // ell_evaluate_montgomery(f, q_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
     }
-    (f, gate_count)
+    (f, circuit_metrics)
 }
 
 pub fn multi_miller_loop_groth16_evaluate_fast(
@@ -1348,12 +1352,12 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
     q1: ark_bn254::G2Affine,
     q2: ark_bn254::G2Affine,
     q3: Wires,
-) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let q1ell = ell_coeffs(q1);
     let q2ell = ell_coeffs(q2);
     let (q3ell, gc) = ell_coeffs_evaluate_fast(q3);
-    gate_count += gc;
+    circuit_metrics += gc;
     let mut q1_ell = q1ell.iter();
     let mut q2_ell = q2ell.iter();
     let mut q3_ell = q3ell.iter();
@@ -1364,10 +1368,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
         if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
             let (new_f, gc) = (
                 Fq12::wires_set(Fq12::from_wires(f).square()),
-                GateCount::fq12_square(),
+                CircuitMetrics::fq12_square(),
             ); // Fq12::square_evaluate(f);
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let q1ell_next = q1_ell.next().unwrap();
@@ -1377,10 +1381,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
                 *q1ell_next,
                 G1Affine::from_wires(p1.clone()),
             )),
-            GateCount::ell_by_constant(),
+            CircuitMetrics::ell_by_constant(),
         ); // ell_by_constant_evaluate(f, q1_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let q2ell_next = q2_ell.next().unwrap();
         let (new_f, gc) = (
@@ -1389,10 +1393,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
                 *q2ell_next,
                 G1Affine::from_wires(p2.clone()),
             )),
-            GateCount::ell_by_constant(),
+            CircuitMetrics::ell_by_constant(),
         ); // ell_by_constant_evaluate(f, q2_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let q3ell_next = q3_ell.next().unwrap().clone();
         let (new_f, gc) = (
@@ -1405,10 +1409,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
                 ),
                 G1Affine::from_wires(p3.clone()),
             )),
-            GateCount::ell(),
+            CircuitMetrics::ell(),
         ); // ell_evaluate(f, q3_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
@@ -1419,10 +1423,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
                     *q1ell_next,
                     G1Affine::from_wires(p1.clone()),
                 )),
-                GateCount::ell_by_constant(),
+                CircuitMetrics::ell_by_constant(),
             ); // ell_by_constant_evaluate(f, q1_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
 
             let q2ell_next = q2_ell.next().unwrap();
             let (new_f, gc) = (
@@ -1431,10 +1435,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
                     *q2ell_next,
                     G1Affine::from_wires(p2.clone()),
                 )),
-                GateCount::ell_by_constant(),
+                CircuitMetrics::ell_by_constant(),
             ); // ell_by_constant_evaluate(f, q2_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
 
             let q3ell_next = q3_ell.next().unwrap().clone();
             let (new_f, gc) = (
@@ -1447,10 +1451,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
                     ),
                     G1Affine::from_wires(p3.clone()),
                 )),
-                GateCount::ell(),
+                CircuitMetrics::ell(),
             ); // ell_evaluate(f, q3_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
     }
 
@@ -1461,10 +1465,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
             *q1ell_next,
             G1Affine::from_wires(p1.clone()),
         )),
-        GateCount::ell_by_constant(),
+        CircuitMetrics::ell_by_constant(),
     ); // ell_by_constant_evaluate(f, q1_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q2ell_next = q2_ell.next().unwrap();
     let (new_f, gc) = (
@@ -1473,10 +1477,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
             *q2ell_next,
             G1Affine::from_wires(p2.clone()),
         )),
-        GateCount::ell_by_constant(),
+        CircuitMetrics::ell_by_constant(),
     ); // ell_by_constant_evaluate(f, q2_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q3ell_next = q3_ell.next().unwrap().clone();
     let (new_f, gc) = (
@@ -1489,10 +1493,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
             ),
             G1Affine::from_wires(p3.clone()),
         )),
-        GateCount::ell(),
+        CircuitMetrics::ell(),
     ); // ell_evaluate(f, q3_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q1ell_next = q1_ell.next().unwrap();
     let (new_f, gc) = (
@@ -1501,10 +1505,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
             *q1ell_next,
             G1Affine::from_wires(p1.clone()),
         )),
-        GateCount::ell_by_constant(),
+        CircuitMetrics::ell_by_constant(),
     ); // ell_by_constant_evaluate(f, q1_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q2ell_next = q2_ell.next().unwrap();
     let (new_f, gc) = (
@@ -1513,10 +1517,10 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
             *q2ell_next,
             G1Affine::from_wires(p2.clone()),
         )),
-        GateCount::ell_by_constant(),
+        CircuitMetrics::ell_by_constant(),
     ); // ell_by_constant_evaluate(f, q2_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q3ell_next = q3_ell.next().unwrap().clone();
     let (new_f, gc) = (
@@ -1529,12 +1533,12 @@ pub fn multi_miller_loop_groth16_evaluate_fast(
             ),
             G1Affine::from_wires(p3.clone()),
         )),
-        GateCount::ell(),
+        CircuitMetrics::ell(),
     ); // ell_evaluate(f, q3_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
-    (f, gate_count)
+    (f, circuit_metrics)
 }
 
 pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
@@ -1544,12 +1548,12 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
     q1: ark_bn254::G2Affine,
     q2: ark_bn254::G2Affine,
     q3: Wires,
-) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let q1ell = ell_coeffs(q1);
     let q2ell = ell_coeffs(q2);
     let (q3ell, gc) = ell_coeffs_evaluate_montgomery_fast(q3);
-    gate_count += gc;
+    circuit_metrics += gc;
     let mut q1_ell = q1ell.iter();
     let mut q2_ell = q2ell.iter();
     let mut q3_ell = q3ell.iter();
@@ -1560,10 +1564,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
         if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
             let (new_f, gc) = (
                 Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(f).square()),
-                GateCount::fq12_square_montgomery(),
+                CircuitMetrics::fq12_square_montgomery(),
             ); // Fq12::square_evaluate_montgomery(f);
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         let q1ell_next = q1_ell.next().unwrap();
@@ -1573,10 +1577,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
                 *q1ell_next,
                 G1Affine::from_montgomery_wires_unchecked(p1.clone()),
             )),
-            GateCount::ell_by_constant_montgomery(),
+            CircuitMetrics::ell_by_constant_montgomery(),
         ); // ell_by_constant_evaluate_montgomery(f, q1_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let q2ell_next = q2_ell.next().unwrap();
         let (new_f, gc) = (
@@ -1585,10 +1589,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
                 *q2ell_next,
                 G1Affine::from_montgomery_wires_unchecked(p2.clone()),
             )),
-            GateCount::ell_by_constant_montgomery(),
+            CircuitMetrics::ell_by_constant_montgomery(),
         ); // ell_by_constant_evaluate_montgomery(f, q2_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let q3ell_next = q3_ell.next().unwrap().clone();
         let (new_f, gc) = (
@@ -1601,10 +1605,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
                 ),
                 G1Affine::from_montgomery_wires_unchecked(p3.clone()),
             )),
-            GateCount::ell_montgomery(),
+            CircuitMetrics::ell_montgomery(),
         ); // ell_evaluate_montgomery(f, q3_ell.next().unwrap().clone(), p.clone());
         f = new_f;
-        gate_count += gc;
+        circuit_metrics += gc;
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
@@ -1615,10 +1619,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
                     *q1ell_next,
                     G1Affine::from_montgomery_wires_unchecked(p1.clone()),
                 )),
-                GateCount::ell_by_constant_montgomery(),
+                CircuitMetrics::ell_by_constant_montgomery(),
             ); // ell_by_constant_evaluate_montgomery(f, q1_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
 
             let q2ell_next = q2_ell.next().unwrap();
             let (new_f, gc) = (
@@ -1627,10 +1631,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
                     *q2ell_next,
                     G1Affine::from_montgomery_wires_unchecked(p2.clone()),
                 )),
-                GateCount::ell_by_constant_montgomery(),
+                CircuitMetrics::ell_by_constant_montgomery(),
             ); // ell_by_constant_evaluate_montgomery(f, q2_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
 
             let q3ell_next = q3_ell.next().unwrap().clone();
             let (new_f, gc) = (
@@ -1643,10 +1647,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
                     ),
                     G1Affine::from_montgomery_wires_unchecked(p3.clone()),
                 )),
-                GateCount::ell_montgomery(),
+                CircuitMetrics::ell_montgomery(),
             ); // ell_evaluate_montgomery(f, q3_ell.next().unwrap().clone(), p.clone());
             f = new_f;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
     }
 
@@ -1657,10 +1661,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
             *q1ell_next,
             G1Affine::from_montgomery_wires_unchecked(p1.clone()),
         )),
-        GateCount::ell_by_constant_montgomery(),
+        CircuitMetrics::ell_by_constant_montgomery(),
     ); // ell_by_constant_evaluate_montgomery(f, q1_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q2ell_next = q2_ell.next().unwrap();
     let (new_f, gc) = (
@@ -1669,10 +1673,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
             *q2ell_next,
             G1Affine::from_montgomery_wires_unchecked(p2.clone()),
         )),
-        GateCount::ell_by_constant_montgomery(),
+        CircuitMetrics::ell_by_constant_montgomery(),
     ); // ell_by_constant_evaluate_montgomery(f, q2_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q3ell_next = q3_ell.next().unwrap().clone();
     let (new_f, gc) = (
@@ -1685,10 +1689,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
             ),
             G1Affine::from_montgomery_wires_unchecked(p3.clone()),
         )),
-        GateCount::ell_montgomery(),
+        CircuitMetrics::ell_montgomery(),
     ); // ell_evaluate_montgomery(f, q3_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q1ell_next = q1_ell.next().unwrap();
     let (new_f, gc) = (
@@ -1697,10 +1701,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
             *q1ell_next,
             G1Affine::from_montgomery_wires_unchecked(p1.clone()),
         )),
-        GateCount::ell_by_constant_montgomery(),
+        CircuitMetrics::ell_by_constant_montgomery(),
     ); // ell_by_constant_evaluate_montgomery(f, q1_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q2ell_next = q2_ell.next().unwrap();
     let (new_f, gc) = (
@@ -1709,10 +1713,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
             *q2ell_next,
             G1Affine::from_montgomery_wires_unchecked(p2.clone()),
         )),
-        GateCount::ell_by_constant_montgomery(),
+        CircuitMetrics::ell_by_constant_montgomery(),
     ); // ell_by_constant_evaluate_montgomery(f, q2_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let q3ell_next = q3_ell.next().unwrap().clone();
     let (new_f, gc) = (
@@ -1725,12 +1729,12 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast(
             ),
             G1Affine::from_montgomery_wires_unchecked(p3.clone()),
         )),
-        GateCount::ell_montgomery(),
+        CircuitMetrics::ell_montgomery(),
     ); // ell_evaluate_montgomery(f, q3_ell.next().unwrap().clone(), p.clone());
     f = new_f;
-    gate_count += gc;
+    circuit_metrics += gc;
 
-    (f, gate_count)
+    (f, circuit_metrics)
 }
 
 #[cfg(test)]
@@ -1750,7 +1754,7 @@ mod tests {
         let mut r = ark_bn254::G2Projective::rand(&mut prng);
 
         let circuit = double_in_place_circuit(G2Projective::wires_set(r));
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1776,7 +1780,7 @@ mod tests {
         let mut r = ark_bn254::G2Projective::rand(&mut prng);
 
         let circuit = double_in_place_circuit_montgomery(G2Projective::wires_set_montgomery(r));
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1807,7 +1811,7 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let circuit = add_in_place_circuit(G2Projective::wires_set(r), G2Affine::wires_set(q));
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1844,7 +1848,7 @@ mod tests {
             G2Projective::wires_set_montgomery(r),
             G2Affine::wires_set_montgomery(q),
         );
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1879,7 +1883,7 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let circuit = mul_by_char_circuit(G2Affine::wires_set(q));
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1897,7 +1901,7 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let circuit = mul_by_char_circuit_montgomery(G2Affine::wires_set_montgomery(q));
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1914,8 +1918,8 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let expected_coeffs = ell_coeffs(q);
-        let (coeffs, gate_count) = ell_coeffs_evaluate_fast(G2Affine::wires_set(q));
-        gate_count.print();
+        let (coeffs, circuit_metrics) = ell_coeffs_evaluate_fast(G2Affine::wires_set(q));
+        circuit_metrics.print();
 
         for (a, b) in zip(coeffs, expected_coeffs) {
             assert_eq!(Fq2::from_wires(a.0), b.0);
@@ -1930,9 +1934,9 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let expected_coeffs = ell_coeffs(q);
-        let (coeffs, gate_count) =
+        let (coeffs, circuit_metrics) =
             ell_coeffs_evaluate_montgomery_fast(G2Affine::wires_set_montgomery(q));
-        gate_count.print();
+        circuit_metrics.print();
 
         for (a, b) in zip(coeffs, expected_coeffs) {
             assert_eq!(Fq2::from_montgomery_wires(a.0), b.0);
@@ -1962,7 +1966,7 @@ mod tests {
             ),
             G1Affine::wires_set(p),
         );
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -1992,7 +1996,7 @@ mod tests {
             ),
             G1Affine::wires_set_montgomery(p),
         );
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -2014,7 +2018,7 @@ mod tests {
         let p = ark_bn254::G1Affine::rand(&mut prng);
 
         let circuit = ell_by_constant_circuit(Fq12::wires_set(f), coeffs, G1Affine::wires_set(p));
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -2044,7 +2048,7 @@ mod tests {
             ),
             G1Affine::wires_set_montgomery(p),
         );
-        circuit.gate_counts().print();
+        circuit.circuit_metricss().print();
         for mut gate in circuit.gates() {
             gate.evaluate();
         }
@@ -2071,9 +2075,9 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let expected_f = miller_loop(p, q);
-        let (f, gate_count) =
+        let (f, circuit_metrics) =
             miller_loop_evaluate_fast(G1Affine::wires_set(p), G2Affine::wires_set(q));
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_wires(f), expected_f);
     }
@@ -2085,11 +2089,11 @@ mod tests {
         let q = ark_bn254::G2Affine::rand(&mut prng);
 
         let expected_f = miller_loop(p, q);
-        let (f, gate_count) = miller_loop_evaluate_montgomery_fast(
+        let (f, circuit_metrics) = miller_loop_evaluate_montgomery_fast(
             G1Affine::wires_set_montgomery(p),
             G2Affine::wires_set_montgomery(q),
         );
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_montgomery_wires(f), expected_f);
     }
@@ -2122,11 +2126,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         let expected_f = multi_miller_loop(ps.clone(), qs.clone());
-        let (f, gate_count) = multi_miller_loop_evaluate_fast(
+        let (f, circuit_metrics) = multi_miller_loop_evaluate_fast(
             ps.iter().map(|p| G1Affine::wires_set(*p)).collect(),
             qs.iter().map(|q| G2Affine::wires_set(*q)).collect(),
         );
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_wires(f), expected_f);
     }
@@ -2143,7 +2147,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         let expected_f = multi_miller_loop(ps.clone(), qs.clone());
-        let (f, gate_count) = multi_miller_loop_evaluate_montgomery_fast(
+        let (f, circuit_metrics) = multi_miller_loop_evaluate_montgomery_fast(
             ps.iter()
                 .map(|p| G1Affine::wires_set_montgomery(*p))
                 .collect(),
@@ -2151,7 +2155,7 @@ mod tests {
                 .map(|q| G2Affine::wires_set_montgomery(*q))
                 .collect(),
         );
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_montgomery_wires(f), expected_f);
     }
@@ -2167,7 +2171,7 @@ mod tests {
         let q3 = ark_bn254::G2Affine::rand(&mut prng);
 
         let expected_f = multi_miller_loop(vec![p1, p2, p3], vec![q1, q2, q3]);
-        let (f, gate_count) = multi_miller_loop_groth16_evaluate_fast(
+        let (f, circuit_metrics) = multi_miller_loop_groth16_evaluate_fast(
             G1Affine::wires_set(p1),
             G1Affine::wires_set(p2),
             G1Affine::wires_set(p3),
@@ -2175,7 +2179,7 @@ mod tests {
             q2,
             G2Affine::wires_set(q3),
         );
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_wires(f), expected_f);
     }
@@ -2191,7 +2195,7 @@ mod tests {
         let q3 = ark_bn254::G2Affine::rand(&mut prng);
 
         let expected_f = multi_miller_loop(vec![p1, p2, p3], vec![q1, q2, q3]);
-        let (f, gate_count) = multi_miller_loop_groth16_evaluate_montgomery_fast(
+        let (f, circuit_metrics) = multi_miller_loop_groth16_evaluate_montgomery_fast(
             G1Affine::wires_set_montgomery(p1),
             G1Affine::wires_set_montgomery(p2),
             G1Affine::wires_set_montgomery(p3),
@@ -2199,7 +2203,7 @@ mod tests {
             q2,
             G2Affine::wires_set_montgomery(q3),
         );
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_montgomery_wires(f), expected_f);
     }

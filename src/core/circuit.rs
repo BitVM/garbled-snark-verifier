@@ -1,4 +1,4 @@
-use crate::{bag::*, core::gate::GateCount};
+use crate::{bag::*, core::gate::CircuitMetrics};
 use std::collections::HashMap;
 
 pub type GatesMap = HashMap<u64, Gate>;
@@ -63,7 +63,7 @@ impl Circuit {
         }
     }
 
-    pub fn gate_count(&self) -> usize {
+    pub fn circuit_metrics(&self) -> usize {
         self.gates.len()
     }
 
@@ -83,7 +83,7 @@ impl Circuit {
         fanout
     }
 
-    pub fn gate_counts(&self) -> GateCount {
+    pub fn circuit_metricss(&self) -> CircuitMetrics {
         let mut and = 0;
         let mut or = 0;
         let mut xor = 0;
@@ -105,7 +105,7 @@ impl Circuit {
                 _ => panic!("this gate type is not allowed"),
             }
         }
-        GateCount {
+        CircuitMetrics {
             and,
             or,
             xor,
@@ -114,6 +114,7 @@ impl Circuit {
             xnor,
             nimp,
             nsor,
+            fanout: self.fanout(),
         }
     }
 }

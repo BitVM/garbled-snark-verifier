@@ -269,7 +269,7 @@ mod tests {
                 U254::wires_set_from_number(b.clone()),
             );
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
             for mut gate in circuit.gates() {
                 gate.evaluate();
@@ -350,7 +350,7 @@ mod tests {
             let b = random_biguint_n_bits(254);
             let circuit = U254::mul_by_constant(U254::wires_set_from_number(a.clone()), b.clone());
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
             for mut gate in circuit.gates() {
                 gate.evaluate();
@@ -379,7 +379,7 @@ mod tests {
                 power,
             );
             let c = a * b % BigUint::from_str("2").unwrap().pow(power as u32);
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
             for mut gate in circuit.gates() {
                 gate.evaluate();

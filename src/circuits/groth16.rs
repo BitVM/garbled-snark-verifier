@@ -43,25 +43,25 @@ pub fn groth16_verifier_evaluate(
     proof_b: Wires,
     proof_c: Wires,
     vk: ark_groth16::VerifyingKey<ark_bn254::Bn254>,
-) -> (Wirex, GateCount) {
-    let mut gate_count = GateCount::zero();
+) -> (Wirex, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (msm_temp, gc) = (
         G1Projective::wires_set(
             ark_bn254::G1Projective::msm(&[vk.gamma_abc_g1[1]], &[Fr::from_wires(public.clone())])
                 .unwrap(),
         ),
-        GateCount::msm(),
+        CircuitMetrics::msm(),
     );
     // let (msm_temp, gc) = G1Projective::msm_with_constant_bases_evaluate::<10>(vec![public], vec![vk.gamma_abc_g1[1].into_group()]);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (msm, gc) = G1Projective::add_evaluate(
         msm_temp,
         G1Projective::wires_set(vk.gamma_abc_g1[0].into_group()),
     );
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let (msm_affine, gc) = projective_to_affine_evaluate(msm);
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let (f, gc) = multi_miller_loop_groth16_evaluate_fast(
         msm_affine,
@@ -71,7 +71,7 @@ pub fn groth16_verifier_evaluate(
         -vk.delta_g2,
         proof_b,
     );
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let alpha_beta = ark_bn254::Bn254::final_exponentiation(ark_bn254::Bn254::multi_miller_loop(
         [vk.alpha_g1.into_group()],
@@ -82,11 +82,11 @@ pub fn groth16_verifier_evaluate(
     .inverse()
     .unwrap();
     let (f, gc) = final_exponentiation_evaluate_fast(f); // Fq12::wires_set(ark_bn254::Bn254::final_exponentiation(MillerLoopOutput(Fq12::from_wires(f))).unwrap().0);
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let (result, gc) = Fq12::equal_constant_evaluate(f, alpha_beta);
-    gate_count += gc;
-    (result[0].clone(), gate_count)
+    circuit_metrics += gc;
+    (result[0].clone(), circuit_metrics)
 }
 
 pub fn groth16_verifier_evaluate_montgomery(
@@ -95,25 +95,25 @@ pub fn groth16_verifier_evaluate_montgomery(
     proof_b: Wires,
     proof_c: Wires,
     vk: ark_groth16::VerifyingKey<ark_bn254::Bn254>,
-) -> (Wirex, GateCount) {
-    let mut gate_count = GateCount::zero();
+) -> (Wirex, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (msm_temp, gc) = (
         G1Projective::wires_set_montgomery(
             ark_bn254::G1Projective::msm(&[vk.gamma_abc_g1[1]], &[Fr::from_wires(public.clone())])
                 .unwrap(),
         ),
-        GateCount::msm_montgomery(),
+        CircuitMetrics::msm_montgomery(),
     );
     // let (msm_temp, gc) = G1Projective::msm_with_constant_bases_evaluate_montgomery::<10>(vec![public], vec![vk.gamma_abc_g1[1].into_group()]);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (msm, gc) = G1Projective::add_evaluate_montgomery(
         msm_temp,
         G1Projective::wires_set_montgomery(vk.gamma_abc_g1[0].into_group()),
     );
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let (msm_affine, gc) = projective_to_affine_evaluate_montgomery(msm);
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let (f, gc) = multi_miller_loop_groth16_evaluate_montgomery_fast(
         msm_affine,
@@ -123,7 +123,7 @@ pub fn groth16_verifier_evaluate_montgomery(
         -vk.delta_g2,
         proof_b,
     );
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let alpha_beta = ark_bn254::Bn254::final_exponentiation(ark_bn254::Bn254::multi_miller_loop(
         [vk.alpha_g1.into_group()],
@@ -134,11 +134,11 @@ pub fn groth16_verifier_evaluate_montgomery(
     .inverse()
     .unwrap();
     let (f, gc) = final_exponentiation_evaluate_montgomery_fast(f); // Fq12::wires_set(ark_bn254::Bn254::final_exponentiation(MillerLoopOutput(Fq12::from_wires(f))).unwrap().0);
-    gate_count += gc;
+    circuit_metrics += gc;
 
     let (result, gc) = Fq12::equal_constant_evaluate(f, Fq12::as_montgomery(alpha_beta));
-    gate_count += gc;
-    (result[0].clone(), gate_count)
+    circuit_metrics += gc;
+    (result[0].clone(), circuit_metrics)
 }
 
 #[cfg(test)]
@@ -232,8 +232,9 @@ mod tests {
         let proof_b = G2Affine::wires_set(proof.b);
         let proof_c = G1Affine::wires_set(proof.c);
 
-        let (result, gate_count) = groth16_verifier_evaluate(public, proof_a, proof_b, proof_c, vk);
-        gate_count.print();
+        let (result, circuit_metrics) =
+            groth16_verifier_evaluate(public, proof_a, proof_b, proof_c, vk);
+        circuit_metrics.print();
         assert!(result.borrow().get_value());
     }
 
@@ -261,9 +262,9 @@ mod tests {
         let proof_b = G2Affine::wires_set_montgomery(proof.b);
         let proof_c = G1Affine::wires_set_montgomery(proof.c);
 
-        let (result, gate_count) =
+        let (result, circuit_metrics) =
             groth16_verifier_evaluate_montgomery(public, proof_a, proof_b, proof_c, vk);
-        gate_count.print();
+        circuit_metrics.print();
         assert!(result.borrow().get_value());
     }
 }
