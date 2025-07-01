@@ -449,7 +449,7 @@ mod tests {
         for _ in 0..10 {
             let a = random_biguint_n_bits(254);
             let b = random_biguint_n_bits(254);
-            let mut circuit = U254::optimized_sub(
+            let circuit = U254::optimized_sub(
                 U254::wires_set_from_number(a.clone()),
                 U254::wires_set_from_number(b.clone()),
                 true,

@@ -252,10 +252,10 @@ pub trait Fp254Impl {
     }
 
     fn mul_montgomery(a: Wires, b: Wires) -> Circuit {
-        let mul_circuit = U254::mul_karatsuba(a, b);
-        let reduction_circuit = Self::montgomery_reduce(mul_circuit.wires.clone());
-        let mut result_circuit = Circuit::new(reduction_circuit.wires.clone(), mul_circuit.gates());
-        result_circuit.add_gates(reduction_circuit.gates());
+        let mul_circuit = U254::mul(a, b);
+        let reduction_circuit = Self::montgomery_reduce(mul_circuit.wires());
+        let result_circuit = Circuit::new(reduction_circuit.wires(), mul_circuit.gates());
+        result_circuit.gates().extend(reduction_circuit.gates());
         result_circuit
     }
 
@@ -308,9 +308,9 @@ pub trait Fp254Impl {
         }
 
         let mul_circuit = U254::mul_by_constant(a, b.into());
-        let reduction_circuit = Self::montgomery_reduce(mul_circuit.wires.clone());
-        let mut result_circuit = Circuit::new(reduction_circuit.wires.clone(), mul_circuit.gates());
-        result_circuit.add_gates(reduction_circuit.gates());
+        let reduction_circuit = Self::montgomery_reduce(mul_circuit.wires());
+        let result_circuit = Circuit::new(reduction_circuit.wires(), mul_circuit.gates());
+        result_circuit.gates().extend(reduction_circuit.gates());
         result_circuit
     }
 
