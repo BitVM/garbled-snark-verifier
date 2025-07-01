@@ -1,5 +1,6 @@
 use crate::circuits::bigint::U254;
 use crate::{bag::*, circuits::bn254::fp254impl::Fp254Impl};
+use ark_ff::Field;
 use ark_ff::{PrimeField, UniformRand};
 use ark_std::rand::SeedableRng;
 use num_bigint::BigUint;
@@ -103,12 +104,10 @@ impl Fq {
         let exp = ark_bn254::Fq::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO);
         let y = circuit.extend(Fq::exp_by_constant_montgomery(x.clone(), exp));
 
-        // neg_one = MODULUS - 1
-        let neg_one = BigUint::from_str(
-            "21888242871839275222246405745257275088696311157297823662689037894645226208582",
-        )
-        .unwrap();
-        let is_qnr = circuit.extend(U254::equal_constant(y, neg_one));
+        let neg_one = -ark_bn254::Fq::ONE;
+        let neg_one_mont = Fq::wires_set_montgomery(neg_one);
+
+        let is_qnr = circuit.extend(U254::equal(y, neg_one_mont));
 
         circuit.add_wires(is_qnr);
         circuit
@@ -129,7 +128,7 @@ impl Fq {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_ff::{AdditiveGroup, Field};
+    use ark_ff::AdditiveGroup;
     use ark_std::test_rng;
 
     #[test]
@@ -399,13 +398,18 @@ mod tests {
             gate.evaluate();
         }
         let c = Fq::from_montgomery_wires(circuit.0);
-        assert_eq!(c * c, aa);
+        let la = match a > -a {
+            true => a,
+            false => -a,
+        };
+        assert_eq!(c, la);
     }
 
     #[test]
     fn test_fq_is_qnr_montgomery() {
         use num_traits::One;
         let a = Fq::random();
+        println!("{}", a.legendre().is_qnr());
         let circuit = Fq::is_qnr_montgomery(Fq::wires_set_montgomery(a));
         circuit.gate_counts().print();
         for mut gate in circuit.1 {

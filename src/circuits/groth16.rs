@@ -2,12 +2,16 @@ use crate::bag::*;
 use crate::circuits::bn254::finalexp::{
     final_exponentiation_evaluate_fast, final_exponentiation_evaluate_montgomery_fast,
 };
+use crate::circuits::bn254::fp254impl::Fp254Impl;
+use crate::circuits::bn254::fq::Fq;
+use crate::circuits::bn254::fq2::Fq2;
 use crate::circuits::bn254::fq12::Fq12;
 use crate::circuits::bn254::fr::Fr;
 use crate::circuits::bn254::g1::{
     G1Projective, projective_to_affine_evaluate, projective_to_affine_evaluate_montgomery,
 };
 use crate::circuits::bn254::pairing::{
+    deserialize_compressed_g1_circuit, deserialize_compressed_g2_circuit,
     multi_miller_loop_groth16_evaluate_fast, multi_miller_loop_groth16_evaluate_montgomery_fast,
 };
 use ark_ec::pairing::Pairing;
@@ -91,12 +95,43 @@ pub fn groth16_verifier_evaluate(
 
 pub fn groth16_verifier_evaluate_montgomery(
     public: Wires,
-    proof_a: Wires,
-    proof_b: Wires,
-    proof_c: Wires,
+    proof_a_compressed: Wires,
+    proof_b_compressed: Wires,
+    proof_c_compressed: Wires,
     vk: ark_groth16::VerifyingKey<ark_bn254::Bn254>,
+    compressed: bool,
 ) -> (Wirex, GateCount) {
     let mut gate_count = GateCount::zero();
+
+    let mut proof_a = proof_a_compressed;
+    let mut proof_b = proof_b_compressed;
+    let mut proof_c = proof_c_compressed;
+    let mut gc;
+    if compressed {
+        println!("decompress a");
+        (proof_a, gc) = deserialize_compressed_g1_circuit(
+            proof_a[..Fq::N_BITS].to_vec(),
+            proof_a[Fq::N_BITS].clone(),
+        );
+        gate_count += gc;
+        assert_eq!(proof_a.len(), 2 * Fq::N_BITS);
+        println!("decompress b");
+        (proof_b, gc) = deserialize_compressed_g2_circuit(
+            proof_b[..Fq2::N_BITS].to_vec(),
+            proof_b[Fq2::N_BITS].clone(),
+        );
+        gate_count += gc;
+        assert_eq!(proof_b.len(), 2 * Fq2::N_BITS);
+        println!("decompress c");
+        (proof_c, gc) = deserialize_compressed_g1_circuit(
+            proof_c[..Fq::N_BITS].to_vec(),
+            proof_c[Fq::N_BITS].clone(),
+        );
+        gate_count += gc;
+        assert_eq!(proof_c.len(), 2 * Fq::N_BITS);
+        println!("decompress done");
+    }
+
     let (msm_temp, gc) = (
         G1Projective::wires_set_montgomery(
             ark_bn254::G1Projective::msm(&[vk.gamma_abc_g1[1]], &[Fr::from_wires(public.clone())])
@@ -144,6 +179,8 @@ pub fn groth16_verifier_evaluate_montgomery(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::circuits::bn254::fq::Fq;
+    use crate::circuits::bn254::fq2::Fq2;
     use crate::circuits::bn254::g1::G1Affine;
     use crate::circuits::bn254::g2::G2Affine;
     use ark_crypto_primitives::snark::{CircuitSpecificSetupSNARK, SNARK};
@@ -262,7 +299,53 @@ mod tests {
         let proof_c = G1Affine::wires_set_montgomery(proof.c);
 
         let (result, gate_count) =
-            groth16_verifier_evaluate_montgomery(public, proof_a, proof_b, proof_c, vk);
+            groth16_verifier_evaluate_montgomery(public, proof_a, proof_b, proof_c, vk, false);
+        gate_count.print();
+        assert!(result.borrow().get_value());
+    }
+
+    #[test]
+    fn test_groth16_verifier_evaluate_montgomery_with_compressed_proof() {
+        let k = 6;
+        let mut rng = ark_std::rand::rngs::StdRng::seed_from_u64(test_rng().next_u64());
+        let circuit = DummyCircuit::<<ark_bn254::Bn254 as Pairing>::ScalarField> {
+            a: Some(<ark_bn254::Bn254 as Pairing>::ScalarField::rand(&mut rng)),
+            b: Some(<ark_bn254::Bn254 as Pairing>::ScalarField::rand(&mut rng)),
+            num_variables: 10,
+            num_constraints: 1 << k,
+        };
+        let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
+
+        let c = circuit.a.unwrap() * circuit.b.unwrap();
+
+        let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
+        assert!(groth16_verifier(vec![c], proof.clone(), vk.clone()));
+
+        println!("proof is correct in rust");
+
+        let public = Fr::wires_set(c);
+
+        let proof_a_y_flag = new_wirex();
+        let sy = (proof.a.y.square()).sqrt().unwrap();
+        proof_a_y_flag.borrow_mut().set(sy == proof.a.y);
+
+        let proof_b_y_flag = new_wirex();
+        let sy = (proof.b.y.square()).sqrt().unwrap();
+        proof_b_y_flag.borrow_mut().set(sy == proof.b.y);
+
+        let proof_c_y_flag = new_wirex();
+        let sy = (proof.c.y.square()).sqrt().unwrap();
+        proof_c_y_flag.borrow_mut().set(sy == proof.c.y);
+
+        let mut proof_a = Fq::wires_set_montgomery(proof.a.x);
+        proof_a.push(proof_a_y_flag);
+        let mut proof_b = Fq2::wires_set_montgomery(proof.b.x);
+        proof_b.push(proof_b_y_flag);
+        let mut proof_c = Fq::wires_set_montgomery(proof.c.x);
+        proof_c.push(proof_c_y_flag);
+
+        let (result, gate_count) =
+            groth16_verifier_evaluate_montgomery(public, proof_a, proof_b, proof_c, vk, true);
         gate_count.print();
         assert!(result.borrow().get_value());
     }
