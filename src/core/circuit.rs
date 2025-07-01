@@ -75,6 +75,14 @@ impl Circuit {
         self.wires.clone()
     }
 
+    pub fn fanout(&self) -> usize {
+        let mut fanout = 0;
+        for gates in self.wires2gates.values() {
+            fanout += gates.len();
+        }
+        fanout
+    }
+
     pub fn gate_counts(&self) -> GateCount {
         let mut and = 0;
         let mut or = 0;
