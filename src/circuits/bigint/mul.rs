@@ -133,7 +133,9 @@ pub fn mul_karatsuba_generic(a_wires: &Wires, b_wires: &Wires, len: usize) -> Ci
             circuit.wires[(2 * len_0)..].clone_from_slice(&new_segment[..(2 * len_1)]);
         }
 
-        if circuit.gate_count() < min_circuit.gate_count() || min_circuit.gate_count() == 0 {
+        if circuit.circuit_metrics() < min_circuit.circuit_metrics()
+            || min_circuit.circuit_metrics() == 0
+        {
             set_karatsuba_decision_flag(len, true);
             min_circuit = circuit;
         }
@@ -296,7 +298,7 @@ mod tests {
                 U254::wires_set_from_number(b.clone()),
             );
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
             for mut gate in circuit.gates() {
                 gate.evaluate();
@@ -326,7 +328,7 @@ mod tests {
                 T::wires_set_from_number(b.clone()),
             );
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
             for mut gate in circuit.gates() {
                 gate.evaluate();
