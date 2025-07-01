@@ -1,12 +1,10 @@
 use crate::{bag::*, core::gate::CircuitMetrics};
-use std::collections::BTreeMap;
-
-pub type GatesMap = BTreeMap<u64, Gate>;
+use std::collections::HashMap;
 
 pub struct Circuit {
     pub wires: Wires,
-    pub gates: GatesMap,
-    wires2gates: BTreeMap<S, Vec<u64>>, // maps wire index to fan-out gates indexs
+    pub gates: Vec<Gate>,
+    wires2gates: HashMap<S, Vec<u64>>, // maps wire index to fan-out gates indexs
     gates_num: u64,
 }
 
@@ -14,8 +12,8 @@ impl Circuit {
     pub fn empty() -> Self {
         Self {
             wires: Vec::new(),
-            gates: BTreeMap::new(),
-            wires2gates: BTreeMap::new(),
+            gates: Vec::new(),
+            wires2gates: HashMap::new(),
             gates_num: 0,
         }
     }
@@ -30,12 +28,12 @@ impl Circuit {
     }
 
     pub fn garbled_gates(&self) -> Vec<Vec<S>> {
-        self.gates.iter().map(|(_, gate)| gate.garbled()).collect()
+        self.gates.iter().map(|gate| gate.garbled()).collect()
     }
 
     /// add gates from a circuit, return the wires of the circuit
     pub fn extend(&mut self, circuit: Self) -> Wires {
-        for (_, gate) in circuit.gates.into_iter() {
+        for gate in circuit.gates.into_iter() {
             self.add(gate);
         }
         circuit.wires
@@ -49,7 +47,7 @@ impl Circuit {
                 .or_insert_with(Vec::new)
                 .push(self.gates_num);
         }
-        self.gates.insert(self.gates_num, gate);
+        self.gates.push(gate);
         self.gates_num += 1;
     }
 
@@ -58,9 +56,7 @@ impl Circuit {
     }
 
     pub fn add_wires(&mut self, wires: Wires) {
-        for wire in wires {
-            self.add_wire(wire);
-        }
+        self.wires.extend(wires);
     }
 
     pub fn add_gates(&mut self, gates: Vec<Gate>) {
@@ -74,7 +70,7 @@ impl Circuit {
     }
 
     pub fn gates(&self) -> Vec<Gate> {
-        self.gates.iter().map(|(_, gate)| gate.clone()).collect()
+        self.gates.iter().map(|gate| gate.clone()).collect()
     }
 
     pub fn wires(&self) -> Wires {
@@ -106,7 +102,7 @@ impl Circuit {
         let mut xnor = 0;
         let mut nimp = 0;
         let mut nsor = 0;
-        for (_, gate) in self.gates.iter() {
+        for gate in self.gates.iter() {
             match gate.name.as_str() {
                 "and" => and += 1,
                 "or" => or += 1,
