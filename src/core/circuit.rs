@@ -1,39 +1,70 @@
 use crate::{bag::*, core::gate::GateCount};
+use std::collections::HashMap;
 
-pub struct Circuit(pub Wires, pub Vec<Gate>);
+pub type GatesMap = HashMap<u64, Gate>;
+
+pub struct Circuit {
+    pub wires: Wires,
+    pub gates: GatesMap,
+    wires2gates: HashMap<S, Vec<u64>>, // maps wire index to fan-out gates indexs
+    gates_num: u64,
+}
 
 impl Circuit {
     pub fn empty() -> Self {
-        Self(Vec::new(), Vec::new())
+        Self {
+            wires: Vec::new(),
+            gates: HashMap::new(),
+            wires2gates: HashMap::new(),
+            gates_num: 0,
+        }
     }
 
     pub fn new(wires: Wires, gates: Vec<Gate>) -> Self {
-        Self(wires, gates)
+        let mut circuit = Self::empty();
+        circuit.add_wires(wires);
+        for gate in gates {
+            circuit.add(gate);
+        }
+        circuit
     }
 
     pub fn garbled_gates(&self) -> Vec<Vec<S>> {
-        self.1.iter().map(|gate| gate.garbled()).collect()
+        self.gates.iter().map(|(_, gate)| gate.garbled()).collect()
     }
 
+    /// add gates from a circuit, return the wires of the circuit
     pub fn extend(&mut self, circuit: Self) -> Wires {
-        self.1.extend(circuit.1);
-        circuit.0
+        for (_, gate) in circuit.gates {
+            self.add(gate);
+        }
+        circuit.wires
     }
 
     pub fn add(&mut self, gate: Gate) {
-        self.1.push(gate);
+        for wire in [gate.wire_a.clone(), gate.wire_b.clone()] {
+            let wire_index = wire.borrow().get_label0(); // use the label0 as index
+            self.wires2gates
+                .entry(wire_index)
+                .or_insert_with(Vec::new)
+                .push(self.gates_num);
+        }
+        self.gates.insert(self.gates_num, gate);
+        self.gates_num += 1;
     }
 
     pub fn add_wire(&mut self, wire: Wirex) {
-        self.0.push(wire);
+        self.wires.push(wire);
     }
 
     pub fn add_wires(&mut self, wires: Wires) {
-        self.0.extend(wires);
+        for wire in wires {
+            self.add_wire(wire);
+        }
     }
 
     pub fn gate_count(&self) -> usize {
-        self.1.len()
+        self.gates.len()
     }
 
     pub fn gate_counts(&self) -> GateCount {
@@ -45,7 +76,7 @@ impl Circuit {
         let mut xnor = 0;
         let mut nimp = 0;
         let mut nsor = 0;
-        for gate in self.1.clone() {
+        for (_, gate) in self.gates.iter() {
             match gate.name.as_str() {
                 "and" => and += 1,
                 "or" => or += 1,
