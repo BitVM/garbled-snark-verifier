@@ -230,19 +230,19 @@ impl G1Projective {
     pub fn add_evaluate(p: Wires, q: Wires) -> (Wires, GateCount) {
         let circuit = Self::add(p, q);
         let n = circuit.gate_counts();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        (circuit.0, n)
+        (circuit.wires, n)
     }
 
     pub fn add_evaluate_montgomery(p: Wires, q: Wires) -> (Wires, GateCount) {
         let circuit = Self::add_montgomery(p, q);
         let n = circuit.gate_counts();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        (circuit.0, n)
+        (circuit.wires, n)
     }
 
     pub fn double(p: Wires) -> Circuit {
@@ -342,10 +342,10 @@ impl G1Projective {
     pub fn multiplexer_evaluate(a: Vec<Wires>, s: Wires, w: usize) -> (Wires, GateCount) {
         let circuit = Self::multiplexer(a, s, w);
         let n = circuit.gate_counts();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        (circuit.0, n)
+        (circuit.wires, n)
     }
 
     pub fn scalar_mul_by_constant_base<const W: usize>(
@@ -671,10 +671,10 @@ pub fn projective_to_affine(p: Wires) -> Circuit {
 pub fn projective_to_affine_evaluate(p: Wires) -> (Wires, GateCount) {
     let circuit = projective_to_affine(p);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn projective_to_affine_montgomery(p: Wires) -> Circuit {
@@ -700,10 +700,10 @@ pub fn projective_to_affine_montgomery(p: Wires) -> Circuit {
 pub fn projective_to_affine_evaluate_montgomery(p: Wires) -> (Wires, GateCount) {
     let circuit = projective_to_affine_montgomery(p);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 #[cfg(test)]
@@ -740,10 +740,10 @@ mod tests {
         let p_affine = p_projective.into_affine();
         let circuit = projective_to_affine(G1Projective::wires_set(p_projective));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let p_affine2 = G1Affine::from_wires(circuit.0);
+        let p_affine2 = G1Affine::from_wires(circuit.wires);
         assert_eq!(p_affine, p_affine2);
     }
 
@@ -755,10 +755,10 @@ mod tests {
         let circuit =
             projective_to_affine_montgomery(G1Projective::wires_set_montgomery(p_projective));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let p_affine2 = G1Affine::from_montgomery_wires_unchecked(circuit.0);
+        let p_affine2 = G1Affine::from_montgomery_wires_unchecked(circuit.wires);
         assert_eq!(p_affine, p_affine2);
     }
 
@@ -770,31 +770,31 @@ mod tests {
         let c = ark_bn254::G1Projective::ZERO;
         let circuit = G1Projective::add(G1Projective::wires_set(a), G1Projective::wires_set(b));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires(circuit.0);
+        let d = G1Projective::from_wires(circuit.wires);
         assert_eq!(d, a + b);
 
         let circuit = G1Projective::add(G1Projective::wires_set(a), G1Projective::wires_set(c));
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires(circuit.0);
+        let d = G1Projective::from_wires(circuit.wires);
         assert_eq!(d, a);
 
         let circuit = G1Projective::add(G1Projective::wires_set(c), G1Projective::wires_set(b));
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires(circuit.0);
+        let d = G1Projective::from_wires(circuit.wires);
         assert_eq!(d, b);
 
         let circuit = G1Projective::add(G1Projective::wires_set(c), G1Projective::wires_set(c));
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires(circuit.0);
+        let d = G1Projective::from_wires(circuit.wires);
         assert_eq!(d, c);
     }
 
@@ -809,40 +809,40 @@ mod tests {
             G1Projective::wires_set_montgomery(b),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires_unchecked(circuit.0);
+        let d = G1Projective::from_wires_unchecked(circuit.wires);
         assert_eq!(d, G1Projective::as_montgomery(a + b));
 
         let circuit = G1Projective::add(
             G1Projective::wires_set_montgomery(a),
             G1Projective::wires_set_montgomery(c),
         );
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires_unchecked(circuit.0);
+        let d = G1Projective::from_wires_unchecked(circuit.wires);
         assert_eq!(d, G1Projective::as_montgomery(a));
 
         let circuit = G1Projective::add(
             G1Projective::wires_set_montgomery(c),
             G1Projective::wires_set_montgomery(b),
         );
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires_unchecked(circuit.0);
+        let d = G1Projective::from_wires_unchecked(circuit.wires);
         assert_eq!(d, G1Projective::as_montgomery(b));
 
         let circuit = G1Projective::add(
             G1Projective::wires_set_montgomery(c),
             G1Projective::wires_set_montgomery(c),
         );
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let d = G1Projective::from_wires_unchecked(circuit.0);
+        let d = G1Projective::from_wires_unchecked(circuit.wires);
         assert_eq!(d, G1Projective::as_montgomery(c));
     }
 
@@ -875,18 +875,18 @@ mod tests {
         let a = G1Projective::random();
         let circuit = G1Projective::double(G1Projective::wires_set(a));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = G1Projective::from_wires(circuit.0);
+        let c = G1Projective::from_wires(circuit.wires);
         assert_eq!(c, a + a);
 
         let b = ark_bn254::G1Projective::ZERO;
         let circuit = G1Projective::double(G1Projective::wires_set(b));
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = G1Projective::from_wires(circuit.0);
+        let c = G1Projective::from_wires(circuit.wires);
         assert_eq!(c, b);
     }
 
@@ -895,18 +895,18 @@ mod tests {
         let a = G1Projective::random();
         let circuit = G1Projective::double_montgomery(G1Projective::wires_set_montgomery(a));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = G1Projective::from_wires_unchecked(circuit.0);
+        let c = G1Projective::from_wires_unchecked(circuit.wires);
         assert_eq!(c, G1Projective::as_montgomery(a + a));
 
         let b = ark_bn254::G1Projective::ZERO;
         let circuit = G1Projective::double(G1Projective::wires_set_montgomery(b));
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = G1Projective::from_wires_unchecked(circuit.0);
+        let c = G1Projective::from_wires_unchecked(circuit.wires);
         assert_eq!(c, G1Projective::as_montgomery(b));
     }
 
@@ -933,11 +933,11 @@ mod tests {
         let circuit = G1Projective::multiplexer(a_wires, s.clone(), w);
         circuit.gate_counts().print();
 
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
 
-        let result = G1Projective::from_wires(circuit.0);
+        let result = G1Projective::from_wires(circuit.wires);
         let expected = a[u];
 
         assert_eq!(result, expected);
@@ -977,10 +977,10 @@ mod tests {
         let s = Fr::random();
         let circuit = G1Projective::scalar_mul_by_constant_base::<10>(Fr::wires_set(s), base);
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let result = G1Projective::from_wires(circuit.0);
+        let result = G1Projective::from_wires(circuit.wires);
         assert_eq!(result, base * s);
     }
 

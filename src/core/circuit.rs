@@ -67,6 +67,14 @@ impl Circuit {
         self.gates.len()
     }
 
+    pub fn gates(&self) -> Vec<Gate> {
+        self.gates.iter().map(|(_, gate)| gate.clone()).collect()
+    }
+
+    pub fn wires(&self) -> Wires {
+        self.wires.clone()
+    }
+
     pub fn gate_counts(&self) -> GateCount {
         let mut and = 0;
         let mut or = 0;
@@ -135,7 +143,7 @@ mod tests {
             if correct { "correct" } else { "incorrect" }
         );
 
-        for (i, (gate, garble)) in zip(circuit.1.clone(), garbled_gates).enumerate() {
+        for (i, (gate, garble)) in zip(circuit.gates().clone(), garbled_gates).enumerate() {
             let a = gate.wire_a.borrow().get_label();
             let b = gate.wire_b.borrow().get_label();
             let bit_a = gate.wire_a.borrow().get_value();
@@ -193,7 +201,7 @@ mod tests {
             if correct { "correct" } else { "incorrect" }
         );
 
-        for (i, (gate, garble)) in zip(circuit.1.clone(), garbled_gates).enumerate() {
+        for (i, (gate, garble)) in zip(circuit.gates().clone(), garbled_gates).enumerate() {
             let a = gate.wire_a.borrow().get_label();
             let b = gate.wire_b.borrow().get_label();
             let bit_a = gate.wire_a.borrow().get_value();

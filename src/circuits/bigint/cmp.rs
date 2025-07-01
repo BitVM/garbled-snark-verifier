@@ -160,10 +160,10 @@ mod tests {
             U254::wires_set_from_number(b.clone()),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert_eq!(a == b, circuit.0[0].borrow().get_value());
+        assert_eq!(a == b, circuit.wires[0].borrow().get_value());
 
         let a = random_biguint_n_bits(254);
         let circuit = U254::equal(
@@ -171,18 +171,18 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert!(circuit.0[0].borrow().get_value());
+        assert!(circuit.wires[0].borrow().get_value());
 
         let a = random_biguint_n_bits(254);
         let circuit = U254::equal_constant(U254::wires_set_from_number(a.clone()), b.clone());
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert_eq!(a == b, circuit.0[0].borrow().get_value());
+        assert_eq!(a == b, circuit.wires[0].borrow().get_value());
     }
 
     #[test]
@@ -194,10 +194,10 @@ mod tests {
             U254::wires_set_from_number(b.clone()),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert_eq!(a > b, circuit.0[0].borrow().get_value());
+        assert_eq!(a > b, circuit.wires[0].borrow().get_value());
 
         let a = random_biguint_n_bits(254);
         let circuit = U254::greater_than(
@@ -205,10 +205,10 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert!(!circuit.0[0].borrow().get_value());
+        assert!(!circuit.wires[0].borrow().get_value());
 
         let a = random_biguint_n_bits(254);
         let circuit = U254::greater_than(
@@ -216,10 +216,10 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert!(circuit.0[0].borrow().get_value());
+        assert!(circuit.wires[0].borrow().get_value());
     }
 
     #[test]
@@ -228,10 +228,10 @@ mod tests {
         let b = random_biguint_n_bits(254);
         let circuit = U254::less_than_constant(U254::wires_set_from_number(a.clone()), b.clone());
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        assert_eq!(a < b, circuit.0[0].borrow().get_value());
+        assert_eq!(a < b, circuit.wires[0].borrow().get_value());
     }
 
     #[test]
@@ -246,10 +246,10 @@ mod tests {
             s,
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(a, c);
     }
 
@@ -261,19 +261,19 @@ mod tests {
         s.borrow_mut().set(true);
         let circuit = U254::self_or_zero(U254::wires_set_from_number(a.clone()), s);
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(a, c);
 
         let s = new_wirex();
         s.borrow_mut().set(false);
         let circuit = U254::self_or_zero(U254::wires_set_from_number(a.clone()), s);
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, BigUint::ZERO);
     }
 
@@ -299,11 +299,11 @@ mod tests {
         let circuit = U254::multiplexer(a_wires, s.clone(), w);
         circuit.gate_counts().print();
 
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
 
-        let result = biguint_from_wires(circuit.0);
+        let result = biguint_from_wires(circuit.wires);
         let expected = a[u].clone();
 
         assert_eq!(result, expected);

@@ -161,26 +161,26 @@ pub fn double_in_place_circuit_montgomery(r: Wires) -> Circuit {
 pub fn double_in_place_evaluate(r: Wires) -> ((Wires, Wires, Wires), Wires, GateCount) {
     let circuit = double_in_place_circuit(r);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    let c0 = circuit.0[0..Fq2::N_BITS].to_vec();
-    let c1 = circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
-    let c2 = circuit.0[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
-    let r = circuit.0[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
+    let c0 = circuit.wires[0..Fq2::N_BITS].to_vec();
+    let c1 = circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
+    let c2 = circuit.wires[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
+    let r = circuit.wires[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
     ((c0, c1, c2), r, n)
 }
 
 pub fn double_in_place_evaluate_montgomery(r: Wires) -> ((Wires, Wires, Wires), Wires, GateCount) {
     let circuit = double_in_place_circuit_montgomery(r);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    let c0 = circuit.0[0..Fq2::N_BITS].to_vec();
-    let c1 = circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
-    let c2 = circuit.0[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
-    let r = circuit.0[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
+    let c0 = circuit.wires[0..Fq2::N_BITS].to_vec();
+    let c1 = circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
+    let c2 = circuit.wires[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
+    let r = circuit.wires[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
     ((c0, c1, c2), r, n)
 }
 
@@ -343,13 +343,13 @@ pub fn add_in_place_circuit_montgomery(r: Wires, q: Wires) -> Circuit {
 pub fn add_in_place_evaluate(r: Wires, q: Wires) -> ((Wires, Wires, Wires), Wires, GateCount) {
     let circuit = add_in_place_circuit(r, q);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    let c0 = circuit.0[0..Fq2::N_BITS].to_vec();
-    let c1 = circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
-    let c2 = circuit.0[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
-    let r = circuit.0[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
+    let c0 = circuit.wires[0..Fq2::N_BITS].to_vec();
+    let c1 = circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
+    let c2 = circuit.wires[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
+    let r = circuit.wires[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
     ((c0, c1, c2), r, n)
 }
 
@@ -359,13 +359,13 @@ pub fn add_in_place_evaluate_montgomery(
 ) -> ((Wires, Wires, Wires), Wires, GateCount) {
     let circuit = add_in_place_circuit_montgomery(r, q);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    let c0 = circuit.0[0..Fq2::N_BITS].to_vec();
-    let c1 = circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
-    let c2 = circuit.0[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
-    let r = circuit.0[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
+    let c0 = circuit.wires[0..Fq2::N_BITS].to_vec();
+    let c1 = circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec();
+    let c2 = circuit.wires[Fq2::N_BITS * 2..Fq2::N_BITS * 3].to_vec();
+    let r = circuit.wires[Fq2::N_BITS * 3..Fq2::N_BITS * 6].to_vec();
     ((c0, c1, c2), r, n)
 }
 
@@ -421,19 +421,19 @@ pub fn mul_by_char_circuit_montgomery(r: Wires) -> Circuit {
 pub fn mul_by_char_evaluate(r: Wires) -> (Wires, GateCount) {
     let circuit = mul_by_char_circuit(r);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn mul_by_char_evaluate_montgomery(r: Wires) -> (Wires, GateCount) {
     let circuit = mul_by_char_circuit_montgomery(r);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn g2_affine_neg_evaluate(r: Wires) -> (Wires, GateCount) {
@@ -444,10 +444,10 @@ pub fn g2_affine_neg_evaluate(r: Wires) -> (Wires, GateCount) {
     circuit.add_wires(x);
     circuit.add_wires(new_y);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn ell_coeffs(q: ark_bn254::G2Affine) -> Vec<(ark_bn254::Fq2, ark_bn254::Fq2, ark_bn254::Fq2)> {
@@ -786,10 +786,10 @@ pub fn ell_circuit_montgomery(f: Wires, coeffs: (Wires, Wires, Wires), p: Wires)
 pub fn ell_evaluate(f: Wires, coeffs: (Wires, Wires, Wires), p: Wires) -> (Wires, GateCount) {
     let circuit = ell_circuit(f, coeffs, p);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn ell_evaluate_montgomery(
@@ -799,10 +799,10 @@ pub fn ell_evaluate_montgomery(
 ) -> (Wires, GateCount) {
     let circuit = ell_circuit_montgomery(f, coeffs, p);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn ell_by_constant_circuit(
@@ -854,10 +854,10 @@ pub fn ell_by_constant_evaluate(
 ) -> (Wires, GateCount) {
     let circuit = ell_by_constant_circuit(f, coeffs, p);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn ell_by_constant_evaluate_montgomery(
@@ -867,10 +867,10 @@ pub fn ell_by_constant_evaluate_montgomery(
 ) -> (Wires, GateCount) {
     let circuit = ell_by_constant_circuit_montgomery(f, coeffs, p);
     let n = circuit.gate_counts();
-    for mut gate in circuit.1 {
+    for mut gate in circuit.gates() {
         gate.evaluate();
     }
-    (circuit.0, n)
+    (circuit.wires, n)
 }
 
 pub fn miller_loop(p: ark_bn254::G1Affine, q: ark_bn254::G2Affine) -> ark_bn254::Fq12 {
@@ -1751,15 +1751,15 @@ mod tests {
 
         let circuit = double_in_place_circuit(G2Projective::wires_set(r));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c0 = Fq2::from_wires(circuit.0[0..Fq2::N_BITS].to_vec());
-        let c1 = Fq2::from_wires(circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
-        let c2 = Fq2::from_wires(circuit.0[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
-        let rx = Fq2::from_wires(circuit.0[3 * Fq2::N_BITS..4 * Fq2::N_BITS].to_vec());
-        let ry = Fq2::from_wires(circuit.0[4 * Fq2::N_BITS..5 * Fq2::N_BITS].to_vec());
-        let rz = Fq2::from_wires(circuit.0[5 * Fq2::N_BITS..6 * Fq2::N_BITS].to_vec());
+        let c0 = Fq2::from_wires(circuit.wires[0..Fq2::N_BITS].to_vec());
+        let c1 = Fq2::from_wires(circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
+        let c2 = Fq2::from_wires(circuit.wires[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
+        let rx = Fq2::from_wires(circuit.wires[3 * Fq2::N_BITS..4 * Fq2::N_BITS].to_vec());
+        let ry = Fq2::from_wires(circuit.wires[4 * Fq2::N_BITS..5 * Fq2::N_BITS].to_vec());
+        let rz = Fq2::from_wires(circuit.wires[5 * Fq2::N_BITS..6 * Fq2::N_BITS].to_vec());
         let coeffs = double_in_place(&mut r);
         assert_eq!(c0, coeffs.0);
         assert_eq!(c1, coeffs.1);
@@ -1777,15 +1777,19 @@ mod tests {
 
         let circuit = double_in_place_circuit_montgomery(G2Projective::wires_set_montgomery(r));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c0 = Fq2::from_montgomery_wires(circuit.0[0..Fq2::N_BITS].to_vec());
-        let c1 = Fq2::from_montgomery_wires(circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
-        let c2 = Fq2::from_montgomery_wires(circuit.0[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
-        let rx = Fq2::from_montgomery_wires(circuit.0[3 * Fq2::N_BITS..4 * Fq2::N_BITS].to_vec());
-        let ry = Fq2::from_montgomery_wires(circuit.0[4 * Fq2::N_BITS..5 * Fq2::N_BITS].to_vec());
-        let rz = Fq2::from_montgomery_wires(circuit.0[5 * Fq2::N_BITS..6 * Fq2::N_BITS].to_vec());
+        let c0 = Fq2::from_montgomery_wires(circuit.wires[0..Fq2::N_BITS].to_vec());
+        let c1 = Fq2::from_montgomery_wires(circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
+        let c2 =
+            Fq2::from_montgomery_wires(circuit.wires[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
+        let rx =
+            Fq2::from_montgomery_wires(circuit.wires[3 * Fq2::N_BITS..4 * Fq2::N_BITS].to_vec());
+        let ry =
+            Fq2::from_montgomery_wires(circuit.wires[4 * Fq2::N_BITS..5 * Fq2::N_BITS].to_vec());
+        let rz =
+            Fq2::from_montgomery_wires(circuit.wires[5 * Fq2::N_BITS..6 * Fq2::N_BITS].to_vec());
         let coeffs = double_in_place(&mut r);
         assert_eq!(c0, coeffs.0);
         assert_eq!(c1, coeffs.1);
@@ -1804,19 +1808,20 @@ mod tests {
 
         let circuit = add_in_place_circuit(G2Projective::wires_set(r), G2Affine::wires_set(q));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c0 = Fq2::from_wires(circuit.0[0..Fq2::N_BITS].to_vec());
-        let c1 = Fq2::from_wires(circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
-        let c2 = Fq2::from_wires(circuit.0[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
+        let c0 = Fq2::from_wires(circuit.wires[0..Fq2::N_BITS].to_vec());
+        let c1 = Fq2::from_wires(circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
+        let c2 = Fq2::from_wires(circuit.wires[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
         let new_r_x =
-            Fq2::from_wires(circuit.0[3 * Fq2::N_BITS..3 * Fq2::N_BITS + Fq2::N_BITS].to_vec());
+            Fq2::from_wires(circuit.wires[3 * Fq2::N_BITS..3 * Fq2::N_BITS + Fq2::N_BITS].to_vec());
         let new_r_y = Fq2::from_wires(
-            circuit.0[3 * Fq2::N_BITS + Fq2::N_BITS..3 * Fq2::N_BITS + 2 * Fq2::N_BITS].to_vec(),
+            circuit.wires[3 * Fq2::N_BITS + Fq2::N_BITS..3 * Fq2::N_BITS + 2 * Fq2::N_BITS]
+                .to_vec(),
         );
         let new_r_z = Fq2::from_wires(
-            circuit.0[3 * Fq2::N_BITS + 2 * Fq2::N_BITS..3 * Fq2::N_BITS + 3 * Fq2::N_BITS]
+            circuit.wires[3 * Fq2::N_BITS + 2 * Fq2::N_BITS..3 * Fq2::N_BITS + 3 * Fq2::N_BITS]
                 .to_vec(),
         );
         let coeffs = add_in_place(&mut r, &q);
@@ -1840,20 +1845,22 @@ mod tests {
             G2Affine::wires_set_montgomery(q),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c0 = Fq2::from_montgomery_wires(circuit.0[0..Fq2::N_BITS].to_vec());
-        let c1 = Fq2::from_montgomery_wires(circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
-        let c2 = Fq2::from_montgomery_wires(circuit.0[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
+        let c0 = Fq2::from_montgomery_wires(circuit.wires[0..Fq2::N_BITS].to_vec());
+        let c1 = Fq2::from_montgomery_wires(circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
+        let c2 =
+            Fq2::from_montgomery_wires(circuit.wires[2 * Fq2::N_BITS..3 * Fq2::N_BITS].to_vec());
         let new_r_x = Fq2::from_montgomery_wires(
-            circuit.0[3 * Fq2::N_BITS..3 * Fq2::N_BITS + Fq2::N_BITS].to_vec(),
+            circuit.wires[3 * Fq2::N_BITS..3 * Fq2::N_BITS + Fq2::N_BITS].to_vec(),
         );
         let new_r_y = Fq2::from_montgomery_wires(
-            circuit.0[3 * Fq2::N_BITS + Fq2::N_BITS..3 * Fq2::N_BITS + 2 * Fq2::N_BITS].to_vec(),
+            circuit.wires[3 * Fq2::N_BITS + Fq2::N_BITS..3 * Fq2::N_BITS + 2 * Fq2::N_BITS]
+                .to_vec(),
         );
         let new_r_z = Fq2::from_montgomery_wires(
-            circuit.0[3 * Fq2::N_BITS + 2 * Fq2::N_BITS..3 * Fq2::N_BITS + 3 * Fq2::N_BITS]
+            circuit.wires[3 * Fq2::N_BITS + 2 * Fq2::N_BITS..3 * Fq2::N_BITS + 3 * Fq2::N_BITS]
                 .to_vec(),
         );
         let coeffs = add_in_place(&mut r, &q);
@@ -1873,11 +1880,11 @@ mod tests {
 
         let circuit = mul_by_char_circuit(G2Affine::wires_set(q));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c0 = Fq2::from_wires(circuit.0[0..Fq2::N_BITS].to_vec());
-        let c1 = Fq2::from_wires(circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
+        let c0 = Fq2::from_wires(circuit.wires[0..Fq2::N_BITS].to_vec());
+        let c1 = Fq2::from_wires(circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
         let coeffs = mul_by_char(q);
         assert_eq!(c0, coeffs.x);
         assert_eq!(c1, coeffs.y);
@@ -1891,11 +1898,11 @@ mod tests {
 
         let circuit = mul_by_char_circuit_montgomery(G2Affine::wires_set_montgomery(q));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c0 = Fq2::from_montgomery_wires(circuit.0[0..Fq2::N_BITS].to_vec());
-        let c1 = Fq2::from_montgomery_wires(circuit.0[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
+        let c0 = Fq2::from_montgomery_wires(circuit.wires[0..Fq2::N_BITS].to_vec());
+        let c1 = Fq2::from_montgomery_wires(circuit.wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());
         let coeffs = mul_by_char(q);
         assert_eq!(c0, coeffs.x);
         assert_eq!(c1, coeffs.y);
@@ -1956,10 +1963,10 @@ mod tests {
             G1Affine::wires_set(p),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let new_f = Fq12::from_wires(circuit.0);
+        let new_f = Fq12::from_wires(circuit.wires);
         ell(&mut f, coeffs, p);
         assert_eq!(f, new_f);
     }
@@ -1986,10 +1993,10 @@ mod tests {
             G1Affine::wires_set_montgomery(p),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let new_f = Fq12::from_montgomery_wires(circuit.0);
+        let new_f = Fq12::from_montgomery_wires(circuit.wires);
         ell(&mut f, coeffs, p);
         assert_eq!(f, new_f);
     }
@@ -2008,10 +2015,10 @@ mod tests {
 
         let circuit = ell_by_constant_circuit(Fq12::wires_set(f), coeffs, G1Affine::wires_set(p));
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let new_f = Fq12::from_wires(circuit.0);
+        let new_f = Fq12::from_wires(circuit.wires);
         ell(&mut f, coeffs, p);
         assert_eq!(f, new_f);
     }
@@ -2038,10 +2045,10 @@ mod tests {
             G1Affine::wires_set_montgomery(p),
         );
         circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let new_f = Fq12::from_montgomery_wires(circuit.0);
+        let new_f = Fq12::from_montgomery_wires(circuit.wires);
         ell(&mut f, coeffs, p);
         assert_eq!(f, new_f);
     }

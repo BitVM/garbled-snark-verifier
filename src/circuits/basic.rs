@@ -127,11 +127,11 @@ mod tests {
 
             let circuit = half_adder(a_wire, b_wire);
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
-            let (c_wire, d_wire) = (circuit.0[0].clone(), circuit.0[1].clone());
+            let (c_wire, d_wire) = (circuit.wires[0].clone(), circuit.wires[1].clone());
 
             assert_eq!(c_wire.borrow().get_value(), c);
             assert_eq!(d_wire.borrow().get_value(), d);
@@ -163,11 +163,11 @@ mod tests {
 
             let circuit = full_adder(a_wire, b_wire, c_wire);
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
-            let (d_wire, e_wire) = (circuit.0[0].clone(), circuit.0[1].clone());
+            let (d_wire, e_wire) = (circuit.wires[0].clone(), circuit.wires[1].clone());
 
             assert_eq!(d_wire.borrow().get_value(), d);
             assert_eq!(e_wire.borrow().get_value(), e);
@@ -192,11 +192,11 @@ mod tests {
 
             let circuit = half_subtracter(a_wire, b_wire);
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
-            let (c_wire, d_wire) = (circuit.0[0].clone(), circuit.0[1].clone());
+            let (c_wire, d_wire) = (circuit.wires[0].clone(), circuit.wires[1].clone());
 
             assert_eq!(c_wire.borrow().get_value(), c);
             assert_eq!(d_wire.borrow().get_value(), d);
@@ -228,11 +228,11 @@ mod tests {
 
             let circuit = full_subtracter(a_wire, b_wire, c_wire);
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
-            let (d_wire, e_wire) = (circuit.0[0].clone(), circuit.0[1].clone());
+            let (d_wire, e_wire) = (circuit.wires[0].clone(), circuit.wires[1].clone());
 
             assert_eq!(d_wire.borrow().get_value(), d);
             assert_eq!(e_wire.borrow().get_value(), e);
@@ -264,11 +264,11 @@ mod tests {
 
             let circuit = selector(a_wire, b_wire, c_wire);
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
-            let d_wire = circuit.0[0].clone();
+            let d_wire = circuit.wires[0].clone();
 
             assert_eq!(d_wire.borrow().get_value(), d);
         }
@@ -295,11 +295,11 @@ mod tests {
         let circuit = multiplexer(a.clone(), s.clone(), w);
         circuit.gate_counts().print();
 
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
 
-        let result = circuit.0[0].clone().borrow().get_value();
+        let result = circuit.wires[0].clone().borrow().get_value();
         let expected = a[u].clone().borrow().get_value();
 
         assert_eq!(result, expected);
