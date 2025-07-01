@@ -1,12 +1,12 @@
 use crate::{bag::*, core::gate::CircuitMetrics};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
-pub type GatesMap = HashMap<u64, Gate>;
+pub type GatesMap = BTreeMap<u64, Gate>;
 
 pub struct Circuit {
     pub wires: Wires,
     pub gates: GatesMap,
-    wires2gates: HashMap<S, Vec<u64>>, // maps wire index to fan-out gates indexs
+    wires2gates: BTreeMap<S, Vec<u64>>, // maps wire index to fan-out gates indexs
     gates_num: u64,
 }
 
@@ -14,8 +14,8 @@ impl Circuit {
     pub fn empty() -> Self {
         Self {
             wires: Vec::new(),
-            gates: HashMap::new(),
-            wires2gates: HashMap::new(),
+            gates: BTreeMap::new(),
+            wires2gates: BTreeMap::new(),
             gates_num: 0,
         }
     }
