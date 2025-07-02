@@ -365,7 +365,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (355478375, 256478600, 52018654),
         }
     }
 
@@ -380,7 +380,7 @@ impl CircuitMetrics {
             nimp: 1078400,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (186431575, 158753800, 610654),
         }
     }
 
@@ -395,7 +395,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (19874796, 19710410, 4025178),
         }
     }
 
@@ -410,7 +410,7 @@ impl CircuitMetrics {
             nimp: 80880,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (7196286, 12381050, 169578),
         }
     }
 
@@ -425,7 +425,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (11842134, 11778021, 2394337),
         }
     }
 
@@ -440,7 +440,7 @@ impl CircuitMetrics {
             nimp: 48528,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (4235028, 7380405, 80977),
         }
     }
 
@@ -455,7 +455,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (29762349, 29516821, 6031569),
         }
     }
 
@@ -470,7 +470,7 @@ impl CircuitMetrics {
             nimp: 121320,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (10744584, 18522781, 248169),
         }
     }
 
@@ -485,7 +485,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (27956519, 27819485, 5654355),
         }
     }
 
@@ -500,7 +500,7 @@ impl CircuitMetrics {
             nimp: 240452,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (33922273, 46541956, 1750809),
         }
     }
 
@@ -515,7 +515,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (14974820, 14704029, 3045307),
         }
     }
 
@@ -530,7 +530,7 @@ impl CircuitMetrics {
             nimp: 58140,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (5218406, 9120204, 61170),
         }
     }
 
@@ -545,7 +545,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (23959035, 23845930, 4840600),
         }
     }
 
@@ -560,7 +560,7 @@ impl CircuitMetrics {
             nimp: 99752,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (8322206, 14806386, 85360),
         }
     }
 
@@ -575,7 +575,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (27956519, 27819485, 5654355),
         }
     }
 
@@ -590,7 +590,7 @@ impl CircuitMetrics {
             nimp: 115928,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (9783988, 17314069, 127995),
         }
     }
 
@@ -605,7 +605,7 @@ impl CircuitMetrics {
             nimp: 0,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (24942422, 23803137, 5137811),
         }
     }
 
@@ -620,7 +620,7 @@ impl CircuitMetrics {
             nimp: 80920,
             nsor: 0,
 
-            fanout: (0, 0, 0),
+            fanout: (8722376, 14693413, 124423),
         }
     }
 }

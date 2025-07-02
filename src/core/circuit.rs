@@ -8,6 +8,8 @@ pub struct Circuit {
     gates_num: u64,
 }
 
+const FANOUT_SWITCHER: bool = false;
+
 impl Circuit {
     pub fn empty() -> Self {
         Self {
@@ -40,12 +42,14 @@ impl Circuit {
     }
 
     pub fn add(&mut self, gate: Gate) {
-        for wire in [gate.wire_a.clone(), gate.wire_b.clone()] {
-            let wire_index = wire.borrow().get_label0(); // use the label0 as index
-            self.wires2gates
-                .entry(wire_index)
-                .or_insert_with(Vec::new)
-                .push(self.gates_num);
+        if FANOUT_SWITCHER {
+            for wire in [gate.wire_a.clone(), gate.wire_b.clone()] {
+                let wire_index = wire.borrow().get_label0(); // use the label0 as index
+                self.wires2gates
+                    .entry(wire_index)
+                    .or_insert_with(Vec::new)
+                    .push(self.gates_num);
+            }
         }
         self.gates.push(gate);
         self.gates_num += 1;
