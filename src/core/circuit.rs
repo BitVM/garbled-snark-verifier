@@ -1,42 +1,103 @@
-use crate::{bag::*, core::gate::GateCount};
+use crate::{bag::*, core::gate::CircuitMetrics};
+use std::collections::HashMap;
 
-pub struct Circuit(pub Wires, pub Vec<Gate>);
+pub struct Circuit {
+    pub wires: Wires,
+    pub gates: Vec<Gate>,
+    wires2gates: HashMap<S, Vec<u64>>, // maps wire index to fan-out gates indexs
+    gates_num: u64,
+}
+
+const FANOUT_SWITCHER: bool = false;
 
 impl Circuit {
     pub fn empty() -> Self {
-        Self(Vec::new(), Vec::new())
+        Self {
+            wires: Vec::new(),
+            gates: Vec::new(),
+            wires2gates: HashMap::new(),
+            gates_num: 0,
+        }
     }
 
     pub fn new(wires: Wires, gates: Vec<Gate>) -> Self {
-        Self(wires, gates)
+        let mut circuit = Self::empty();
+        circuit.add_wires(wires);
+        for gate in gates {
+            circuit.add(gate);
+        }
+        circuit
     }
 
     pub fn garbled_gates(&self) -> Vec<Vec<S>> {
-        self.1.iter().map(|gate| gate.garbled()).collect()
+        self.gates.iter().map(|gate| gate.garbled()).collect()
     }
 
+    /// add gates from a circuit, return the wires of the circuit
     pub fn extend(&mut self, circuit: Self) -> Wires {
-        self.1.extend(circuit.1);
-        circuit.0
+        for gate in circuit.gates.into_iter() {
+            self.add(gate);
+        }
+        circuit.wires
     }
 
     pub fn add(&mut self, gate: Gate) {
-        self.1.push(gate);
+        if FANOUT_SWITCHER {
+            for wire in [gate.wire_a.clone(), gate.wire_b.clone()] {
+                let wire_index = wire.borrow().get_label0(); // use the label0 as index
+                self.wires2gates
+                    .entry(wire_index)
+                    .or_insert_with(Vec::new)
+                    .push(self.gates_num);
+            }
+        }
+        self.gates.push(gate);
+        self.gates_num += 1;
     }
 
     pub fn add_wire(&mut self, wire: Wirex) {
-        self.0.push(wire);
+        self.wires.push(wire);
     }
 
     pub fn add_wires(&mut self, wires: Wires) {
-        self.0.extend(wires);
+        self.wires.extend(wires);
     }
 
-    pub fn gate_count(&self) -> usize {
-        self.1.len()
+    pub fn add_gates(&mut self, gates: Vec<Gate>) {
+        for gate in gates {
+            self.add(gate);
+        }
     }
 
-    pub fn gate_counts(&self) -> GateCount {
+    pub fn circuit_metrics(&self) -> usize {
+        self.gates.len()
+    }
+
+    pub fn gates(&self) -> Vec<Gate> {
+        self.gates.iter().map(|gate| gate.clone()).collect()
+    }
+
+    pub fn wires(&self) -> Wires {
+        self.wires.clone()
+    }
+
+    pub fn fanout(&self) -> (usize, usize, usize) {
+        let mut fanout1 = 0;
+        let mut fanout2 = 0;
+        let mut fanoutmore = 0;
+        for gates in self.wires2gates.values() {
+            if gates.len() == 1 {
+                fanout1 += 1;
+            } else if gates.len() == 2 {
+                fanout2 += 1;
+            } else {
+                fanoutmore += 1;
+            }
+        }
+        (fanout1, fanout2, fanoutmore)
+    }
+
+    pub fn circuit_metricss(&self) -> CircuitMetrics {
         let mut and = 0;
         let mut or = 0;
         let mut xor = 0;
@@ -45,7 +106,7 @@ impl Circuit {
         let mut xnor = 0;
         let mut nimp = 0;
         let mut nsor = 0;
-        for gate in self.1.clone() {
+        for gate in self.gates.iter() {
             match gate.name.as_str() {
                 "and" => and += 1,
                 "or" => or += 1,
@@ -58,7 +119,7 @@ impl Circuit {
                 _ => panic!("this gate type is not allowed"),
             }
         }
-        GateCount {
+        CircuitMetrics {
             and,
             or,
             xor,
@@ -67,6 +128,7 @@ impl Circuit {
             xnor,
             nimp,
             nsor,
+            fanout: self.fanout(),
         }
     }
 }
@@ -104,7 +166,7 @@ mod tests {
             if correct { "correct" } else { "incorrect" }
         );
 
-        for (i, (gate, garble)) in zip(circuit.1.clone(), garbled_gates).enumerate() {
+        for (i, (gate, garble)) in zip(circuit.gates().clone(), garbled_gates).enumerate() {
             let a = gate.wire_a.borrow().get_label();
             let b = gate.wire_b.borrow().get_label();
             let bit_a = gate.wire_a.borrow().get_value();
@@ -162,7 +224,7 @@ mod tests {
             if correct { "correct" } else { "incorrect" }
         );
 
-        for (i, (gate, garble)) in zip(circuit.1.clone(), garbled_gates).enumerate() {
+        for (i, (gate, garble)) in zip(circuit.gates().clone(), garbled_gates).enumerate() {
             let a = gate.wire_a.borrow().get_label();
             let b = gate.wire_b.borrow().get_label();
             let bit_a = gate.wire_a.borrow().get_value();

@@ -105,7 +105,7 @@ mod tests {
         for (i, wire) in inputs[1].iter().enumerate() {
             wire.borrow_mut().set((b >> i) & 1 == 1);
         }
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
         let mut result_bits = Vec::new();
@@ -130,7 +130,7 @@ mod tests {
         for (i, wire) in inputs[1].iter().enumerate() {
             wire.borrow_mut().set((b >> i) & 1 == 1);
         }
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
         let mut result_bits = Vec::new();
@@ -155,7 +155,7 @@ mod tests {
         for (i, wire) in inputs[1].iter().enumerate() {
             wire.borrow_mut().set((b >> i) & 1 == 1);
         }
-        for mut gate in circuit.1 {
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
         let mut result_bits = Vec::new();

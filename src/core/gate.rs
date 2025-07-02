@@ -257,7 +257,7 @@ impl Gate {
     }
 }
 
-pub struct GateCount {
+pub struct CircuitMetrics {
     pub and: usize,
     pub or: usize,
     pub xor: usize,
@@ -266,9 +266,11 @@ pub struct GateCount {
     pub xnor: usize,
     pub nimp: usize,
     pub nsor: usize,
+
+    pub fanout: (usize, usize, usize),
 }
 
-impl Add for GateCount {
+impl Add for CircuitMetrics {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
@@ -281,11 +283,17 @@ impl Add for GateCount {
             xnor: self.xnor + other.xnor,
             nimp: self.nimp + other.nimp,
             nsor: self.nsor + other.nsor,
+
+            fanout: (
+                self.fanout.0 + other.fanout.0,
+                self.fanout.1 + other.fanout.1,
+                self.fanout.2 + other.fanout.2,
+            ),
         }
     }
 }
 
-impl AddAssign for GateCount {
+impl AddAssign for CircuitMetrics {
     fn add_assign(&mut self, other: Self) {
         self.and = self.and + other.and;
         self.or = self.or + other.or;
@@ -295,10 +303,16 @@ impl AddAssign for GateCount {
         self.xnor = self.xnor + other.xnor;
         self.nimp = self.nimp + other.nimp;
         self.nsor = self.nsor + other.nsor;
+
+        self.fanout = (
+            self.fanout.0 + other.fanout.0,
+            self.fanout.1 + other.fanout.1,
+            self.fanout.2 + other.fanout.2,
+        );
     }
 }
 
-impl GateCount {
+impl CircuitMetrics {
     pub fn zero() -> Self {
         Self {
             and: 0,
@@ -309,14 +323,16 @@ impl GateCount {
             xnor: 0,
             nimp: 0,
             nsor: 0,
+
+            fanout: (0, 0, 0),
         }
     }
 
-    pub fn total_gate_count(&self) -> usize {
+    pub fn total_circuit_metrics(&self) -> usize {
         self.and + self.or + self.xor + self.nand + self.not + self.xnor + self.nimp + self.nsor
     }
 
-    pub fn nonfree_gate_count(&self) -> usize {
+    pub fn nonfree_circuit_metrics(&self) -> usize {
         self.and + self.or + self.nand + self.nimp + self.nsor
     }
 
@@ -330,13 +346,14 @@ impl GateCount {
         println!("nimp: {:?}", self.nimp);
         println!("nsor: {:?}", self.nsor);
         println!();
-        println!("total: {:?}", self.total_gate_count());
-        println!("nonfree: {:?}", self.nonfree_gate_count());
+        println!("total: {:?}", self.total_circuit_metrics());
+        println!("nonfree: {:?}", self.nonfree_circuit_metrics());
+        println!("fanout: {:?}", self.fanout);
     }
 }
 
 // these are here to speed up tests
-impl GateCount {
+impl CircuitMetrics {
     pub fn msm() -> Self {
         Self {
             and: 128808400,
@@ -347,6 +364,8 @@ impl GateCount {
             xnor: 51296850,
             nimp: 0,
             nsor: 0,
+
+            fanout: (355478375, 256478600, 52018654),
         }
     }
 
@@ -360,6 +379,8 @@ impl GateCount {
             xnor: 89650,
             nimp: 1078400,
             nsor: 0,
+
+            fanout: (186431575, 158753800, 610654),
         }
     }
 
@@ -373,6 +394,8 @@ impl GateCount {
             xnor: 3948560,
             nimp: 0,
             nsor: 0,
+
+            fanout: (19874796, 19710410, 4025178),
         }
     }
 
@@ -386,6 +409,8 @@ impl GateCount {
             xnor: 108020,
             nimp: 80880,
             nsor: 0,
+
+            fanout: (7196286, 12381050, 169578),
         }
     }
 
@@ -399,6 +424,8 @@ impl GateCount {
             xnor: 2357575,
             nimp: 0,
             nsor: 0,
+
+            fanout: (11842134, 11778021, 2394337),
         }
     }
 
@@ -412,6 +439,8 @@ impl GateCount {
             xnor: 53251,
             nimp: 48528,
             nsor: 0,
+
+            fanout: (4235028, 7380405, 80977),
         }
     }
 
@@ -425,6 +454,8 @@ impl GateCount {
             xnor: 5912170,
             nimp: 0,
             nsor: 0,
+
+            fanout: (29762349, 29516821, 6031569),
         }
     }
 
@@ -438,6 +469,8 @@ impl GateCount {
             xnor: 151360,
             nimp: 121320,
             nsor: 0,
+
+            fanout: (10744584, 18522781, 248169),
         }
     }
 
@@ -451,6 +484,8 @@ impl GateCount {
             xnor: 11867464,
             nimp: 0,
             nsor: 0,
+
+            fanout: (27956519, 27819485, 5654355),
         }
     }
 
@@ -464,6 +499,8 @@ impl GateCount {
             xnor: 473862,
             nimp: 240452,
             nsor: 0,
+
+            fanout: (33922273, 46541956, 1750809),
         }
     }
 
@@ -477,6 +514,8 @@ impl GateCount {
             xnor: 3000110,
             nimp: 0,
             nsor: 0,
+
+            fanout: (14974820, 14704029, 3045307),
         }
     }
 
@@ -490,6 +529,8 @@ impl GateCount {
             xnor: 26095,
             nimp: 58140,
             nsor: 0,
+
+            fanout: (5218406, 9120204, 61170),
         }
     }
 
@@ -503,6 +544,8 @@ impl GateCount {
             xnor: 4769941,
             nimp: 0,
             nsor: 0,
+
+            fanout: (23959035, 23845930, 4840600),
         }
     }
 
@@ -516,6 +559,8 @@ impl GateCount {
             xnor: 33275,
             nimp: 99752,
             nsor: 0,
+
+            fanout: (8322206, 14806386, 85360),
         }
     }
 
@@ -529,6 +574,8 @@ impl GateCount {
             xnor: 5564020,
             nimp: 0,
             nsor: 0,
+
+            fanout: (27956519, 27819485, 5654355),
         }
     }
 
@@ -542,6 +589,8 @@ impl GateCount {
             xnor: 59246,
             nimp: 115928,
             nsor: 0,
+
+            fanout: (9783988, 17314069, 127995),
         }
     }
 
@@ -555,6 +604,8 @@ impl GateCount {
             xnor: 5060584,
             nimp: 0,
             nsor: 0,
+
+            fanout: (24942422, 23803137, 5137811),
         }
     }
 
@@ -568,6 +619,8 @@ impl GateCount {
             xnor: 58734,
             nimp: 80920,
             nsor: 0,
+
+            fanout: (8722376, 14693413, 124423),
         }
     }
 }

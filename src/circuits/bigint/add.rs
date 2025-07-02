@@ -48,7 +48,7 @@ pub fn optimized_sub_generic(
             circuit.add(Gate::xor(
                 subtract_bit.clone(),
                 a_wires[i].clone(),
-                circuit.0[i].clone(),
+                circuit.wires[i].clone(),
             ));
             let new_want_or0 = new_wirex();
             let new_want_or1 = new_wirex();
@@ -73,7 +73,7 @@ pub fn optimized_sub_generic(
             circuit.add(Gate::xor(
                 b_wires[i].clone(),
                 a_wires[i].clone(),
-                circuit.0[i].clone(),
+                circuit.wires[i].clone(),
             ));
             let new_want: Rc<RefCell<Wire>> = new_wirex();
             circuit.add(Gate::nimp(
@@ -319,11 +319,11 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
             U254::wires_set_from_number(b.clone()),
         );
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, a + b);
     }
 
@@ -332,11 +332,11 @@ mod tests {
         let a = random_biguint_n_bits(254);
         let b = random_biguint_n_bits(254);
         let circuit = U254::add_constant(U254::wires_set_from_number(a.clone()), b.clone());
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, a + b);
     }
 
@@ -348,11 +348,11 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
             U254::wires_set_from_number(b.clone()),
         );
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, (a + b) % biguint_two_pow_254());
     }
 
@@ -367,11 +367,11 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
             U254::wires_set_from_number(b.clone()),
         );
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, a - b);
     }
 
@@ -386,11 +386,11 @@ mod tests {
             U254::wires_set_from_number(a.clone()),
             U254::wires_set_from_number(b.clone()),
         );
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, (a - b) % biguint_two_pow_254());
     }
 
@@ -398,11 +398,11 @@ mod tests {
     fn test_double() {
         let a = random_biguint_n_bits(254);
         let circuit = U254::double(U254::wires_set_from_number(a.clone()));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, a.clone() + a);
     }
 
@@ -410,11 +410,11 @@ mod tests {
     fn test_double_without_overflow() {
         let a = random_biguint_n_bits(254);
         let circuit = U254::double_without_overflow(U254::wires_set_from_number(a.clone()));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         assert_eq!(c, (a.clone() + a) % biguint_two_pow_254());
     }
 
@@ -422,11 +422,11 @@ mod tests {
     fn test_half() {
         let a = random_biguint_n_bits(254);
         let circuit = U254::half(U254::wires_set_from_number(a.clone()));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0);
+        let c = biguint_from_wires(circuit.wires);
         let d = a.clone() - c.clone() - c.clone();
         assert!(d == BigUint::ZERO || d == BigUint::from_str("1").unwrap());
     }
@@ -435,12 +435,12 @@ mod tests {
     fn test_odd_part() {
         let a = random_biguint_n_bits(254);
         let circuit = U254::odd_part(U254::wires_set_from_number(a.clone()));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
+        circuit.circuit_metricss().print();
+        for mut gate in circuit.gates() {
             gate.evaluate();
         }
-        let c = biguint_from_wires(circuit.0[0..U254::N_BITS].to_vec());
-        let d = biguint_from_wires(circuit.0[U254::N_BITS..2 * U254::N_BITS].to_vec());
+        let c = biguint_from_wires(circuit.wires[0..U254::N_BITS].to_vec());
+        let d = biguint_from_wires(circuit.wires[U254::N_BITS..2 * U254::N_BITS].to_vec());
         assert_eq!(a, c * d);
     }
 
@@ -454,10 +454,10 @@ mod tests {
                 U254::wires_set_from_number(b.clone()),
                 true,
             );
-            circuit.gate_counts().print();
-            let bound_check = circuit.0.pop().unwrap();
-            let output_wires = circuit.0;
-            for mut gate in circuit.1 {
+            circuit.circuit_metricss().print();
+            let bound_check = circuit.wires.pop().unwrap();
+            let output_wires = circuit.wires.clone();
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
             if a < b {

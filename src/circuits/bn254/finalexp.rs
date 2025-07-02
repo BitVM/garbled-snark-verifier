@@ -25,9 +25,9 @@ pub fn cyclotomic_exp(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     res
 }
 
-pub fn cyclotomic_exp_evaluate_fast(f: Wires) -> (Wires, GateCount) {
+pub fn cyclotomic_exp_evaluate_fast(f: Wires) -> (Wires, CircuitMetrics) {
     let mut res = Fq12::wires_set(ark_bn254::Fq12::ONE);
-    let mut gate_count = GateCount::zero();
+    let mut circuit_metrics = CircuitMetrics::zero();
     let mut found_nonzero = false;
     for value in BitIteratorBE::without_leading_zeros(ark_bn254::Config::X)
         .map(|e| e as i8)
@@ -36,10 +36,10 @@ pub fn cyclotomic_exp_evaluate_fast(f: Wires) -> (Wires, GateCount) {
         if found_nonzero {
             let (wires1, gc) = (
                 Fq12::wires_set(Fq12::from_wires(res.clone()).square()),
-                GateCount::fq12_cyclotomic_square(),
+                CircuitMetrics::fq12_cyclotomic_square(),
             ); //Fq12::square_evaluate(res.clone());
             res = wires1;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         if value != 0 {
@@ -48,19 +48,19 @@ pub fn cyclotomic_exp_evaluate_fast(f: Wires) -> (Wires, GateCount) {
             if value > 0 {
                 let (wires2, gc) = (
                     Fq12::wires_set(Fq12::from_wires(res.clone()) * Fq12::from_wires(f.clone())),
-                    GateCount::fq12_mul(),
+                    CircuitMetrics::fq12_mul(),
                 ); // Fq12::mul_evaluate(res.clone(), f.clone());
                 res = wires2;
-                gate_count += gc;
+                circuit_metrics += gc;
             }
         }
     }
-    (res, gate_count)
+    (res, circuit_metrics)
 }
 
-pub fn cyclotomic_exp_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCount) {
+pub fn cyclotomic_exp_evaluate_montgomery_fast(f: Wires) -> (Wires, CircuitMetrics) {
     let mut res = Fq12::wires_set_montgomery(ark_bn254::Fq12::ONE);
-    let mut gate_count = GateCount::zero();
+    let mut circuit_metrics = CircuitMetrics::zero();
     let mut found_nonzero = false;
     for value in BitIteratorBE::without_leading_zeros(ark_bn254::Config::X)
         .map(|e| e as i8)
@@ -69,10 +69,10 @@ pub fn cyclotomic_exp_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCount) {
         if found_nonzero {
             let (wires1, gc) = (
                 Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(res.clone()).square()),
-                GateCount::fq12_cyclotomic_square_montgomery(),
+                CircuitMetrics::fq12_cyclotomic_square_montgomery(),
             ); //Fq12::square_evaluate_montgomery(res.clone());
             res = wires1;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         if value != 0 {
@@ -84,14 +84,14 @@ pub fn cyclotomic_exp_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCount) {
                         Fq12::from_montgomery_wires(res.clone())
                             * Fq12::from_montgomery_wires(f.clone()),
                     ),
-                    GateCount::fq12_mul_montgomery(),
+                    CircuitMetrics::fq12_mul_montgomery(),
                 ); // Fq12::mul_evaluate(res.clone(), f.clone());
                 res = wires2;
-                gate_count += gc;
+                circuit_metrics += gc;
             }
         }
     }
-    (res, gate_count)
+    (res, circuit_metrics)
 }
 
 pub fn cyclotomic_exp_fastinv(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
@@ -119,14 +119,14 @@ pub fn cyclotomic_exp_fastinv(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     res
 }
 
-pub fn cyclotomic_exp_fast_inverse_evaluate_fast(f: Wires) -> (Wires, GateCount) {
+pub fn cyclotomic_exp_fast_inverse_evaluate_fast(f: Wires) -> (Wires, CircuitMetrics) {
     let mut res = Fq12::wires_set(ark_bn254::Fq12::ONE);
-    let mut gate_count = GateCount::zero();
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (f_inverse, gc) = (
         Fq12::wires_set(Fq12::from_wires(f.clone()).inverse().unwrap()),
-        GateCount::fq12_inverse(),
+        CircuitMetrics::fq12_inverse(),
     ); //Fq12::inverse(res.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let mut found_nonzero = false;
     for value in ark_ff::biginteger::arithmetic::find_naf(ark_bn254::Config::X)
         .into_iter()
@@ -135,10 +135,10 @@ pub fn cyclotomic_exp_fast_inverse_evaluate_fast(f: Wires) -> (Wires, GateCount)
         if found_nonzero {
             let (wires1, gc) = (
                 Fq12::wires_set(Fq12::from_wires(res.clone()).square()),
-                GateCount::fq12_cyclotomic_square(),
+                CircuitMetrics::fq12_cyclotomic_square(),
             ); //Fq12::square_evaluate(res.clone());
             res = wires1;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         if value != 0 {
@@ -147,33 +147,33 @@ pub fn cyclotomic_exp_fast_inverse_evaluate_fast(f: Wires) -> (Wires, GateCount)
             if value > 0 {
                 let (wires2, gc) = (
                     Fq12::wires_set(Fq12::from_wires(res.clone()) * Fq12::from_wires(f.clone())),
-                    GateCount::fq12_mul(),
+                    CircuitMetrics::fq12_mul(),
                 ); // Fq12::mul_evaluate(res.clone(), f.clone());
                 res = wires2;
-                gate_count += gc;
+                circuit_metrics += gc;
             } else {
                 let (wires2, gc) = (
                     Fq12::wires_set(
                         Fq12::from_wires(res.clone()) * Fq12::from_wires(f_inverse.clone()),
                     ),
-                    GateCount::fq12_mul(),
+                    CircuitMetrics::fq12_mul(),
                 ); // Fq12::mul_evaluate(res.clone(), f_inverse.clone());
                 res = wires2;
-                gate_count += gc;
+                circuit_metrics += gc;
             }
         }
     }
-    (res, gate_count)
+    (res, circuit_metrics)
 }
 
-pub fn cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCount) {
+pub fn cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(f: Wires) -> (Wires, CircuitMetrics) {
     let mut res = Fq12::wires_set_montgomery(ark_bn254::Fq12::ONE);
-    let mut gate_count = GateCount::zero();
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (f_inverse, gc) = (
         Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(f.clone()).inverse().unwrap()),
-        GateCount::fq12_inverse_montgomery(),
+        CircuitMetrics::fq12_inverse_montgomery(),
     ); //Fq12::inverse(res.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let mut found_nonzero = false;
     for value in ark_ff::biginteger::arithmetic::find_naf(ark_bn254::Config::X)
         .into_iter()
@@ -182,10 +182,10 @@ pub fn cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(f: Wires) -> (Wires,
         if found_nonzero {
             let (wires1, gc) = (
                 Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(res.clone()).square()),
-                GateCount::fq12_cyclotomic_square_montgomery(),
+                CircuitMetrics::fq12_cyclotomic_square_montgomery(),
             ); //Fq12::square_evaluate_montgomery(res.clone());
             res = wires1;
-            gate_count += gc;
+            circuit_metrics += gc;
         }
 
         if value != 0 {
@@ -197,46 +197,46 @@ pub fn cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(f: Wires) -> (Wires,
                         Fq12::from_montgomery_wires(res.clone())
                             * Fq12::from_montgomery_wires(f.clone()),
                     ),
-                    GateCount::fq12_mul_montgomery(),
+                    CircuitMetrics::fq12_mul_montgomery(),
                 ); // Fq12::mul_evaluate_montgomery(res.clone(), f.clone());
                 res = wires2;
-                gate_count += gc;
+                circuit_metrics += gc;
             } else {
                 let (wires2, gc) = (
                     Fq12::wires_set_montgomery(
                         Fq12::from_montgomery_wires(res.clone())
                             * Fq12::from_montgomery_wires(f_inverse.clone()),
                     ),
-                    GateCount::fq12_mul_montgomery(),
+                    CircuitMetrics::fq12_mul_montgomery(),
                 ); // Fq12::mul_evaluate_montgomery(res.clone(), f_inverse.clone());
                 res = wires2;
-                gate_count += gc;
+                circuit_metrics += gc;
             }
         }
     }
-    (res, gate_count)
+    (res, circuit_metrics)
 }
 
 pub fn exp_by_neg_x(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     conjugate(cyclotomic_exp(f))
 }
 
-pub fn exp_by_neg_x_evaluate(f: Wires) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn exp_by_neg_x_evaluate(f: Wires) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (f2, gc) = cyclotomic_exp_fast_inverse_evaluate_fast(f);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (f3, gc) = Fq12::conjugate_evaluate(f2);
-    gate_count += gc;
-    (f3, gate_count)
+    circuit_metrics += gc;
+    (f3, circuit_metrics)
 }
 
-pub fn exp_by_neg_x_evaluate_montgomery(f: Wires) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn exp_by_neg_x_evaluate_montgomery(f: Wires) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (f2, gc) = cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(f);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (f3, gc) = Fq12::conjugate_evaluate(f2);
-    gate_count += gc;
-    (f3, gate_count)
+    circuit_metrics += gc;
+    (f3, circuit_metrics)
 }
 
 pub fn final_exponentiation(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
@@ -267,242 +267,242 @@ pub fn final_exponentiation(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     y19 * y17
 }
 
-pub fn final_exponentiation_evaluate_fast(f: Wires) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn final_exponentiation_evaluate_fast(f: Wires) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (f_inv, gc) = (
         Fq12::wires_set(Fq12::from_wires(f.clone()).inverse().unwrap()),
-        GateCount::fq12_inverse(),
+        CircuitMetrics::fq12_inverse(),
     );
-    gate_count += gc;
+    circuit_metrics += gc;
     let (f_conjugate, gc) = Fq12::conjugate_evaluate(f.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (u, gc) = (
         Fq12::wires_set(Fq12::from_wires(f_inv) * Fq12::from_wires(f_conjugate)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(f_inv, f_conjugate);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (u_frobenius, gc) = Fq12::frobenius_evaluate(u.clone(), 2);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (r, gc) = (
         Fq12::wires_set(Fq12::from_wires(u_frobenius) * Fq12::from_wires(u.clone())),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(u_frobenius, u.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y0, gc) = exp_by_neg_x_evaluate(r.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y1, gc) = (
         Fq12::wires_set(Fq12::from_wires(y0).square()),
-        GateCount::fq12_square(),
+        CircuitMetrics::fq12_square(),
     ); // Fq12::square_evaluate(y0);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y2, gc) = (
         Fq12::wires_set(Fq12::from_wires(y1.clone()).square()),
-        GateCount::fq12_square(),
+        CircuitMetrics::fq12_square(),
     ); // Fq12::square_evaluate(y1.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y3, gc) = (
         Fq12::wires_set(Fq12::from_wires(y1.clone()) * Fq12::from_wires(y2)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y1.clone(), y2);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y4, gc) = exp_by_neg_x_evaluate(y3.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y5, gc) = (
         Fq12::wires_set(Fq12::from_wires(y4.clone()).square()),
-        GateCount::fq12_square(),
+        CircuitMetrics::fq12_square(),
     ); // Fq12::square_evaluate(y4.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y6, gc) = exp_by_neg_x_evaluate(y5);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y7, gc) = Fq12::conjugate_evaluate(y3);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y8, gc) = Fq12::conjugate_evaluate(y6);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y9, gc) = (
         Fq12::wires_set(Fq12::from_wires(y8) * Fq12::from_wires(y4.clone())),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y8, y4.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y10, gc) = (
         Fq12::wires_set(Fq12::from_wires(y9) * Fq12::from_wires(y7)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y9, y7);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y11, gc) = (
         Fq12::wires_set(Fq12::from_wires(y10.clone()) * Fq12::from_wires(y1)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y10.clone(), y1);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y12, gc) = (
         Fq12::wires_set(Fq12::from_wires(y10.clone()) * Fq12::from_wires(y4)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y10.clone(), y4);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y13, gc) = (
         Fq12::wires_set(Fq12::from_wires(y12) * Fq12::from_wires(r.clone())),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y12, r.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y14, gc) = Fq12::frobenius_evaluate(y11.clone(), 1);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y15, gc) = (
         Fq12::wires_set(Fq12::from_wires(y14) * Fq12::from_wires(y13)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y14, y13);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y16, gc) = Fq12::frobenius_evaluate(y10, 2);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y17, gc) = (
         Fq12::wires_set(Fq12::from_wires(y16) * Fq12::from_wires(y15)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y16, y15);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (r2, gc) = Fq12::conjugate_evaluate(r);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y18, gc) = (
         Fq12::wires_set(Fq12::from_wires(r2) * Fq12::from_wires(y11)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(r2, y11);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y19, gc) = Fq12::frobenius_evaluate(y18, 3);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y20, gc) = (
         Fq12::wires_set(Fq12::from_wires(y19) * Fq12::from_wires(y17)),
-        GateCount::fq12_mul(),
+        CircuitMetrics::fq12_mul(),
     ); // Fq12::mul_evaluate(y19, y17);
-    gate_count += gc;
-    (y20, gate_count)
+    circuit_metrics += gc;
+    (y20, circuit_metrics)
 }
 
-pub fn final_exponentiation_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCount) {
-    let mut gate_count = GateCount::zero();
+pub fn final_exponentiation_evaluate_montgomery_fast(f: Wires) -> (Wires, CircuitMetrics) {
+    let mut circuit_metrics = CircuitMetrics::zero();
     let (f_inv, gc) = (
         Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(f.clone()).inverse().unwrap()),
-        GateCount::fq12_inverse_montgomery(),
+        CircuitMetrics::fq12_inverse_montgomery(),
     );
-    gate_count += gc;
+    circuit_metrics += gc;
     let (f_conjugate, gc) = Fq12::conjugate_evaluate(f.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (u, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(f_inv) * Fq12::from_montgomery_wires(f_conjugate),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(f_inv, f_conjugate);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (u_frobenius, gc) = Fq12::frobenius_evaluate_montgomery(u.clone(), 2);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (r, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(u_frobenius) * Fq12::from_montgomery_wires(u.clone()),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(u_frobenius, u.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y0, gc) = exp_by_neg_x_evaluate_montgomery(r.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y1, gc) = (
         Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(y0).square()),
-        GateCount::fq12_square_montgomery(),
+        CircuitMetrics::fq12_square_montgomery(),
     ); // Fq12::square_evaluate_montgomery(y0);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y2, gc) = (
         Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(y1.clone()).square()),
-        GateCount::fq12_square_montgomery(),
+        CircuitMetrics::fq12_square_montgomery(),
     ); // Fq12::square_evaluate_montgomery(y1.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y3, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y1.clone()) * Fq12::from_montgomery_wires(y2),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y1.clone(), y2);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y4, gc) = exp_by_neg_x_evaluate_montgomery(y3.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y5, gc) = (
         Fq12::wires_set_montgomery(Fq12::from_montgomery_wires(y4.clone()).square()),
-        GateCount::fq12_square_montgomery(),
+        CircuitMetrics::fq12_square_montgomery(),
     ); // Fq12::square_evaluate_montgomery(y4.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y6, gc) = exp_by_neg_x_evaluate_montgomery(y5);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y7, gc) = Fq12::conjugate_evaluate(y3);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y8, gc) = Fq12::conjugate_evaluate(y6);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y9, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y8) * Fq12::from_montgomery_wires(y4.clone()),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y8, y4.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y10, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y9) * Fq12::from_montgomery_wires(y7),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y9, y7);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y11, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y10.clone()) * Fq12::from_montgomery_wires(y1),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y10.clone(), y1);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y12, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y10.clone()) * Fq12::from_montgomery_wires(y4),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y10.clone(), y4);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y13, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y12) * Fq12::from_montgomery_wires(r.clone()),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y12, r.clone());
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y14, gc) = Fq12::frobenius_evaluate_montgomery(y11.clone(), 1);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y15, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y14) * Fq12::from_montgomery_wires(y13),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y14, y13);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y16, gc) = Fq12::frobenius_evaluate_montgomery(y10, 2);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y17, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y16) * Fq12::from_montgomery_wires(y15),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y16, y15);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (r2, gc) = Fq12::conjugate_evaluate(r);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y18, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(r2) * Fq12::from_montgomery_wires(y11),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(r2, y11);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y19, gc) = Fq12::frobenius_evaluate_montgomery(y18, 3);
-    gate_count += gc;
+    circuit_metrics += gc;
     let (y20, gc) = (
         Fq12::wires_set_montgomery(
             Fq12::from_montgomery_wires(y19) * Fq12::from_montgomery_wires(y17),
         ),
-        GateCount::fq12_mul_montgomery(),
+        CircuitMetrics::fq12_mul_montgomery(),
     ); // Fq12::mul_evaluate_montgomery(y19, y17);
-    gate_count += gc;
-    (y20, gate_count)
+    circuit_metrics += gc;
+    (y20, circuit_metrics)
 }
 
 #[cfg(test)]
@@ -555,8 +555,8 @@ mod tests {
         let f = ark_bn254::Fq12::rand(&mut prng);
         let cyclotomic_f = f.pow(u.to_u64_digits());
         let c = cyclotomic_f.cyclotomic_exp(ark_bn254::Config::X);
-        let (d, gate_count) = cyclotomic_exp_evaluate_fast(Fq12::wires_set(cyclotomic_f));
-        gate_count.print();
+        let (d, circuit_metrics) = cyclotomic_exp_evaluate_fast(Fq12::wires_set(cyclotomic_f));
+        circuit_metrics.print();
         assert_eq!(c, Fq12::from_wires(d));
     }
 
@@ -566,9 +566,9 @@ mod tests {
         let f = ark_bn254::Fq12::rand(&mut prng);
 
         let c = cyclotomic_exp(f); // f.cyclotomic_exp(ark_bn254::Config::X);
-        let (d, gate_count) =
+        let (d, circuit_metrics) =
             cyclotomic_exp_evaluate_montgomery_fast(Fq12::wires_set_montgomery(f));
-        gate_count.print();
+        circuit_metrics.print();
         assert_eq!(c, Fq12::from_montgomery_wires(d));
     }
 
@@ -581,9 +581,9 @@ mod tests {
         let f = ark_bn254::Fq12::rand(&mut prng);
         let cyclotomic_f = f.pow(u.to_u64_digits());
         let c = cyclotomic_f.cyclotomic_exp(ark_bn254::Config::X);
-        let (d, gate_count) =
+        let (d, circuit_metrics) =
             cyclotomic_exp_fast_inverse_evaluate_fast(Fq12::wires_set(cyclotomic_f));
-        gate_count.print();
+        circuit_metrics.print();
         assert_eq!(c, Fq12::from_wires(d));
     }
 
@@ -596,10 +596,10 @@ mod tests {
         let f = ark_bn254::Fq12::rand(&mut prng);
         let cyclotomic_f = f.pow(u.to_u64_digits());
         let c = cyclotomic_f.cyclotomic_exp(ark_bn254::Config::X);
-        let (d, gate_count) = cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(
+        let (d, circuit_metrics) = cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(
             Fq12::wires_set_montgomery(cyclotomic_f),
         );
-        gate_count.print();
+        circuit_metrics.print();
         assert_eq!(c, Fq12::from_montgomery_wires(d));
     }
 
@@ -623,8 +623,8 @@ mod tests {
         let c = ark_bn254::Bn254::final_exponentiation(MillerLoopOutput(f))
             .unwrap()
             .0;
-        let (d, gate_count) = final_exponentiation_evaluate_fast(Fq12::wires_set(f));
-        gate_count.print();
+        let (d, circuit_metrics) = final_exponentiation_evaluate_fast(Fq12::wires_set(f));
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_wires(d), c);
     }
@@ -637,9 +637,9 @@ mod tests {
         let c = ark_bn254::Bn254::final_exponentiation(MillerLoopOutput(f))
             .unwrap()
             .0;
-        let (d, gate_count) =
+        let (d, circuit_metrics) =
             final_exponentiation_evaluate_montgomery_fast(Fq12::wires_set_montgomery(f));
-        gate_count.print();
+        circuit_metrics.print();
 
         assert_eq!(Fq12::from_montgomery_wires(d), c);
     }

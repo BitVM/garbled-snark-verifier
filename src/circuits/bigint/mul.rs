@@ -45,7 +45,7 @@ pub fn mul_generic(a_wires: &Wires, b_wires: &Wires, len: usize) -> Circuit {
     for (i, current_bit) in b_wires.iter().enumerate().take(len) {
         let mut addition_wires_0 = vec![];
         for j in i..(i + len) {
-            addition_wires_0.push(circuit.0[j].clone());
+            addition_wires_0.push(circuit.wires[j].clone());
         }
         let addition_wires_1 = circuit.extend(self_or_zero_generic(
             a_wires.clone(),
@@ -53,7 +53,7 @@ pub fn mul_generic(a_wires: &Wires, b_wires: &Wires, len: usize) -> Circuit {
             len,
         ));
         let new_bits = circuit.extend(add_generic(addition_wires_0, addition_wires_1, len));
-        circuit.0[i..(i + len + 1)].clone_from_slice(&new_bits);
+        circuit.wires[i..(i + len + 1)].clone_from_slice(&new_bits);
     }
     circuit
 }
@@ -74,9 +74,9 @@ pub fn mul_karatsuba_generic(a_wires: &Wires, b_wires: &Wires, len: usize) -> Ci
 
     if karatsuba_flag.is_none() || karatsuba_flag.unwrap() {
         let mut circuit = Circuit::empty();
-        circuit.0 = n_wires(len * 2);
+        circuit.wires = n_wires(len * 2);
         for i in 0..len * 2 {
-            circuit.0[i].borrow_mut().set(false);
+            circuit.wires[i].borrow_mut().set(false);
         }
 
         let len_0 = len / 2;
@@ -119,21 +119,23 @@ pub fn mul_karatsuba_generic(a_wires: &Wires, b_wires: &Wires, len: usize) -> Ci
         ))[..(len + 1)]
             .to_vec(); //len_0 + len_1 = len
 
-        circuit.0[..(len_0 * 2)].clone_from_slice(&sq_0);
+        circuit.wires[..(len_0 * 2)].clone_from_slice(&sq_0);
 
         {
-            let segment = circuit.0[len_0..(len_0 + len + 1)].to_vec();
+            let segment = circuit.wires[len_0..(len_0 + len + 1)].to_vec();
             let new_segment = circuit.extend(add_generic(segment, cross_term, len + 1));
-            circuit.0[len_0..(len_0 + len + 2)].clone_from_slice(&new_segment);
+            circuit.wires[len_0..(len_0 + len + 2)].clone_from_slice(&new_segment);
         }
 
         {
-            let segment = circuit.0[(2 * len_0)..].to_vec();
+            let segment = circuit.wires[(2 * len_0)..].to_vec();
             let new_segment = circuit.extend(add_generic(segment, sq_1, len_1 * 2));
-            circuit.0[(2 * len_0)..].clone_from_slice(&new_segment[..(2 * len_1)]);
+            circuit.wires[(2 * len_0)..].clone_from_slice(&new_segment[..(2 * len_1)]);
         }
 
-        if circuit.gate_count() < min_circuit.gate_count() || min_circuit.gate_count() == 0 {
+        if circuit.circuit_metrics() < min_circuit.circuit_metrics()
+            || min_circuit.circuit_metrics() == 0
+        {
             set_karatsuba_decision_flag(len, true);
             min_circuit = circuit;
         }
@@ -172,10 +174,10 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
             if *bit {
                 let mut addition_wires = vec![];
                 for j in i..(i + N_BITS) {
-                    addition_wires.push(circuit.0[j].clone());
+                    addition_wires.push(circuit.wires[j].clone());
                 }
                 let new_bits = circuit.extend(Self::add(a_wires.clone(), addition_wires));
-                circuit.0[i..(i + N_BITS + 1)]
+                circuit.wires[i..(i + N_BITS + 1)]
                     .clone_from_slice(&new_bits[..((i + N_BITS - i) + 1)]);
             }
         }
@@ -189,7 +191,7 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
             }
              let mut operation_wires = vec![];
             for j in i..(i + N_BITS) {
-                operation_wires.push(circuit.0[j].clone());
+                operation_wires.push(circuit.wires[j].clone());
             }
             let new_bits;
             if *coeff == 1 {
@@ -198,7 +200,7 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
                 new_bits = circuit.extend(Self::optimized_sub(a_wires.clone(), operation_wires, false));
             }
             for j in i..=(i + N_BITS - (*coeff == -1) as usize) {
-                circuit.0[j] = new_bits[j - i].clone();
+                circuit.wires[j] = new_bits[j - i].clone();
             }
         }
         */
@@ -227,7 +229,7 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
                 let mut addition_wires = vec![];
                 let number_of_bits = (power - i).min(N_BITS);
                 for j in i..(i + number_of_bits) {
-                    addition_wires.push(circuit.0[j].clone());
+                    addition_wires.push(circuit.wires[j].clone());
                 }
                 let new_bits = circuit.extend(add_generic(
                     a_wires[0..number_of_bits].to_vec(),
@@ -235,9 +237,9 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
                     number_of_bits,
                 ));
                 if i + number_of_bits < power {
-                    circuit.0[i..(i + number_of_bits + 1)].clone_from_slice(&new_bits);
+                    circuit.wires[i..(i + number_of_bits + 1)].clone_from_slice(&new_bits);
                 } else {
-                    circuit.0[i..(i + number_of_bits)]
+                    circuit.wires[i..(i + number_of_bits)]
                         .clone_from_slice(&new_bits[..number_of_bits]);
                 }
             }
@@ -269,15 +271,15 @@ mod tests {
                 U254::wires_set_from_number(b.clone()),
             );
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
             let result = biguint_from_bits(
                 circuit
-                    .0
+                    .wires()
                     .iter()
                     .map(|output_wire| output_wire.borrow().get_value())
                     .collect(),
@@ -296,15 +298,15 @@ mod tests {
                 U254::wires_set_from_number(b.clone()),
             );
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
             let result = biguint_from_bits(
                 circuit
-                    .0
+                    .wires
                     .iter()
                     .map(|output_wire| output_wire.borrow().get_value())
                     .collect(),
@@ -326,15 +328,15 @@ mod tests {
                 T::wires_set_from_number(b.clone()),
             );
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
             let result = biguint_from_bits(
                 circuit
-                    .0
+                    .wires
                     .iter()
                     .map(|output_wire| output_wire.borrow().get_value())
                     .collect(),
@@ -350,15 +352,15 @@ mod tests {
             let b = random_biguint_n_bits(254);
             let circuit = U254::mul_by_constant(U254::wires_set_from_number(a.clone()), b.clone());
             let c = a * b;
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
             let result = biguint_from_bits(
                 circuit
-                    .0
+                    .wires()
                     .iter()
                     .map(|output_wire| output_wire.borrow().get_value())
                     .collect(),
@@ -379,15 +381,15 @@ mod tests {
                 power,
             );
             let c = a * b % BigUint::from_str("2").unwrap().pow(power as u32);
-            circuit.gate_counts().print();
+            circuit.circuit_metricss().print();
 
-            for mut gate in circuit.1 {
+            for mut gate in circuit.gates() {
                 gate.evaluate();
             }
 
             let result = biguint_from_bits(
                 circuit
-                    .0
+                    .wires()
                     .iter()
                     .map(|output_wire| output_wire.borrow().get_value())
                     .collect(),
