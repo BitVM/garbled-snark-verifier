@@ -95,41 +95,37 @@ pub fn groth16_verifier_evaluate(
 
 pub fn groth16_verifier_evaluate_montgomery(
     public: Wires,
-    proof_a_compressed: Wires,
-    proof_b_compressed: Wires,
-    proof_c_compressed: Wires,
+    proof_a: Wires,
+    proof_b: Wires,
+    proof_c: Wires,
     vk: ark_groth16::VerifyingKey<ark_bn254::Bn254>,
     compressed: bool,
 ) -> (Wirex, GateCount) {
     let mut gate_count = GateCount::zero();
 
-    let mut proof_a = proof_a_compressed;
-    let mut proof_b = proof_b_compressed;
-    let mut proof_c = proof_c_compressed;
+    let mut proof_a = proof_a;
+    let mut proof_b = proof_b;
+    let mut proof_c = proof_c;
     let mut gc;
     if compressed {
-        println!("decompress a");
         (proof_a, gc) = deserialize_compressed_g1_circuit(
             proof_a[..Fq::N_BITS].to_vec(),
             proof_a[Fq::N_BITS].clone(),
         );
         gate_count += gc;
         assert_eq!(proof_a.len(), 2 * Fq::N_BITS);
-        println!("decompress b");
         (proof_b, gc) = deserialize_compressed_g2_circuit(
             proof_b[..Fq2::N_BITS].to_vec(),
             proof_b[Fq2::N_BITS].clone(),
         );
         gate_count += gc;
         assert_eq!(proof_b.len(), 2 * Fq2::N_BITS);
-        println!("decompress c");
         (proof_c, gc) = deserialize_compressed_g1_circuit(
             proof_c[..Fq::N_BITS].to_vec(),
             proof_c[Fq::N_BITS].clone(),
         );
         gate_count += gc;
         assert_eq!(proof_c.len(), 2 * Fq::N_BITS);
-        println!("decompress done");
     }
 
     let (msm_temp, gc) = (

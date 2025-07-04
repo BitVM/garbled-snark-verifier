@@ -1387,8 +1387,7 @@ pub fn deserialize_compressed_g2_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, G
     let b = Fq2::wires_set_montgomery(ark_bn254::g2::Config::COEFF_B);
     let y2 = circuit.extend(Fq2::add(x3, b));
 
-    let y = circuit.extend(Fq2::sqrt_montgomery_general(y2));
-
+    let y = circuit.extend(Fq2::sqrt_general_montgomery(y2));
     let neg_y = circuit.extend(Fq2::neg(y.clone()));
 
     let final_y_0 = circuit.extend(U254::select(

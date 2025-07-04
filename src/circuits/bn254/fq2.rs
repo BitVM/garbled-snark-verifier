@@ -510,7 +510,7 @@ impl Fq2 {
     // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
     // Assume that the square root exists.
     // Special case: c1 == 0, not used in real case, just for testing
-    pub fn sqrt_montgomery_c1_zero(a: Wires, is_qr: Wirex) -> Circuit {
+    pub fn sqrt_c1_zero_montgomery(a: Wires, is_qr: Wirex) -> Circuit {
         let mut c0 = Vec::new();
         c0.extend_from_slice(&a[0..Fq::N_BITS]);
 
@@ -547,7 +547,7 @@ impl Fq2 {
     }
 
     // General case: c1 != 0
-    pub fn sqrt_montgomery_general(a: Wires) -> Circuit {
+    pub fn sqrt_general_montgomery(a: Wires) -> Circuit {
         let mut c0 = Vec::new();
         c0.extend_from_slice(&a[0..Fq::N_BITS]);
 
@@ -910,7 +910,7 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_fq2_sqrt_montgomery_c1_is_zero() {
+    fn test_fq2_sqrt_c1_is_zero_montgomery() {
         let mut r = Fq2::random();
         r.c1 = ark_bn254::Fq::ZERO; // Ensure c1 is zero to simplify the test
 
@@ -922,7 +922,7 @@ mod tests {
             wire
         };
         println!("is qr: {:?}", is_qr.borrow().get_value());
-        let circuit = Fq2::sqrt_montgomery_c1_zero(bits, is_qr);
+        let circuit = Fq2::sqrt_c1_zero_montgomery(bits, is_qr);
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
@@ -934,12 +934,12 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_fq2_sqrt_montgomery_general() {
+    fn test_fq2_sqrt_general_montgomery() {
         let r = Fq2::random();
         let rr = r * r;
         let bits = Fq2::wires_set_montgomery(rr);
 
-        let circuit = Fq2::sqrt_montgomery_general(bits);
+        let circuit = Fq2::sqrt_general_montgomery(bits);
         circuit.gate_counts().print();
         for mut gate in circuit.1 {
             gate.evaluate();
