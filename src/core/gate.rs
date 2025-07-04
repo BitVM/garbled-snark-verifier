@@ -20,7 +20,7 @@ pub enum GateType {
     Not,
 }
 
-// only for and variants
+// only for AND variants
 impl TryFrom<u8> for GateType {
     type Error = ();
 
@@ -351,7 +351,7 @@ impl GateCount {
     }
 
     pub fn nonfree_gate_count(&self) -> u64 {
-        self.and_variants_count() + self.0[GateType::Not as usize]
+        self.and_variants_count()
     }
 
     fn xor_variants_count(&self) -> u64 {
@@ -360,11 +360,12 @@ impl GateCount {
 
     pub fn print(&self) {
         println!("{:?}", self.0);
-        println!("and variants:  {:?}", self.and_variants_count());
-        println!("xor variants:  {:?}", self.xor_variants_count());
-        println!("not:           {:?}", self.0[GateType::Not as usize]);
-        println!("total:         {:?}", self.total_gate_count());
-        println!("nonfree:       {:?}\n", self.nonfree_gate_count());
+        println!("{:<15}{:>11}", "and variants:", self.and_variants_count());
+        println!("{:<15}{:>11}", "xor variants:", self.xor_variants_count());
+        println!("{:<15}{:>11}", "not:", self.0[GateType::Not as usize]);
+        println!("{:<15}{:>11}", "total:", self.total_gate_count());
+        println!()
+        //println!("nonfree:       {:?}\n", self.nonfree_gate_count()); //equals to and variants
     }
 }
 
@@ -386,7 +387,9 @@ impl GateCount {
     }
 
     pub fn msm_montgomery() -> Self {
-        todo!()
+        Self([
+            40952275, 39265860, 0, 0, 29750, 19632930, 0, 89650, 125020525, 89700, 210275,
+        ])
     }
 
     pub fn fq12_square() -> Self {
@@ -406,7 +409,9 @@ impl GateCount {
     }
 
     pub fn fq12_square_montgomery() -> Self {
-        todo!();
+        Self([
+            3234570, 229616, 0, 0, 1640, 114808, 0, 111068, 9690504, 108020, 132452,
+        ])
     }
 
     pub fn fq12_cyclotomic_square() -> Self {
@@ -426,7 +431,9 @@ impl GateCount {
     }
 
     pub fn fq12_cyclotomic_square_montgomery() -> Self {
-        todo!()
+        Self([
+            1921672, 100076, 0, 0, 953, 50038, 0, 53251, 5790700, 53251, 62909,
+        ])
     }
 
     pub fn fq12_mul() -> Self {
@@ -446,7 +453,9 @@ impl GateCount {
     }
 
     pub fn fq12_mul_montgomery() -> Self {
-        todo!()
+        Self([
+            4836448, 324104, 0, 0, 2420, 162052, 0, 155932, 14506687, 151360, 187163,
+        ])
     }
 
     pub fn fq12_inverse() -> Self {
@@ -466,7 +475,9 @@ impl GateCount {
     }
 
     pub fn fq12_inverse_montgomery() -> Self {
-        todo!()
+        Self([
+            14828696, 3327400, 645668, 0, 327459, 1663700, 0, 477163, 39787000, 474370, 498290,
+        ])
     }
 
     pub fn double_in_place() -> Self {
@@ -486,7 +497,9 @@ impl GateCount {
     }
 
     pub fn double_in_place_montgomery() -> Self {
-        todo!()
+        Self([
+            2414471, 48260, 0, 0, 979, 24130, 0, 26095, 7548712, 26095, 35520,
+        ])
     }
 
     pub fn add_in_place() -> Self {
@@ -506,7 +519,9 @@ impl GateCount {
     }
 
     pub fn add_in_place_montgomery() -> Self {
-        todo!()
+        Self([
+            3828958, 58420, 0, 0, 1669, 29210, 0, 33275, 11650147, 33275, 48528,
+        ])
     }
 
     pub fn ell() -> Self {
@@ -526,7 +541,9 @@ impl GateCount {
     }
 
     pub fn ell_montgomery() -> Self {
-        todo!()
+        Self([
+            4486968, 107696, 0, 0, 2018, 53848, 0, 59246, 13625157, 59246, 78199,
+        ])
     }
 
     pub fn ell_by_constant() -> Self {
@@ -546,7 +563,9 @@ impl GateCount {
     }
 
     pub fn ell_by_constant_montgomery() -> Self {
-        todo!()
+        Self([
+            4098864, 105664, 0, 0, 1374, 52832, 0, 58734, 13580727, 58734, 77179,
+        ])
     }
 }
 
