@@ -1,7 +1,4 @@
-use crate::{
-    bag::*,
-    core::gate::{GateCount, GateType},
-};
+use crate::{bag::*, core::gate::GateCount};
 
 pub struct Circuit(pub Wires, pub Vec<Gate>);
 
@@ -41,20 +38,9 @@ impl Circuit {
 
     pub fn gate_counts(&self) -> GateCount {
         let mut gc = GateCount::default();
-
         for gate in self.1.iter() {
-            match gate.gate_type {
-                GateType::And => gc.and += 1,
-                GateType::Or => gc.or += 1,
-                GateType::Xor => gc.xor += 1,
-                GateType::Nand => gc.nand += 1,
-                GateType::Not => gc.not += 1,
-                GateType::Xnor => gc.xnor += 1,
-                GateType::Nimp => gc.nimp += 1,
-                GateType::Nsor => gc.nsor += 1,
-            }
+            gc.0[gate.gate_type as usize] += 1;
         }
-
         gc
     }
 }

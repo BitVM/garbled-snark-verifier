@@ -2,6 +2,7 @@ use super::BigIntImpl;
 use crate::circuits::basic::multiplexer;
 use crate::circuits::bigint::utils::bits_from_biguint;
 use crate::{bag::*, circuits::basic::selector};
+use ark_ff::Zero;
 use num_bigint::BigUint;
 
 pub fn self_or_zero_generic(a: Wires, s: Wirex, len: usize) -> Circuit {
@@ -12,6 +13,25 @@ pub fn self_or_zero_generic(a: Wires, s: Wirex, len: usize) -> Circuit {
     for i in 0..len {
         result.push(new_wirex());
         circuit.add(Gate::and(a[i].clone(), s.clone(), result[i].clone()));
+    }
+    circuit.add_wires(result);
+    circuit
+}
+
+//s is inverted
+pub fn self_or_zero_inv_generic(a: Wires, s: Wirex, len: usize) -> Circuit {
+    assert_eq!(a.len(), len);
+    let mut circuit = Circuit::empty();
+
+    let mut result = vec![];
+    for i in 0..len {
+        result.push(new_wirex());
+        circuit.add(Gate::and_variant(
+            a[i].clone(),
+            s.clone(),
+            result[i].clone(),
+            [0, 1, 0],
+        ));
     }
     circuit.add_wires(result);
     circuit
@@ -35,31 +55,48 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
     pub fn equal_constant(a: Wires, b: &BigUint) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
-
-        let b_bits = bits_from_biguint(b);
-        let mut output = a[0].clone();
-        if !b_bits[0] {
-            let not_a0 = new_wirex();
-            circuit.add(Gate::not(a[0].clone(), not_a0.clone()));
-            output = not_a0;
-        }
-
-        for i in 1..N_BITS {
-            let mut a_or_a_not = a[i].clone();
-            if !b_bits[i] {
-                let not_ai = new_wirex();
-                circuit.add(Gate::not(a[i].clone(), not_ai.clone()));
-                a_or_a_not = not_ai;
+        if b == &BigUint::zero() {
+            if N_BITS == 1 {
+                let res = new_wirex();
+                circuit.add(Gate::not(a[0].clone(), res.clone()));
+                circuit.add_wire(res);
+            } else {
+                let mut res = new_wirex();
+                circuit.add(Gate::xnor(a[0].clone(), a[1].clone(), res.clone()));
+                for x in &a[1..N_BITS] {
+                    let new_res = new_wirex();
+                    circuit.add(Gate::and_variant(
+                        x.clone(),
+                        res,
+                        new_res.clone(),
+                        [1, 0, 0],
+                    ));
+                    res = new_res;
+                }
+                circuit.add_wire(res);
             }
-            let new_output = new_wirex();
-            circuit.add(Gate::and(
-                output.clone(),
-                a_or_a_not.clone(),
-                new_output.clone(),
-            ));
-            output = new_output;
+        } else {
+            let mut one_ind = 0;
+            let b_bits = bits_from_biguint(b);
+            while !b_bits[one_ind] {
+                one_ind += 1;
+            }
+            let mut res = a[one_ind].clone();
+            for i in 0..N_BITS {
+                if i == one_ind {
+                    continue;
+                }
+                let new_res = new_wirex();
+                circuit.add(Gate::and_variant(
+                    a[i].clone(),
+                    res,
+                    new_res.clone(),
+                    [!b_bits[i] as u8, 0, 0],
+                ));
+                res = new_res;
+            }
+            circuit.add_wire(res);
         }
-        circuit.add_wire(output);
         circuit
     }
 
@@ -108,6 +145,11 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
 
     pub fn self_or_zero(a: Wires, s: Wirex) -> Circuit {
         self_or_zero_generic(a, s, N_BITS)
+    }
+
+    //s is inverted
+    pub fn self_or_zero_inv(a: Wires, s: Wirex) -> Circuit {
+        self_or_zero_inv_generic(a, s, N_BITS)
     }
 
     pub fn self_or_zero_constant(a: &BigUint, s: Wirex) -> Circuit {

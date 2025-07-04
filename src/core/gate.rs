@@ -3,18 +3,43 @@ use crate::core::utils::{LIMB_LEN, N_LIMBS, bit_to_usize, convert_between_blake3
 use bitvm::{bigint::U256, hash::blake3::blake3_compute_script_with_limb, treepp::*};
 use std::ops::{Add, AddAssign};
 
+// Except Xor, Xnor and Not, each enum's bitmask represent the boolean operation ((a XOR bit_2) AND (b XOR bit_1)) XOR bit_0
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GateType {
     And = 0,
-    Or,
+    Nand = 1,
+    Nimp = 2,
+    Imp = 3, // a => b
+    Ncimp = 4,
+    Cimp = 5, // b => a
+    Nor = 6,
+    Or = 7,
     Xor,
-    Nand,
-    Not,
     Xnor,
-    Nimp,
-    Nsor,
+    Not,
 }
+
+// only for and variants
+impl TryFrom<u8> for GateType {
+    type Error = ();
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(GateType::And),
+            1 => Ok(GateType::Nand),
+            2 => Ok(GateType::Nimp),
+            3 => Ok(GateType::Imp),
+            4 => Ok(GateType::Ncimp),
+            5 => Ok(GateType::Cimp),
+            6 => Ok(GateType::Nor),
+            7 => Ok(GateType::Or),
+            _ => Err(()),
+        }
+    }
+}
+
+const GATE_TYPE_COUNT: usize = 11;
 
 #[derive(Clone)]
 pub struct Gate {
@@ -55,6 +80,46 @@ impl Gate {
         Self::new(wire_a, wire_b, wire_c, GateType::Nand)
     }
 
+    pub fn nimp(
+        wire_a: Rc<RefCell<Wire>>,
+        wire_b: Rc<RefCell<Wire>>,
+        wire_c: Rc<RefCell<Wire>>,
+    ) -> Self {
+        Self::new(wire_a, wire_b, wire_c, GateType::Nimp)
+    }
+
+    pub fn imp(
+        wire_a: Rc<RefCell<Wire>>,
+        wire_b: Rc<RefCell<Wire>>,
+        wire_c: Rc<RefCell<Wire>>,
+    ) -> Self {
+        Self::new(wire_a, wire_b, wire_c, GateType::Imp)
+    }
+
+    pub fn ncimp(
+        wire_a: Rc<RefCell<Wire>>,
+        wire_b: Rc<RefCell<Wire>>,
+        wire_c: Rc<RefCell<Wire>>,
+    ) -> Self {
+        Self::new(wire_a, wire_b, wire_c, GateType::Ncimp)
+    }
+
+    pub fn cimp(
+        wire_a: Rc<RefCell<Wire>>,
+        wire_b: Rc<RefCell<Wire>>,
+        wire_c: Rc<RefCell<Wire>>,
+    ) -> Self {
+        Self::new(wire_a, wire_b, wire_c, GateType::Cimp)
+    }
+
+    pub fn nor(
+        wire_a: Rc<RefCell<Wire>>,
+        wire_b: Rc<RefCell<Wire>>,
+        wire_c: Rc<RefCell<Wire>>,
+    ) -> Self {
+        Self::new(wire_a, wire_b, wire_c, GateType::Nor)
+    }
+
     pub fn or(
         wire_a: Rc<RefCell<Wire>>,
         wire_b: Rc<RefCell<Wire>>,
@@ -80,88 +145,63 @@ impl Gate {
     }
 
     pub fn not(wire_a: Rc<RefCell<Wire>>, wire_c: Rc<RefCell<Wire>>) -> Self {
-        Self::new(wire_a.clone(), wire_a.clone(), wire_c, GateType::Not)
+        Self::new(wire_a.clone(), wire_a, wire_c, GateType::Not)
     }
 
-    pub fn nimp(
+    //((a XOR f_0) AND (b XOR bit_1)) XOR f_2
+    pub fn and_variant(
         wire_a: Rc<RefCell<Wire>>,
         wire_b: Rc<RefCell<Wire>>,
         wire_c: Rc<RefCell<Wire>>,
+        f: [u8; 3],
     ) -> Self {
-        Self::new(wire_a.clone(), wire_b.clone(), wire_c, GateType::Nimp)
-    }
-
-    pub fn nsor(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
-    ) -> Self {
-        Self::new(wire_a.clone(), wire_b.clone(), wire_c, GateType::Nsor)
+        let gate_index = (f[0] << 2) | (f[1] << 1) | f[2];
+        let gate_type = match GateType::try_from(gate_index) {
+            Ok(gt) => gt,
+            Err(_) => panic!("Invalid gate type index: {}", gate_index),
+        };
+        Self::new(wire_a, wire_b, wire_c, gate_type)
     }
 
     pub fn f(&self) -> fn(bool, bool) -> bool {
         match self.gate_type {
-            GateType::And => {
-                fn and(a: bool, b: bool) -> bool {
-                    a & b
-                }
-                and
-            }
-            GateType::Or => {
-                fn or(a: bool, b: bool) -> bool {
-                    a | b
-                }
-                or
-            }
-            GateType::Xor => {
-                fn xor(a: bool, b: bool) -> bool {
-                    a ^ b
-                }
-                xor
-            }
-            GateType::Nand => {
-                fn nand(a: bool, b: bool) -> bool {
-                    !(a & b)
-                }
-                nand
-            }
-            GateType::Not => {
-                fn not(a: bool, _b: bool) -> bool {
-                    !a
-                }
-                not
-            }
-            GateType::Xnor => {
-                fn xnor(a: bool, b: bool) -> bool {
-                    !(a ^ b)
-                }
-                xnor
-            }
-            GateType::Nimp => {
-                fn nimp(a: bool, b: bool) -> bool {
-                    (a) && (!b)
-                }
-                nimp
-            }
-            GateType::Nsor => {
-                fn nsor(a: bool, b: bool) -> bool {
-                    a | (!b)
-                }
-                nsor
-            }
+            GateType::And => |a, b| a & b,
+            GateType::Nand => |a, b| !(a & b),
+
+            GateType::Nimp => |a, b| a & !b,
+            GateType::Imp => |a, b| !a | b,
+
+            GateType::Ncimp => |a, b| !a & b,
+            GateType::Cimp => |a, b| !b | a,
+
+            GateType::Nor => |a, b| !(a | b),
+            GateType::Or => |a, b| a | b,
+
+            GateType::Xor => |a, b| a ^ b,
+            GateType::Xnor => |a, b| !(a ^ b),
+
+            GateType::Not => |a, _| !a,
         }
     }
 
     pub fn evaluation_script(&self) -> Script {
         match self.gate_type {
             GateType::And => script! { OP_BOOLAND },
-            GateType::Or => script! { OP_BOOLOR },
-            GateType::Xor => script! { OP_NUMNOTEQUAL },
             GateType::Nand => script! { OP_BOOLAND OP_NOT },
-            GateType::Not => script! { OP_DROP OP_NOT },
+
+            GateType::Nimp => script! { OP_SWAP OP_NOT OP_BOOLAND },
+            GateType::Imp => script! { OP_NOT OP_SWAP OP_BOOLOR },
+
+            GateType::Ncimp => script! { OP_NOT OP_BOOLAND },
+            GateType::Cimp => script! { OP_SWAP OP_NOT OP_BOOLOR },
+
+            GateType::Nor => script! { OP_BOOLOR OP_NOT },
+            GateType::Or => script! { OP_BOOLOR },
+
+            GateType::Xor => script! { OP_NUMNOTEQUAL },
             GateType::Xnor => script! { OP_NUMNOTEQUAL OP_NOT },
-            GateType::Nimp => script! { OP_NOT OP_BOOLAND },
-            GateType::Nsor => script! { OP_NOT OP_BOOLOR},
+
+            GateType::Not => script! { OP_DROP OP_NOT },
         }
     }
 
@@ -267,87 +307,71 @@ impl Gate {
 }
 
 #[derive(Default)]
-pub struct GateCount {
-    pub and: usize,
-    pub or: usize,
-    pub xor: usize,
-    pub nand: usize,
-    pub not: usize,
-    pub xnor: usize,
-    pub nimp: usize,
-    pub nsor: usize,
-}
+pub struct GateCount(pub [u64; GATE_TYPE_COUNT]);
 
 impl Add for GateCount {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        Self {
-            and: self.and + other.and,
-            or: self.or + other.or,
-            xor: self.xor + other.xor,
-            nand: self.nand + other.nand,
-            not: self.not + other.not,
-            xnor: self.xnor + other.xnor,
-            nimp: self.nimp + other.nimp,
-            nsor: self.nsor + other.nsor,
+        let mut result = [0u64; GATE_TYPE_COUNT];
+        for (i, r) in result.iter_mut().enumerate() {
+            *r = self.0[i] + other.0[i];
         }
+        GateCount(result)
     }
 }
 
 impl AddAssign for GateCount {
     fn add_assign(&mut self, other: Self) {
-        self.and = self.and + other.and;
-        self.or = self.or + other.or;
-        self.xor = self.xor + other.xor;
-        self.nand = self.nand + other.nand;
-        self.not = self.not + other.not;
-        self.xnor = self.xnor + other.xnor;
-        self.nimp = self.nimp + other.nimp;
-        self.nsor = self.nsor + other.nsor;
+        for i in 0..GATE_TYPE_COUNT {
+            self.0[i] += other.0[i];
+        }
     }
 }
 
 impl GateCount {
     pub fn zero() -> Self {
-        Self {
-            and: 0,
-            or: 0,
-            xor: 0,
-            nand: 0,
-            not: 0,
-            xnor: 0,
-            nimp: 0,
-            nsor: 0,
+        Self([0; GATE_TYPE_COUNT])
+    }
+
+    pub fn total_gate_count(&self) -> u64 {
+        let mut sum = 0u64;
+        for x in self.0 {
+            sum += x;
         }
+        sum
     }
 
-    pub fn total_gate_count(&self) -> usize {
-        self.and + self.or + self.xor + self.nand + self.not + self.xnor + self.nimp + self.nsor
+    fn and_variants_count(&self) -> u64 {
+        let mut sum = 0u64;
+        for x in &self.0[0..8] {
+            sum += x;
+        }
+        sum
     }
 
-    pub fn nonfree_gate_count(&self) -> usize {
-        self.and + self.or + self.nand + self.nimp + self.nsor
+    pub fn nonfree_gate_count(&self) -> u64 {
+        self.and_variants_count() + self.0[GateType::Not as usize]
+    }
+
+    fn xor_variants_count(&self) -> u64 {
+        self.0[GateType::Xor as usize] + self.0[GateType::Xnor as usize]
     }
 
     pub fn print(&self) {
-        println!("and:  {:?}", self.and);
-        println!("or:   {:?}", self.or);
-        println!("xor:  {:?}", self.xor);
-        println!("nand: {:?}", self.nand);
-        println!("not:  {:?}", self.not);
-        println!("xnor: {:?}", self.xnor);
-        println!("nimp: {:?}", self.nimp);
-        println!("nsor: {:?}", self.nsor);
-        println!();
-        println!("total: {:?}", self.total_gate_count());
-        println!("nonfree: {:?}", self.nonfree_gate_count());
+        println!("{:?}", self.0);
+        println!("and variants:  {:?}", self.and_variants_count());
+        println!("xor variants:  {:?}", self.xor_variants_count());
+        println!("not:           {:?}", self.0[GateType::Not as usize]);
+        println!("total:         {:?}", self.total_gate_count());
+        println!("nonfree:       {:?}\n", self.nonfree_gate_count());
     }
 }
 
 // these are here to speed up tests
 impl GateCount {
     pub fn msm() -> Self {
+        /*
         Self {
             and: 128808400,
             or: 51296850,
@@ -357,23 +381,16 @@ impl GateCount {
             xnor: 51296850,
             nimp: 0,
             nsor: 0,
-        }
+        } */
+        Self::zero()
     }
 
     pub fn msm_montgomery() -> Self {
-        Self {
-            and: 40965250,
-            or: 89650,
-            xor: 123958925,
-            nand: 58898790,
-            not: 19856230,
-            xnor: 89650,
-            nimp: 1078400,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn fq12_square() -> Self {
+        /*
         Self {
             and: 9875584,
             or: 3951608,
@@ -384,22 +401,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn fq12_square_montgomery() -> Self {
-        Self {
-            and: 3235040,
-            or: 111068,
-            xor: 9610884,
-            nand: 344424,
-            not: 247730,
-            xnor: 108020,
-            nimp: 80880,
-            nsor: 0,
-        }
+        todo!();
     }
 
     pub fn fq12_cyclotomic_square() -> Self {
+        /*
         Self {
             and: 5903509,
             or: 2357575,
@@ -410,22 +421,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn fq12_cyclotomic_square_montgomery() -> Self {
-        Self {
-            and: 1921915,
-            or: 53251,
-            xor: 5742928,
-            nand: 150114,
-            not: 113190,
-            xnor: 53251,
-            nimp: 48528,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn fq12_mul() -> Self {
+        /*
         Self {
             and: 14793358,
             or: 5916742,
@@ -436,22 +441,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn fq12_mul_montgomery() -> Self {
-        Self {
-            and: 4837096,
-            or: 155932,
-            xor: 14387257,
-            nand: 486156,
-            not: 349863,
-            xnor: 151360,
-            nimp: 121320,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn fq12_inverse() -> Self {
+        /*
         Self {
             and: 37917672,
             or: 12127813,
@@ -462,22 +461,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn fq12_inverse_montgomery() -> Self {
-        Self {
-            and: 16055254,
-            or: 477163,
-            xor: 39293240,
-            nand: 4991100,
-            not: 3002469,
-            xnor: 473862,
-            nimp: 240452,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn double_in_place() -> Self {
+        /*
         Self {
             and: 7285002,
             or: 3000110,
@@ -488,22 +481,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn double_in_place_montgomery() -> Self {
-        Self {
-            and: 2414576,
-            or: 26095,
-            xor: 7491460,
-            nand: 72390,
-            not: 59755,
-            xnor: 26095,
-            nimp: 58140,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn add_in_place() -> Self {
+        /*
         Self {
             and: 11969527,
             or: 4769941,
@@ -514,22 +501,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn add_in_place_montgomery() -> Self {
-        Self {
-            and: 3829077,
-            or: 33275,
-            xor: 11551949,
-            nand: 87630,
-            not: 77857,
-            xnor: 33275,
-            nimp: 99752,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn ell() -> Self {
+        /*
         Self {
             and: 13963948,
             or: 5564020,
@@ -540,22 +521,16 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn ell_montgomery() -> Self {
-        Self {
-            and: 4487192,
-            or: 59246,
-            xor: 13511035,
-            nand: 161544,
-            not: 132271,
-            xnor: 59246,
-            nimp: 115928,
-            nsor: 0,
-        }
+        todo!()
     }
 
     pub fn ell_by_constant() -> Self {
+        /*
         Self {
             and: 11438002,
             or: 5060584,
@@ -566,19 +541,12 @@ impl GateCount {
             nimp: 0,
             nsor: 0,
         }
+        */
+        Self::zero()
     }
 
     pub fn ell_by_constant_montgomery() -> Self {
-        Self {
-            and: 4099084,
-            or: 58734,
-            xor: 13500973,
-            nand: 158496,
-            not: 130231,
-            xnor: 58734,
-            nimp: 80920,
-            nsor: 0,
-        }
+        todo!()
     }
 }
 

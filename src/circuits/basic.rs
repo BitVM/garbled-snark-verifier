@@ -27,48 +27,35 @@ pub fn full_adder(a: Wirex, b: Wirex, c: Wirex) -> Circuit {
 pub fn half_subtracter(a: Wirex, b: Wirex) -> Circuit {
     let result = new_wirex();
     let borrow = new_wirex();
-    let not_a = new_wirex();
-    let gate_not_a = Gate::not(a.clone(), not_a.clone());
     let gate_result = Gate::xor(a.clone(), b.clone(), result.clone());
-    let gate_borrow = Gate::and(not_a.clone(), b.clone(), borrow.clone());
-    Circuit::new(
-        vec![result, borrow],
-        vec![gate_not_a, gate_result, gate_borrow],
-    )
+    let gate_borrow = Gate::and_variant(a.clone(), b.clone(), borrow.clone(), [1, 0, 0]);
+    Circuit::new(vec![result, borrow], vec![gate_result, gate_borrow])
 }
 
 pub fn full_subtracter(a: Wirex, b: Wirex, c: Wirex) -> Circuit {
-    let d = new_wirex();
-    let e = new_wirex();
-    let f = new_wirex();
-    let g = new_wirex();
-    let h = new_wirex();
+    let bxa = new_wirex();
+    let bxc = new_wirex();
     let result = new_wirex();
-    let borrow = new_wirex();
+    let t = new_wirex();
+    let carry = new_wirex();
 
-    let gate_1 = Gate::xor(a.clone(), b.clone(), d.clone());
-    let gate_2 = Gate::xor(c.clone(), d.clone(), result.clone());
-    let gate_3 = Gate::not(d.clone(), e.clone());
-    let gate_4 = Gate::and(c.clone(), e.clone(), f.clone());
-    let gate_5 = Gate::not(a.clone(), g.clone());
-    let gate_6 = Gate::and(b.clone(), g.clone(), h.clone());
-    let gate_7 = Gate::xor(f.clone(), h.clone(), borrow.clone());
-    Circuit::new(
-        vec![result, borrow],
-        vec![gate_1, gate_2, gate_3, gate_4, gate_5, gate_6, gate_7],
-    )
+    let g1 = Gate::xor(a.clone(), b.clone(), bxa.clone());
+    let g2 = Gate::xor(b.clone(), c.clone(), bxc.clone());
+    let g3 = Gate::xor(bxa.clone().clone(), c.clone(), result.clone());
+    let g4 = Gate::and(bxa.clone(), bxc.clone(), t.clone());
+    let g5 = Gate::xor(c.clone(), t.clone(), carry.clone());
+
+    Circuit::new(vec![result, carry], vec![g1, g2, g3, g4, g5])
 }
 
 pub fn selector(a: Wirex, b: Wirex, c: Wirex) -> Circuit {
     let d = new_wirex();
-    let e = new_wirex();
     let f = new_wirex();
     let g = new_wirex();
-    let gate_1 = Gate::not(c.clone(), e.clone());
-    let gate_2 = Gate::nand(a.clone(), c.clone(), d.clone());
-    let gate_3 = Gate::nand(e.clone(), b.clone(), f.clone());
-    let gate_4 = Gate::nand(d.clone(), f.clone(), g.clone());
-    Circuit::new(vec![g], vec![gate_1, gate_2, gate_3, gate_4])
+    let gate_1 = Gate::nand(a.clone(), c.clone(), d.clone());
+    let gate_2 = Gate::and_variant(c.clone(), b.clone(), f.clone(), [1, 0, 1]);
+    let gate_3 = Gate::nand(d.clone(), f.clone(), g.clone());
+    Circuit::new(vec![g], vec![gate_1, gate_2, gate_3])
 }
 
 pub fn multiplexer(a: Wires, s: Wires, w: usize) -> Circuit {

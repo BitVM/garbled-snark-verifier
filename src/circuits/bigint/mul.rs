@@ -2,7 +2,7 @@ use super::BigIntImpl;
 use crate::{
     bag::*,
     circuits::bigint::{
-        add::{add_generic, optimized_sub_generic},
+        add::{add_generic, sub_generic_without_borrow},
         cmp::self_or_zero_generic,
         utils::{bits_from_biguint, n_wires},
     },
@@ -111,13 +111,10 @@ pub fn mul_karatsuba_generic(a_wires: &Wires, b_wires: &Wires, len: usize) -> Ci
         //sq_sum.push(zero_wire.clone());
 
         let sum_mul = circuit.extend(mul_karatsuba_generic(&sum_a, &sum_b, len_1 + 1));
-        let cross_term = circuit.extend(optimized_sub_generic(
-            sum_mul,
-            sq_sum,
-            false,
-            (len_1 + 1) * 2,
-        ))[..(len + 1)]
-            .to_vec(); //len_0 + len_1 = len
+        let cross_term =
+            circuit.extend(sub_generic_without_borrow(sum_mul, sq_sum, (len_1 + 1) * 2))
+                [..(len + 1)]
+                .to_vec(); //len_0 + len_1 = len
 
         circuit.0[..(len_0 * 2)].clone_from_slice(&sq_0);
 
