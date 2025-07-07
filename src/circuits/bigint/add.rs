@@ -74,7 +74,7 @@ pub fn sub_generic(a: Wires, b: Wires, len: usize) -> Circuit {
     circuit.add_wire(wires[0].clone());
     let mut borrow = wires[1].clone();
     for i in 1..len {
-        let wires: Vec<Rc<RefCell<Wire>>> =
+        let wires: Vec<Wirex> =
             circuit.extend(full_subtracter(a[i].clone(), b[i].clone(), borrow));
         circuit.add_wire(wires[0].clone());
         borrow = wires[1].clone();

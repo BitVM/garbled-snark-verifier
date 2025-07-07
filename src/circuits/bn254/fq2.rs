@@ -83,6 +83,14 @@ impl Fq2 {
         circuit
     }
 
+    pub fn add_evaluate(a: Wires, b: Wires) -> (Wires, GateCount) {
+        let circuit = Self::add(a, b);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
+    }
+
     pub fn add_constant(a: Wires, b: ark_bn254::Fq2) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
@@ -109,6 +117,14 @@ impl Fq2 {
         circuit.add_wires(wires_1);
         circuit.add_wires(wires_2);
         circuit
+    }
+
+    pub fn neg_evaluate(a: Wires) -> (Wires, GateCount) {
+        let circuit = Self::neg(a);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
     }
 
     pub fn sub(a: Wires, b: Wires) -> Circuit {
@@ -209,6 +225,14 @@ impl Fq2 {
         circuit.add_wires(wires_6);
         circuit.add_wires(wires_8);
         circuit
+    }
+
+    pub fn mul_montgomery_evaluate(a: Wires, b: Wires) -> (Wires, GateCount) {
+        let circuit = Self::mul_montgomery(a, b);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
     }
 
     pub fn mul_by_constant(a: Wires, b: ark_bn254::Fq2) -> Circuit {
@@ -396,6 +420,15 @@ impl Fq2 {
         circuit
     }
 
+    pub fn square_montgomery_evaluate(a: Wires) -> (Wires, GateCount) {
+        let circuit = Self::square_montgomery(a);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
+
+    }
+
     pub fn inverse(a: Wires) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
@@ -507,6 +540,14 @@ impl Fq2 {
         circuit
     }
 
+    fn norm_montgomery_evaluate(c0: Wires, c1: Wires) -> (Wires, GateCount) {
+        let circuit = Self::norm_montgomery(c0, c1);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
+    }
+
     // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
     // Assume that the square root exists.
     // Special case: c1 == 0, not used in real case, just for testing
@@ -546,6 +587,50 @@ impl Fq2 {
         circuit
     }
 
+    pub fn sqrt_c1_zero_montgomery_evaluate(a: Wires, is_qr: Wirex) -> (Wires, GateCount) {
+        let mut c0 = Vec::new();
+        c0.extend_from_slice(&a[0..Fq::N_BITS]);
+
+        let mut c1 = Vec::new();
+        c1.extend_from_slice(&a[Fq::N_BITS..Fq2::N_BITS]);
+
+        //let mut circuit = Circuit::empty();
+
+        let mut gc = GateCount::zero();
+        let (c0_sqrt, add_gc) = Fq::sqrt_montgomery_evaluate(c0.clone()); // sqrt(c0)
+        gc += add_gc;
+
+        let inverse_nonresidue =
+            Fq::wires_set_montgomery(ark_bn254::Fq2Config::NONRESIDUE.inverse().unwrap()); // 1 / NONRESIDUE
+
+        let (c0_div_nonresidue, add_gc) = Fq::mul_montgomery_evaluate(c0.clone(), inverse_nonresidue); // c0 / NONRESIDUE
+        gc += add_gc;
+        let (c1_sqrt, add_gc) = Fq::sqrt_montgomery_evaluate(c0_div_nonresidue);
+        gc += add_gc;
+
+        // TODO: Check that is_qnr is consistent with below equation.
+        // let is_qnr = circuit.extend(Fq::is_qnr_montgomery(c0.clone()));
+
+        let zero = Fq::wires_set_montgomery(ark_bn254::Fq::zero());
+
+        let (c0_final, add_gc) = U254::select_evaluate(
+            c0_sqrt,
+            zero.clone(),
+            //is_qnr[0].clone(),
+            is_qr.clone(),
+        );
+        gc += add_gc;
+        let (c1_final, add_gc) = U254::select_evaluate(zero, c1_sqrt, is_qr.clone());
+        gc += add_gc;
+
+        let mut res = c0_final;
+        res.extend(c1_final);
+        //circuit.add_wires(c0_final);
+        //circuit.add_wires(c1_final);
+
+        (res, gc)
+    }
+
     // General case: c1 != 0
     pub fn sqrt_general_montgomery(a: Wires) -> Circuit {
         let mut c0 = Vec::new();
@@ -579,6 +664,56 @@ impl Fq2 {
         circuit.add_wires(c1_final);
 
         circuit
+    }
+
+     pub fn sqrt_general_montgomery_evaluate(a: Wires) -> (Wires, GateCount) {
+        let mut c0 = Vec::new();
+        c0.extend_from_slice(&a[0..Fq::N_BITS]);
+
+        let mut c1 = Vec::new();
+        c1.extend_from_slice(&a[Fq::N_BITS..Fq2::N_BITS]);
+
+        //let mut circuit = Circuit::empty();
+        let mut gc = GateCount::zero();
+
+        let (alpha, add_gc) = Fq2::norm_montgomery_evaluate(c0.clone(), c1.clone()); // c0² - NONRESIDUE·c1²
+        gc += add_gc;
+        
+        let (alpha_sqrt, add_gc) = Fq::sqrt_montgomery_evaluate(alpha.clone()); // sqrt(norm)
+        gc += add_gc;
+
+        let (delta_plus, add_gc) = Fq::add_evaluate(alpha_sqrt.clone(), c0.clone()); // α + c0
+        gc += add_gc;
+
+        let inv_two = Fq::as_montgomery(ark_bn254::Fq::from(2u8).inverse().unwrap()); // 1/2
+        let (delta, add_gc) = Fq::mul_by_constant_montgomery_evaluate(delta_plus, inv_two); // (α + c0)/2
+        gc += add_gc;
+
+        let (is_qnr, add_gc) = Fq::is_qnr_montgomery_evaluate(delta.clone()); // δ is a qnr 
+        gc += add_gc;
+
+        let (delta_alt, add_gc) = Fq::sub_eval(delta.clone(), alpha_sqrt); // δ - α
+        gc += add_gc;
+
+        let (delta_final, add_gc) = U254::select_evaluate(delta_alt, delta, is_qnr[0].clone());
+        gc += add_gc;
+
+        let (c0_final, add_gc) = Fq::sqrt_montgomery_evaluate(delta_final.clone()); // sqrt(δ)
+        gc += add_gc;
+        
+        let (c0_inv, add_gc) = Fq::inverse_montgomery_evaluate(c0_final.clone());
+        gc += add_gc;
+
+        let (c1_half, add_gc) = Fq::mul_by_constant_montgomery_evaluate(c1.clone(), inv_two);
+        gc += add_gc;
+
+        let (c1_final, add_gc) = Fq::mul_montgomery_evaluate(c0_inv.clone(), c1_half); // c1 / (2 * c0)
+        gc += add_gc;
+
+        let mut res = c0_final;
+        res.extend(c1_final);
+
+        (res, gc)
     }
 }
 

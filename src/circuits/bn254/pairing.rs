@@ -1345,6 +1345,7 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
     (f, gate_count)
 }
 
+/* 
 // Deserialize a compressed G1 point in the circuit
 pub fn deserialize_compressed_g1_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, GateCount) {
     let mut circuit = Circuit::empty();
@@ -1373,7 +1374,41 @@ pub fn deserialize_compressed_g1_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, G
     }
     (circuit.0, n)
 }
+    */
 
+pub fn deserialize_compressed_g1_circuit_evaluate(p_c: Wires, y_flag: Wirex) -> (Wires, GateCount) {
+    //let mut circuit = Circuit::empty();
+
+    let x = p_c[0..Fq::N_BITS].to_vec();
+    let mut gc = GateCount::zero();
+    // calculate y
+    let (x2, add_gc)  = Fq::square_montgomery_evaluate(x.clone());
+    gc += add_gc;
+    let (x3, add_gc) = Fq::mul_montgomery_evaluate(x2, x.clone());
+    gc += add_gc;
+
+    let (y2, add_gc) = Fq::add_evaluate(
+        x3,
+        Fq::wires_set_montgomery(ark_bn254::g1::Config::COEFF_B),
+    );
+    gc += add_gc;
+
+    let (y, add_gc) = Fq::sqrt_montgomery_evaluate(y2);
+    gc += add_gc;
+
+    let (neg_y, add_gc) = Fq::neg_evaluate(y.clone());
+    gc += add_gc;
+
+    let (final_y, add_gc) = U254::select_evaluate(y, neg_y, y_flag);
+    gc += add_gc;
+
+    let mut res = x;
+    res.extend(final_y);
+    (res, gc)
+}
+
+
+/* 
 // deserialize compressed point to montgomery form
 pub fn deserialize_compressed_g2_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, GateCount) {
     let mut circuit = Circuit::empty();
@@ -1409,6 +1444,60 @@ pub fn deserialize_compressed_g2_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, G
         gate.evaluate();
     }
     (circuit.0, n)
+}
+*/
+
+// deserialize compressed point to montgomery form
+pub fn deserialize_compressed_g2_circuit_evaluate(p_c: Wires, y_flag: Wirex) -> (Wires, GateCount) {
+    //let mut circuit = Circuit::empty();
+    let mut gc = GateCount::zero();
+
+    let x = p_c[0..Fq2::N_BITS].to_vec();
+
+    // calculate y
+    let (x2, add_gc) = Fq2::square_montgomery_evaluate(x.clone());
+    gc += add_gc;
+
+    let (x3, add_gc) = Fq2::mul_montgomery_evaluate(x2, x.clone());
+    gc += add_gc;
+
+    let b = Fq2::wires_set_montgomery(ark_bn254::g2::Config::COEFF_B);
+    let (y2, add_gc) = Fq2::add_evaluate(x3, b);
+    gc += add_gc;
+
+    let (y, add_gc) = Fq2::sqrt_general_montgomery_evaluate(y2);
+    gc += add_gc;
+
+    let (neg_y, add_gc) = Fq2::neg_evaluate(y.clone());
+    gc += add_gc;
+
+    let (final_y_0, add_gc) = U254::select_evaluate(
+        y[0..Fq::N_BITS].to_vec(),
+        neg_y[0..Fq::N_BITS].to_vec(),
+        y_flag.clone(),
+    );
+    gc += add_gc;
+
+    let (final_y_1, add_gc) = U254::select_evaluate(
+        y[Fq::N_BITS..].to_vec(),
+        neg_y[Fq::N_BITS..].to_vec(),
+        y_flag,
+    );
+    gc += add_gc;
+
+    /* 
+    circuit.add_wires(x);
+    circuit.add_wires(final_y_0);
+    circuit.add_wires(final_y_1);
+    let n = circuit.gate_counts();
+    for mut gate in circuit.1 {
+        gate.evaluate();
+    }
+    */
+    let mut res = x;
+    res.extend(final_y_0);
+    res.extend(final_y_1);
+    (res, gc)
 }
 
 pub fn multi_miller_loop_groth16_evaluate_fast(
@@ -1826,7 +1915,7 @@ mod tests {
         y_flag.borrow_mut().set(sy == p.y);
 
         let wires = Fq::wires_set_montgomery(p.x.clone());
-        let circuit = deserialize_compressed_g1_circuit(wires, y_flag.clone());
+        let circuit = deserialize_compressed_g1_circuit_evaluate(wires, y_flag.clone());
         //let x = Fq::from_montgomery_wires(circuit.0[0..Fq::N_BITS].to_vec());
         let y = Fq::from_montgomery_wires(circuit.0[Fq::N_BITS..2 * Fq::N_BITS].to_vec());
         assert_eq!(y, p.y);
@@ -1844,7 +1933,7 @@ mod tests {
 
         let wires = Fq2::wires_set_montgomery(p.x.clone());
 
-        let (wires, n) = deserialize_compressed_g2_circuit(wires.clone(), y_flag);
+        let (wires, n) = deserialize_compressed_g2_circuit_evaluate(wires.clone(), y_flag);
         n.print();
         //let x = Fq2::from_montgomery_wires(circuit.0[0..Fq2::N_BITS].to_vec());
         let y = Fq2::from_montgomery_wires(wires[Fq2::N_BITS..2 * Fq2::N_BITS].to_vec());

@@ -11,7 +11,7 @@ use crate::circuits::bn254::g1::{
     G1Projective, projective_to_affine_evaluate, projective_to_affine_evaluate_montgomery,
 };
 use crate::circuits::bn254::pairing::{
-    deserialize_compressed_g1_circuit, deserialize_compressed_g2_circuit,
+    deserialize_compressed_g1_circuit_evaluate, deserialize_compressed_g2_circuit_evaluate,
     multi_miller_loop_groth16_evaluate_fast, multi_miller_loop_groth16_evaluate_montgomery_fast,
 };
 use ark_ec::pairing::Pairing;
@@ -108,19 +108,19 @@ pub fn groth16_verifier_evaluate_montgomery(
     let mut proof_c = proof_c;
     let mut gc;
     if compressed {
-        (proof_a, gc) = deserialize_compressed_g1_circuit(
+        (proof_a, gc) = deserialize_compressed_g1_circuit_evaluate(
             proof_a[..Fq::N_BITS].to_vec(),
             proof_a[Fq::N_BITS].clone(),
         );
         gate_count += gc;
         assert_eq!(proof_a.len(), 2 * Fq::N_BITS);
-        (proof_b, gc) = deserialize_compressed_g2_circuit(
+        (proof_b, gc) = deserialize_compressed_g2_circuit_evaluate(
             proof_b[..Fq2::N_BITS].to_vec(),
             proof_b[Fq2::N_BITS].clone(),
         );
         gate_count += gc;
         assert_eq!(proof_b.len(), 2 * Fq2::N_BITS);
-        (proof_c, gc) = deserialize_compressed_g1_circuit(
+        (proof_c, gc) = deserialize_compressed_g1_circuit_evaluate(
             proof_c[..Fq::N_BITS].to_vec(),
             proof_c[Fq::N_BITS].clone(),
         );

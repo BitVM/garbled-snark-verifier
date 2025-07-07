@@ -101,7 +101,7 @@ impl Fq {
     pub fn is_qnr_montgomery(x: Wires) -> Circuit {
         let mut circuit = Circuit::empty();
         // y = x^((p - 1)/2)
-        let exp = ark_bn254::Fq::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO);
+        let exp = BigUint::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO);
         let y = circuit.extend(Fq::exp_by_constant_montgomery(x.clone(), exp));
 
         let neg_one = -ark_bn254::Fq::ONE;
@@ -113,15 +113,41 @@ impl Fq {
         circuit
     }
 
+    pub fn is_qnr_montgomery_evaluate(x: Wires) -> (Wires, GateCount) {
+        let mut gc = GateCount::zero();
+        let exp = BigUint::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO);
+        let (y, add_gc) = Fq::exp_by_constant_montgomery_evaluate(x.clone(), exp);
+        gc += add_gc;
+
+        let neg_one = -ark_bn254::Fq::ONE;
+        let neg_one_mont = Fq::wires_set_montgomery(neg_one);
+
+        let (is_qnr, add_gc) = U254::equal_evaluate(y, neg_one_mont);
+        gc += add_gc;
+
+        (is_qnr, gc)
+    }
+
     pub fn sqrt_montgomery(a: Wires) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
         let b = circuit.extend(Self::exp_by_constant_montgomery(
             a,
-            ark_bn254::Fq::from_str(Self::MODULUS_ADD_1_DIV_4).unwrap(),
+            BigUint::from_str(Self::MODULUS_ADD_1_DIV_4).unwrap(),
         ));
         circuit.add_wires(b);
         circuit
+    }
+
+    pub fn sqrt_montgomery_evaluate(a: Wires) -> (Wires, GateCount) {
+        assert_eq!(a.len(), Self::N_BITS);
+        let mut gc = GateCount::zero();
+        let (b, add_gc) = Self::exp_by_constant_montgomery_evaluate(
+            a,
+            BigUint::from_str(Self::MODULUS_ADD_1_DIV_4).unwrap(),
+        );
+        gc += add_gc;
+        (b, gc)
     }
 }
 
@@ -130,6 +156,7 @@ mod tests {
     use super::*;
     use ark_ff::AdditiveGroup;
     use ark_std::test_rng;
+    use serial_test::serial;
 
     #[test]
     fn test_fq_random() {
@@ -367,15 +394,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_fq_exp_by_constant_montgomery() {
         use ark_ff::PrimeField;
-        let ut = |b: u32| {
+        let ut = |b: BigUint| {
             let a = Fq::random();
             let b = ark_bn254::Fq::from(b);
             let expect_a_to_power_of_b = a.pow(b.into_bigint());
 
             let circuit =
-                Fq::exp_by_constant_montgomery(Fq::wires_set_montgomery(a), ark_bn254::Fq::from(b));
+                Fq::exp_by_constant_montgomery(Fq::wires_set_montgomery(a), BigUint::from(b));
             circuit.gate_counts().print();
             for mut gate in circuit.1 {
                 gate.evaluate();
@@ -383,9 +411,32 @@ mod tests {
             let c = Fq::from_montgomery_wires(circuit.0);
             assert_eq!(expect_a_to_power_of_b, c);
         };
-        ut(0);
-        ut(1);
-        ut(u32::rand(&mut test_rng()));
+        ut(BigUint::from(0u8));
+        ut(BigUint::from(1u8));
+        ut(BigUint::from(u32::rand(&mut test_rng())));
+        ut(BigUint::from_str(Fq::MODULUS_ADD_1_DIV_4).unwrap());
+        ut(BigUint::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO));
+    }
+
+    #[test]
+    #[serial]
+    fn test_fq_exp_by_constant_montgomery_evaluate() {
+        use ark_ff::PrimeField;
+        let ut = |b: BigUint| {
+            let a = Fq::random();
+            let b = ark_bn254::Fq::from(b);
+            let expect_a_to_power_of_b = a.pow(b.into_bigint());
+
+            let (c, gc) =
+                Fq::exp_by_constant_montgomery_evaluate(Fq::wires_set_montgomery(a), BigUint::from(b));
+            gc.print();
+            assert_eq!(expect_a_to_power_of_b, Fq::from_montgomery_wires(c));
+        };
+        ut(BigUint::from(0u8));
+        ut(BigUint::from(1u8));
+        ut(BigUint::from(u32::rand(&mut test_rng())));
+        ut(BigUint::from_str(Fq::MODULUS_ADD_1_DIV_4).unwrap());
+        ut(BigUint::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO));
     }
 
     #[test]

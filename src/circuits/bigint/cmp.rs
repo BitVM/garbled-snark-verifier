@@ -52,6 +52,14 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
         circuit
     }
 
+    pub fn equal_evaluate(a: Wires, b: Wires) -> (Wires, GateCount) {
+        let circuit = Self::equal(a, b);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
+    }
+
     pub fn equal_constant(a: Wires, b: &BigUint) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
@@ -141,6 +149,16 @@ impl<const N_BITS: usize> BigIntImpl<N_BITS> {
             circuit.add_wire(wires[0].clone());
         }
         circuit
+    }
+
+    pub fn select_evaluate(a: Wires, b: Wires, s: Wirex) -> (Wires, GateCount) {
+        assert_eq!(a.len(), N_BITS);
+        assert_eq!(b.len(), N_BITS);
+        let circuit = Self::select(a, b, s);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
     }
 
     pub fn self_or_zero(a: Wires, s: Wirex) -> Circuit {

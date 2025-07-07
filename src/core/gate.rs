@@ -43,17 +43,17 @@ const GATE_TYPE_COUNT: usize = 11;
 
 #[derive(Clone)]
 pub struct Gate {
-    pub wire_a: Rc<RefCell<Wire>>,
-    pub wire_b: Rc<RefCell<Wire>>,
-    pub wire_c: Rc<RefCell<Wire>>,
+    pub wire_a: Wirex,
+    pub wire_b: Wirex,
+    pub wire_c: Wirex,
     pub gate_type: GateType,
 }
 
 impl Gate {
     pub fn new(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
         gate_type: GateType,
     ) -> Self {
         Self {
@@ -65,94 +65,94 @@ impl Gate {
     }
 
     pub fn and(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::And)
     }
 
     pub fn nand(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Nand)
     }
 
     pub fn nimp(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Nimp)
     }
 
     pub fn imp(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Imp)
     }
 
     pub fn ncimp(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Ncimp)
     }
 
     pub fn cimp(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Cimp)
     }
 
     pub fn nor(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Nor)
     }
 
     pub fn or(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Or)
     }
 
     pub fn xor(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Xor)
     }
 
     pub fn xnor(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
     ) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Xnor)
     }
 
-    pub fn not(wire_a: Rc<RefCell<Wire>>, wire_c: Rc<RefCell<Wire>>) -> Self {
+    pub fn not(wire_a: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a.clone(), wire_a, wire_c, GateType::Not)
     }
 
-    //((a XOR f_0) AND (b XOR bit_1)) XOR f_2
+    //((a XOR f_0) AND (b XOR f_1)) XOR f_2
     pub fn and_variant(
-        wire_a: Rc<RefCell<Wire>>,
-        wire_b: Rc<RefCell<Wire>>,
-        wire_c: Rc<RefCell<Wire>>,
+        wire_a: Wirex,
+        wire_b: Wirex,
+        wire_c: Wirex,
         f: [u8; 3],
     ) -> Self {
         let gate_index = (f[0] << 2) | (f[1] << 1) | f[2];
