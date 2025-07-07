@@ -4,7 +4,7 @@ use crate::{
         basic::selector,
         bigint::{
             U254,
-            utils::{bits_from_biguint},
+            utils::bits_from_biguint,
         },
         bn254::fq::Fq,
     },
@@ -242,6 +242,15 @@ pub trait Fp254Impl {
         let result = circuit.extend(U254::select(wires_2, wires_1, selector));
         circuit.add_wires(result);
         circuit
+    }
+
+    fn half_evaluate(a: Wires) -> (Wires, GateCount) {
+        assert_eq!(a.len(), Self::N_BITS);
+        let circuit = Self::half(a);
+        for mut gate in circuit.1.clone() {
+            gate.evaluate();
+        }
+        (circuit.0.clone(), circuit.gate_counts())
     }
 
     fn triple(a: Wires) -> Circuit {
