@@ -1,5 +1,15 @@
 # Garbled SNARK Verifier Circuit
 
+## Gate Count Metrics
+
+Gate counts are automatically measured for k=6 (64 constraints) on every push to `main` and published as dynamic badges.
+
+![Total Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/total.json)
+![Non-Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/nonfree.json)
+![Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/free.json)
+
+---
+
 A: operator, B: verifier
 
 0. A and B agree on the circuit.

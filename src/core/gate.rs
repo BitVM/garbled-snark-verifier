@@ -50,12 +50,7 @@ pub struct Gate {
 }
 
 impl Gate {
-    pub fn new(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-        gate_type: GateType,
-    ) -> Self {
+    pub fn new(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex, gate_type: GateType) -> Self {
         Self {
             wire_a,
             wire_b,
@@ -64,83 +59,43 @@ impl Gate {
         }
     }
 
-    pub fn and(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn and(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::And)
     }
 
-    pub fn nand(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn nand(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Nand)
     }
 
-    pub fn nimp(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn nimp(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Nimp)
     }
 
-    pub fn imp(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn imp(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Imp)
     }
 
-    pub fn ncimp(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn ncimp(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Ncimp)
     }
 
-    pub fn cimp(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn cimp(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Cimp)
     }
 
-    pub fn nor(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn nor(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Nor)
     }
 
-    pub fn or(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn or(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Or)
     }
 
-    pub fn xor(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn xor(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Xor)
     }
 
-    pub fn xnor(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-    ) -> Self {
+    pub fn xnor(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex) -> Self {
         Self::new(wire_a, wire_b, wire_c, GateType::Xnor)
     }
 
@@ -149,12 +104,7 @@ impl Gate {
     }
 
     //((a XOR f_0) AND (b XOR f_1)) XOR f_2
-    pub fn and_variant(
-        wire_a: Wirex,
-        wire_b: Wirex,
-        wire_c: Wirex,
-        f: [u8; 3],
-    ) -> Self {
+    pub fn and_variant(wire_a: Wirex, wire_b: Wirex, wire_c: Wirex, f: [u8; 3]) -> Self {
         let gate_index = (f[0] << 2) | (f[1] << 1) | f[2];
         let gate_type = match GateType::try_from(gate_index) {
             Ok(gt) => gt,
@@ -366,6 +316,50 @@ impl GateCount {
         println!("{:<15}{:>11}", "total:", self.total_gate_count());
         println!()
         //println!("nonfree:       {:?}\n", self.nonfree_gate_count()); //equals to and variants
+    }
+
+    pub fn and_count(&self) -> u64 {
+        self.0[GateType::And as usize]
+    }
+
+    pub fn nand_count(&self) -> u64 {
+        self.0[GateType::Nand as usize]
+    }
+
+    pub fn nimp_count(&self) -> u64 {
+        self.0[GateType::Nimp as usize]
+    }
+
+    pub fn imp_count(&self) -> u64 {
+        self.0[GateType::Imp as usize]
+    }
+
+    pub fn ncimp_count(&self) -> u64 {
+        self.0[GateType::Ncimp as usize]
+    }
+
+    pub fn cimp_count(&self) -> u64 {
+        self.0[GateType::Cimp as usize]
+    }
+
+    pub fn nor_count(&self) -> u64 {
+        self.0[GateType::Nor as usize]
+    }
+
+    pub fn or_count(&self) -> u64 {
+        self.0[GateType::Or as usize]
+    }
+
+    pub fn xor_count(&self) -> u64 {
+        self.0[GateType::Xor as usize]
+    }
+
+    pub fn xnor_count(&self) -> u64 {
+        self.0[GateType::Xnor as usize]
+    }
+
+    pub fn not_count(&self) -> u64 {
+        self.0[GateType::Not as usize]
     }
 }
 

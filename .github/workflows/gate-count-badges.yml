@@ -1,0 +1,134 @@
+name: Update Gate Count Badges
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  gate-count:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust 1.88.0
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: "1.88.0"
+        override: true
+    
+    - name: Run sccache-cache
+      uses: mozilla-actions/sccache-action@v0.0.9
+    
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    
+    - name: Run gate count examples
+      run: |
+        echo "Running gate count..."
+        set -e  # Exit on any error
+        
+        # Run the example and capture output
+        cargo run --example groth16_gc_gate_count --release -- --json > raw_output.txt 2>&1
+        
+        echo "Raw output from cargo run:"
+        cat raw_output.txt
+        
+        # Extract JSON and validate
+        sed -n '/^{/,$p' raw_output.txt > gates.json
+        
+        echo "Extracted JSON:"
+        cat gates.json
+        
+        # Validate JSON structure
+        if ! jq empty gates.json; then
+          echo "ERROR: Invalid JSON structure in gates.json"
+          echo "Content of gates.json:"
+          cat gates.json
+          exit 1
+        fi
+        
+        # Validate required fields exist
+        if ! jq -e '.gate_count.total_formatted' gates.json >/dev/null; then
+          echo "ERROR: Missing .gate_count.total_formatted in JSON"
+          echo "Available keys in gate_count:"
+          jq -r '.gate_count | keys[]' gates.json || echo "No gate_count object found"
+          echo "Full JSON structure:"
+          jq . gates.json
+          exit 1
+        fi
+        
+        echo "JSON validation successful"
+    
+    - name: Extract gate counts and create badges
+      run: |
+        set -e  # Exit on any error
+        
+        # Extract formatted gate counts from JSON with validation
+        echo "Extracting gate counts from JSON..."
+        
+        TOTAL=$(jq -r '.gate_count.total_formatted' gates.json)
+        NONFREE=$(jq -r '.gate_count.nonfree_formatted' gates.json)
+        FREE=$(jq -r '.gate_count.free_formatted' gates.json)
+        
+        # Validate that we got actual values, not null or empty
+        if [ "$TOTAL" = "null" ] || [ "$TOTAL" = "" ]; then
+          echo "ERROR: Failed to extract total_formatted from JSON"
+          echo "gates.json content:"
+          cat gates.json
+          exit 1
+        fi
+        
+        if [ "$NONFREE" = "null" ] || [ "$NONFREE" = "" ]; then
+          echo "ERROR: Failed to extract nonfree_formatted from JSON"
+          echo "gates.json content:"
+          cat gates.json
+          exit 1
+        fi
+        
+        if [ "$FREE" = "null" ] || [ "$FREE" = "" ]; then
+          echo "ERROR: Failed to extract free_formatted from JSON"
+          echo "gates.json content:"
+          cat gates.json
+          exit 1
+        fi
+        
+        echo "Successfully extracted gate counts:"
+        echo "  Total: $TOTAL"
+        echo "  Non-Free: $NONFREE"
+        echo "  Free: $FREE"
+        
+        # Create badge JSON files for shields.io endpoint
+        mkdir -p badge_data
+        
+        # Create shields.io endpoint format JSON files
+        echo "{\"schemaVersion\": 1, \"label\": \"Total Gates\", \"message\": \"${TOTAL}\", \"color\": \"blue\"}" > badge_data/total.json
+        echo "{\"schemaVersion\": 1, \"label\": \"Non-Free Gates\", \"message\": \"${NONFREE}\", \"color\": \"red\"}" > badge_data/nonfree.json
+        echo "{\"schemaVersion\": 1, \"label\": \"Free Gates\", \"message\": \"${FREE}\", \"color\": \"green\"}" > badge_data/free.json
+        
+        # Display badge data
+        echo "Badge data created:"
+        ls -la badge_data/
+        for file in badge_data/*.json; do
+          echo "$(basename $file .json): $(cat $file)"
+        done
+    
+    - name: Upload gate count artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: gate-counts
+        path: badge_data
+
+    - name: Deploy badge JSONs to gh-badges branch
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./badge_data
+        publish_branch: gh-badges
+        destination_dir: badge_data
