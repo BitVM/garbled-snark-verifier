@@ -321,7 +321,6 @@ impl Fq2 {
             gate.evaluate();
         }
         (circuit.0.clone(), circuit.gate_counts())
-
     }
 
     pub fn inverse_montgomery(a: Wires) -> Circuit {
@@ -385,7 +384,7 @@ impl Fq2 {
         let mut circuit = Circuit::empty();
 
         let c0_square = circuit.extend(Fq::square_montgomery(c0.clone()));
-        let c1_square = circuit.extend(Fq::square_montgomery(c1.clone()));   
+        let c1_square = circuit.extend(Fq::square_montgomery(c1.clone()));
         let norm = circuit.extend(Fq::add(c0_square, c1_square));
         circuit.add_wires(norm);
         circuit
@@ -407,7 +406,7 @@ impl Fq2 {
         let c0 = a[0..Fq::N_BITS].to_vec();
         let c0_sqrt = circuit.extend(Fq::sqrt_montgomery(c0.clone())); // sqrt(c0)
 
-        let c0_neg = circuit.extend(Fq::neg(c0.clone())); 
+        let c0_neg = circuit.extend(Fq::neg(c0.clone()));
         let c1_sqrt = circuit.extend(Fq::sqrt_montgomery(c0_neg));
 
         // TODO: Check that is_qnr is consistent with below equation.
@@ -433,7 +432,7 @@ impl Fq2 {
         let c0 = a[0..Fq::N_BITS].to_vec();
 
         let mut gc = GateCount::zero();
-        let (c0_sqrt, add_gc) = Fq::sqrt_montgomery_evaluate(c0.clone()); 
+        let (c0_sqrt, add_gc) = Fq::sqrt_montgomery_evaluate(c0.clone());
         gc += add_gc;
 
         let (c0_neg, add_gc) = Fq::neg_evaluate(c0.clone());
@@ -462,7 +461,7 @@ impl Fq2 {
     // General case: c1 != 0
     pub fn sqrt_general_montgomery(a: Wires) -> Circuit {
         let c0 = a[0..Fq::N_BITS].to_vec();
-        let c1 = a[Fq::N_BITS..2*Fq::N_BITS].to_vec();
+        let c1 = a[Fq::N_BITS..2 * Fq::N_BITS].to_vec();
 
         let mut circuit = Circuit::empty();
 
@@ -491,14 +490,14 @@ impl Fq2 {
 
     pub fn sqrt_general_montgomery_evaluate(a: Wires) -> (Wires, GateCount) {
         let c0 = a[0..Fq::N_BITS].to_vec();
-        let c1 = a[Fq::N_BITS..2*Fq::N_BITS].to_vec();
+        let c1 = a[Fq::N_BITS..2 * Fq::N_BITS].to_vec();
 
         //let mut circuit = Circuit::empty();
         let mut gc = GateCount::zero();
 
         let (alpha, add_gc) = Fq2::norm_montgomery_evaluate(c0.clone(), c1.clone()); // c0² + c1²
         gc += add_gc;
-        
+
         let (alpha_sqrt, add_gc) = Fq::sqrt_montgomery_evaluate(alpha.clone()); // sqrt(norm)
         gc += add_gc;
 
@@ -519,7 +518,7 @@ impl Fq2 {
 
         let (c0_final, add_gc) = Fq::sqrt_montgomery_evaluate(delta_final.clone()); // sqrt(δ)
         gc += add_gc;
-        
+
         let (c0_inv, add_gc) = Fq::inverse_montgomery_evaluate(c0_final.clone());
         gc += add_gc;
 
@@ -753,8 +752,8 @@ mod tests {
         let expected_norm = ark_bn254::Fq::from(r.norm());
 
         let circuit = Fq2::norm_montgomery(
-            Fq::wires_set_montgomery(r.c0.clone()),
-            Fq::wires_set_montgomery(r.c1.clone()),
+            Fq::wires_set_montgomery(r.c0),
+            Fq::wires_set_montgomery(r.c1),
         );
         circuit.gate_counts().print();
         for mut gate in circuit.1 {

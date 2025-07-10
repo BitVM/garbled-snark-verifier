@@ -312,12 +312,7 @@ pub fn final_exponentiation_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
-    use crate::circuits::bn254::{
-        fp254impl::Fp254Impl,
-        fq::Fq,
-        fq12::Fq12,
-    };
+    use crate::circuits::bn254::{fp254impl::Fp254Impl, fq::Fq, fq12::Fq12};
     use ark_ec::{
         bn::BnConfig,
         pairing::{MillerLoopOutput, Pairing},
@@ -326,6 +321,7 @@ mod tests {
     use ark_std::rand::SeedableRng;
     use num_bigint::BigUint;
     use rand_chacha::ChaCha20Rng;
+    use std::str::FromStr;
 
     #[test]
     fn test_cyclotomic_exp() {

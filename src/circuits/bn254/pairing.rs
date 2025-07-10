@@ -816,7 +816,7 @@ pub fn multi_miller_loop_evaluate_montgomery_fast(
     (f, gate_count)
 }
 
-/* 
+/*
 // Deserialize a compressed G1 point in the circuit
 pub fn deserialize_compressed_g1_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, GateCount) {
     let mut circuit = Circuit::empty();
@@ -853,15 +853,13 @@ pub fn deserialize_compressed_g1_circuit_evaluate(p_c: Wires, y_flag: Wirex) -> 
     let x = p_c[0..Fq::N_BITS].to_vec();
     let mut gc = GateCount::zero();
     // calculate y
-    let (x2, add_gc)  = Fq::square_montgomery_evaluate(x.clone());
+    let (x2, add_gc) = Fq::square_montgomery_evaluate(x.clone());
     gc += add_gc;
     let (x3, add_gc) = Fq::mul_montgomery_evaluate(x2, x.clone());
     gc += add_gc;
 
-    let (y2, add_gc) = Fq::add_evaluate(
-        x3,
-        Fq::wires_set_montgomery(ark_bn254::g1::Config::COEFF_B),
-    );
+    let (y2, add_gc) =
+        Fq::add_evaluate(x3, Fq::wires_set_montgomery(ark_bn254::g1::Config::COEFF_B));
     gc += add_gc;
 
     let (y, add_gc) = Fq::sqrt_montgomery_evaluate(y2);
@@ -878,8 +876,7 @@ pub fn deserialize_compressed_g1_circuit_evaluate(p_c: Wires, y_flag: Wirex) -> 
     (res, gc)
 }
 
-
-/* 
+/*
 // deserialize compressed point to montgomery form
 pub fn deserialize_compressed_g2_circuit(p_c: Wires, y_flag: Wirex) -> (Wires, GateCount) {
     let mut circuit = Circuit::empty();
@@ -956,7 +953,7 @@ pub fn deserialize_compressed_g2_circuit_evaluate(p_c: Wires, y_flag: Wirex) -> 
     );
     gc += add_gc;
 
-    /* 
+    /*
     circuit.add_wires(x);
     circuit.add_wires(final_y_0);
     circuit.add_wires(final_y_1);
@@ -1189,7 +1186,7 @@ mod tests {
         let sy = (p.y.square()).sqrt().unwrap();
         y_flag.borrow_mut().set(sy == p.y);
 
-        let wires = Fq::wires_set_montgomery(p.x.clone());
+        let wires = Fq::wires_set_montgomery(p.x);
         let circuit = deserialize_compressed_g1_circuit_evaluate(wires, y_flag.clone());
         //let x = Fq::from_montgomery_wires(circuit.0[0..Fq::N_BITS].to_vec());
         let y = Fq::from_montgomery_wires(circuit.0[Fq::N_BITS..2 * Fq::N_BITS].to_vec());
@@ -1206,7 +1203,7 @@ mod tests {
         let sy = (p.y.square()).sqrt().unwrap();
         y_flag.borrow_mut().set(sy == p.y);
 
-        let wires = Fq2::wires_set_montgomery(p.x.clone());
+        let wires = Fq2::wires_set_montgomery(p.x);
 
         let (wires, n) = deserialize_compressed_g2_circuit_evaluate(wires.clone(), y_flag);
         n.print();

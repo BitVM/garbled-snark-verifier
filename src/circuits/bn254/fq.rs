@@ -378,8 +378,10 @@ mod tests {
             let b = ark_bn254::Fq::from(b);
             let expect_a_to_power_of_b = a.pow(b.into_bigint());
 
-            let (c, gc) =
-                Fq::exp_by_constant_montgomery_evaluate(Fq::wires_set_montgomery(a), BigUint::from(b));
+            let (c, gc) = Fq::exp_by_constant_montgomery_evaluate(
+                Fq::wires_set_montgomery(a),
+                BigUint::from(b),
+            );
             gc.print();
             assert_eq!(expect_a_to_power_of_b, Fq::from_montgomery_wires(c));
         };

@@ -25,7 +25,11 @@ impl Wire {
     }
 
     pub fn select(&self, selector: bool) -> S {
-        if selector { self.label1.unwrap() } else { self.label0.unwrap() }
+        if selector {
+            self.label1.unwrap()
+        } else {
+            self.label0.unwrap()
+        }
     }
 
     pub fn get_value(&self) -> bool {

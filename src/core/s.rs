@@ -36,7 +36,11 @@ impl S {
 
     pub fn xor(a: Self, b: Self) -> Self {
         Self(
-            zip(a.0, b.0).map(|(u, v)| u ^ v).collect::<Vec<u8>>().try_into().unwrap()
+            zip(a.0, b.0)
+                .map(|(u, v)| u ^ v)
+                .collect::<Vec<u8>>()
+                .try_into()
+                .unwrap(),
         )
     }
 }

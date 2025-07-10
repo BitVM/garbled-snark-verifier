@@ -5,9 +5,7 @@ use crate::circuits::bn254::fq::Fq;
 use crate::circuits::bn254::fq2::Fq2;
 use crate::circuits::bn254::fq12::Fq12;
 use crate::circuits::bn254::fr::Fr;
-use crate::circuits::bn254::g1::{
-    G1Projective, projective_to_affine_evaluate_montgomery,
-};
+use crate::circuits::bn254::g1::{G1Projective, projective_to_affine_evaluate_montgomery};
 use crate::circuits::bn254::pairing::{
     deserialize_compressed_g1_circuit_evaluate, deserialize_compressed_g2_circuit_evaluate,
     multi_miller_loop_groth16_evaluate_montgomery_fast,
