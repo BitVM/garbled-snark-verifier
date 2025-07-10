@@ -1,6 +1,4 @@
 use crate::bag::*;
-use crate::core::utils::{LIMB_LEN, N_LIMBS, bit_to_usize, convert_between_blake3_and_normal_form};
-use bitvm::{bigint::U256, hash::blake3::blake3_compute_script_with_limb, treepp::*};
 use std::ops::{Add, AddAssign};
 
 // Except Xor, Xnor and Not, each enum's bitmask represent the boolean operation ((a XOR bit_2) AND (b XOR bit_1)) XOR bit_0
@@ -134,27 +132,6 @@ impl Gate {
         }
     }
 
-    pub fn evaluation_script(&self) -> Script {
-        match self.gate_type {
-            GateType::And => script! { OP_BOOLAND },
-            GateType::Nand => script! { OP_BOOLAND OP_NOT },
-
-            GateType::Nimp => script! { OP_SWAP OP_NOT OP_BOOLAND },
-            GateType::Imp => script! { OP_NOT OP_SWAP OP_BOOLOR },
-
-            GateType::Ncimp => script! { OP_NOT OP_BOOLAND },
-            GateType::Cimp => script! { OP_SWAP OP_NOT OP_BOOLOR },
-
-            GateType::Nor => script! { OP_BOOLOR OP_NOT },
-            GateType::Or => script! { OP_BOOLOR },
-
-            GateType::Xor => script! { OP_NUMNOTEQUAL },
-            GateType::Xnor => script! { OP_NUMNOTEQUAL OP_NOT },
-
-            GateType::Not => script! { OP_DROP OP_NOT },
-        }
-    }
-
     pub fn evaluate(&mut self) {
         self.wire_c.borrow_mut().set((self.f())(
             self.wire_a.borrow().get_value(),
@@ -163,96 +140,11 @@ impl Gate {
     }
 
     pub fn garbled(&self) -> Vec<S> {
-        [(false, false), (true, false), (false, true), (true, true)]
-            .iter()
-            .map(|(i, j)| {
-                let k = (self.f())(*i, *j);
-                let a = self.wire_a.borrow().select(*i);
-                let b = self.wire_b.borrow().select(*j);
-                let c = self.wire_c.borrow().select(k);
-                S::hash_together(a, b) + c.neg()
-            })
-            .collect()
+        todo!()
     }
 
-    pub fn check_garble(&self, garble: Vec<S>, bit: bool) -> (bool, S) {
-        let a = self.wire_a.borrow().get_label();
-        let b = self.wire_b.borrow().get_label();
-        let index = bit_to_usize(self.wire_a.borrow().get_value())
-            + 2 * bit_to_usize(self.wire_b.borrow().get_value());
-        let row = garble[index];
-        let c = S::hash_together(a, b) + row.neg();
-        let hc = c.hash();
-        (hc == self.wire_c.borrow().select_hash(bit), c)
-    }
-
-    pub fn script(&self, garbled: Vec<S>, correct: bool) -> Script {
-        script! {                                                     // a bit_a b bit_b
-            { N_LIMBS + 1 } OP_PICK                                   // a bit_a b bit_b bit_a
-            OP_OVER                                                   // a bit_a b bit_b bit_a bit_b
-            OP_TOALTSTACK OP_TOALTSTACK                               // a bit_a b bit_b | bit_a bit_b
-            for _ in 0..N_LIMBS { {2 * N_LIMBS + 1} OP_PICK }         // a bit_a b bit_b a | bit_a bit_b
-            for _ in 0..N_LIMBS { {2 * N_LIMBS} OP_PICK }             // a bit_a b bit_b a b | bit_a bit_b
-            { U256::toaltstack() } { U256::toaltstack() }             // a bit_a b bit_b | a b bit_a bit_b
-            OP_TOALTSTACK { U256::toaltstack() }                      // a bit_a | b bit_b a b bit_a bit_b
-            { self.wire_a.borrow().commitment_script() } OP_VERIFY    // | b bit_b a b bit_a bit_b
-            { U256::fromaltstack() } OP_FROMALTSTACK                  // b bit_b | a b bit_a bit_b
-            { self.wire_b.borrow().commitment_script() } OP_VERIFY    // | a b bit_a bit_b
-            { U256::fromaltstack() }                                  // a | b bit_a bit_b
-            { convert_between_blake3_and_normal_form() }              // a' | b bit_a bit_b
-            { U256::fromaltstack() }                                  // a' b | bit_a bit_b
-            { convert_between_blake3_and_normal_form() }              // a' b' | bit_a bit_b
-            { blake3_compute_script_with_limb(64, LIMB_LEN) }
-            { U256::transform_limbsize(4, LIMB_LEN.into()) }          // hab | bit_a bit_b
-            { U256::push_hex(&hex::encode(garbled[0].0)) }
-            { U256::push_hex(&hex::encode(garbled[1].0)) }
-            { U256::push_hex(&hex::encode(garbled[2].0)) }
-            { U256::push_hex(&hex::encode(garbled[3].0)) }            // hab tau0 tau1 tau2 tau3 | bit_a bit_b
-            OP_FROMALTSTACK OP_FROMALTSTACK                           // hab tau0 tau1 tau2 tau3 bit_a bit_b
-            OP_2DUP OP_TOALTSTACK OP_TOALTSTACK                       // hab tau0 tau1 tau2 tau3 bit_a bit_b | bit_a bit_b
-            OP_IF
-                OP_IF
-                // tau3
-                { U256::toaltstack() }
-                { U256::drop() }
-                { U256::drop() }
-                { U256::drop() }
-                { U256::fromaltstack() }
-                OP_ELSE
-                // tau2
-                { U256::drop() }
-                { U256::toaltstack() }
-                { U256::drop() }
-                { U256::drop() }
-                { U256::fromaltstack() }
-                OP_ENDIF
-            OP_ELSE
-                OP_IF
-                // tau1
-                { U256::drop() }
-                { U256::drop() }
-                { U256::toaltstack() }
-                { U256::drop() }
-                { U256::fromaltstack() }
-                OP_ELSE
-                // tau0
-                { U256::drop() }
-                { U256::drop() }
-                { U256::drop() }
-                OP_ENDIF
-            OP_ENDIF                                               // hab tau | bit_a bit_b
-            { U256::sub(1, 0) }                                    // c=hab-tau | bit_a bit_b
-            OP_FROMALTSTACK OP_FROMALTSTACK                        // c bit_a bit_b
-            { self.evaluation_script() }                           // c bit_c
-            { self.wire_c.borrow().commitment_script() }
-            if correct {
-                OP_VERIFY
-            }
-            else {
-                OP_NOT OP_VERIFY
-            }
-            OP_TRUE
-        }
+    pub fn check_garble(&self, _garble: Vec<S>, _bit: bool) -> (bool, S) {
+        todo!()
     }
 }
 
@@ -560,43 +452,5 @@ impl GateCount {
         Self([
             4098864, 105664, 0, 0, 1374, 52832, 0, 58734, 13580727, 58734, 77179,
         ])
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_gate() {
-        let wire_1 = new_wirex();
-        let wire_2 = new_wirex();
-        let wire_3 = new_wirex();
-        let gate = Gate::and(wire_1, wire_2, wire_3);
-
-        let correct_garbled = gate.garbled();
-        let incorrect_garbled = vec![S::random(), S::random(), S::random(), S::random()];
-
-        for (correct, garbled) in [(true, correct_garbled), (false, incorrect_garbled)] {
-            println!(
-                "testing {:?} garble",
-                if correct { "correct" } else { "incorrect" }
-            );
-            for (bit_a, bit_b) in [(false, false), (true, false), (false, true), (true, true)] {
-                let a = gate.wire_a.borrow().select(bit_a);
-                let b = gate.wire_b.borrow().select(bit_b);
-                let gate_script = gate.script(garbled.clone(), correct);
-                let script = script! {
-                    { U256::push_hex(&hex::encode(a.0)) }
-                    { if bit_a {1} else {0} }
-                    { U256::push_hex(&hex::encode(b.0)) }
-                    { if bit_b {1} else {0} }
-                    { gate_script }
-                };
-                println!("script len: {:?}", script.len());
-                let result = execute_script(script);
-                assert!(result.success);
-            }
-        }
     }
 }

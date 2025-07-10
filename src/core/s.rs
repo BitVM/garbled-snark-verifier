@@ -33,6 +33,12 @@ impl S {
         h.extend(b.0.to_vec());
         Self(*hash(&h).as_bytes())
     }
+
+    pub fn xor(a: Self, b: Self) -> Self {
+        Self(
+            zip(a.0, b.0).map(|(u, v)| u ^ v).collect::<Vec<u8>>().try_into().unwrap()
+        )
+    }
 }
 
 impl Add for S {
@@ -47,36 +53,5 @@ impl Add for S {
             carry = x / 256;
         }
         Self(s)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bitvm::{bigint::U256, treepp::*};
-
-    #[test]
-    fn test_s() {
-        let a = S::random();
-        let b = S::random();
-        let c = a + b;
-        let d = a.neg();
-
-        let script = script! {
-            { U256::push_hex(&hex::encode(a.0)) }
-            { U256::push_hex(&hex::encode(b.0)) }
-            { U256::add(0, 1) }
-            { U256::push_hex(&hex::encode(c.0)) }
-            { U256::equalverify(0, 1) }
-            { U256::push_hex(&hex::encode(a.0)) }
-            { U256::push_hex(&hex::encode(d.0)) }
-            { U256::add(0, 1) }
-            { U256::push_hex(&hex::encode([0_u8; 32])) }
-            { U256::equalverify(0, 1) }
-            OP_TRUE
-        };
-        println!("script len: {:?}", script.len());
-        let result = execute_script(script);
-        assert!(result.success);
     }
 }
