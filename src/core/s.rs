@@ -34,14 +34,11 @@ impl S {
         Self(*hash(&h).as_bytes())
     }
 
-    pub fn xor(a: Self, b: Self) -> Self {
-        Self(
-            zip(a.0, b.0)
-                .map(|(u, v)| u ^ v)
-                .collect::<Vec<u8>>()
-                .try_into()
-                .unwrap(),
-        )
+    pub fn xor(mut a: Self, b: Self) -> Self {
+        for i in 0..32 {
+            a.0[i] ^= b.0[i];
+        }
+        a
     }
 }
 

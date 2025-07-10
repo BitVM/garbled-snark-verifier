@@ -1,4 +1,4 @@
-use crate::bag::*;
+use crate::{bag::*, core::utils::bit_to_usize};
 use std::ops::{Add, AddAssign};
 
 // Except Xor, Xnor and Not, each enum's bitmask represent the boolean operation ((a XOR bit_2) AND (b XOR bit_1)) XOR bit_0
@@ -140,11 +140,27 @@ impl Gate {
     }
 
     pub fn garbled(&self) -> Vec<S> {
-        todo!()
+        [(false, false), (true, false), (false, true), (true, true)]
+            .iter()
+            .map(|(i, j)| {
+                let k = (self.f())(*i, *j);
+                let a = self.wire_a.borrow().select(*i);
+                let b = self.wire_b.borrow().select(*j);
+                let c = self.wire_c.borrow().select(k);
+                S::hash_together(a, b) + c.neg()
+            })
+            .collect()
     }
 
-    pub fn check_garble(&self, _garble: Vec<S>, _bit: bool) -> (bool, S) {
-        todo!()
+    pub fn check_garble(&self, garble: Vec<S>, bit: bool) -> (bool, S) {
+        let a = self.wire_a.borrow().get_label();
+        let b = self.wire_b.borrow().get_label();
+        let index = bit_to_usize(self.wire_a.borrow().get_value())
+            + 2 * bit_to_usize(self.wire_b.borrow().get_value());
+        let row = garble[index];
+        let c = S::hash_together(a, b) + row.neg();
+        let hc = c.hash();
+        (hc == self.wire_c.borrow().select_hash(bit), c)
     }
 }
 

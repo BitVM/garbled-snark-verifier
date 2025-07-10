@@ -32,6 +32,14 @@ impl Wire {
         }
     }
 
+    pub fn select_hash(&self, selector: bool) -> S {
+        if selector {
+            self.label1.unwrap().hash()
+        } else {
+            self.label0.unwrap().hash()
+        }
+    }
+
     pub fn get_value(&self) -> bool {
         assert!(self.value.is_some());
         self.value.unwrap()
