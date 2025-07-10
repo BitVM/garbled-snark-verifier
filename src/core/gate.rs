@@ -257,41 +257,10 @@ impl GateCount {
 
 // these are here to speed up tests
 impl GateCount {
-    pub fn msm() -> Self {
-        /*
-        Self {
-            and: 128808400,
-            or: 51296850,
-            xor: 128326975,
-            nand: 213127590,
-            not: 123282230,
-            xnor: 51296850,
-            nimp: 0,
-            nsor: 0,
-        } */
-        Self::zero()
-    }
-
     pub fn msm_montgomery() -> Self {
         Self([
             40952275, 39265860, 0, 0, 29750, 19632930, 0, 89650, 125020525, 89700, 210275,
         ])
-    }
-
-    pub fn fq12_square() -> Self {
-        /*
-        Self {
-            and: 9875584,
-            or: 3951608,
-            xor: 9886180,
-            nand: 11911584,
-            not: 8004680,
-            xnor: 3948560,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
     }
 
     pub fn fq12_square_montgomery() -> Self {
@@ -300,42 +269,10 @@ impl GateCount {
         ])
     }
 
-    pub fn fq12_cyclotomic_square() -> Self {
-        /*
-        Self {
-            and: 5903509,
-            or: 2357575,
-            xor: 5910838,
-            nand: 7090410,
-            not: 4767360,
-            xnor: 2357575,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
-    }
-
     pub fn fq12_cyclotomic_square_montgomery() -> Self {
         Self([
             1921672, 100076, 0, 0, 953, 50038, 0, 53251, 5790700, 53251, 62909,
         ])
-    }
-
-    pub fn fq12_mul() -> Self {
-        /*
-        Self {
-            and: 14793358,
-            or: 5916742,
-            xor: 14804755,
-            nand: 17836896,
-            not: 11985288,
-            xnor: 5912170,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
     }
 
     pub fn fq12_mul_montgomery() -> Self {
@@ -344,42 +281,10 @@ impl GateCount {
         ])
     }
 
-    pub fn fq12_inverse() -> Self {
-        /*
-        Self {
-            and: 37917672,
-            or: 12127813,
-            xor: 37294593,
-            nand: 39307008,
-            not: 26014500,
-            xnor: 11867464,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
-    }
-
     pub fn fq12_inverse_montgomery() -> Self {
         Self([
             14828696, 3327400, 645668, 0, 327459, 1663700, 0, 477163, 39787000, 474370, 498290,
         ])
-    }
-
-    pub fn double_in_place() -> Self {
-        /*
-        Self {
-            and: 7285002,
-            or: 3000110,
-            xor: 7364962,
-            nand: 9029700,
-            not: 6066530,
-            xnor: 3000110,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
     }
 
     pub fn double_in_place_montgomery() -> Self {
@@ -388,64 +293,16 @@ impl GateCount {
         ])
     }
 
-    pub fn add_in_place() -> Self {
-        /*
-        Self {
-            and: 11969527,
-            or: 4769941,
-            xor: 11941035,
-            nand: 14353794,
-            not: 9644762,
-            xnor: 4769941,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
-    }
-
     pub fn add_in_place_montgomery() -> Self {
         Self([
             3828958, 58420, 0, 0, 1669, 29210, 0, 33275, 11650147, 33275, 48528,
         ])
     }
 
-    pub fn ell() -> Self {
-        /*
-        Self {
-            and: 13963948,
-            or: 5564020,
-            xor: 13946983,
-            nand: 16741140,
-            not: 11250566,
-            xnor: 5564020,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
-    }
-
     pub fn ell_montgomery() -> Self {
         Self([
             4486968, 107696, 0, 0, 2018, 53848, 0, 59246, 13625157, 59246, 78199,
         ])
-    }
-
-    pub fn ell_by_constant() -> Self {
-        /*
-        Self {
-            and: 11438002,
-            or: 5060584,
-            xor: 11962235,
-            nand: 15223236,
-            not: 10232611,
-            xnor: 5060584,
-            nimp: 0,
-            nsor: 0,
-        }
-        */
-        Self::zero()
     }
 
     pub fn ell_by_constant_montgomery() -> Self {

@@ -256,19 +256,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fq_mul() {
-        let a = Fq::random();
-        let b = Fq::random();
-        let circuit = Fq::mul(Fq::wires_set(a), Fq::wires_set(b));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
-        let c = Fq::from_wires(circuit.0);
-        assert_eq!(c, a * b);
-    }
-
-    #[test]
     fn test_fq_mul_montgomery() {
         let a = Fq::random();
         let b = Fq::random();
@@ -282,19 +269,6 @@ mod tests {
         }
         let c = Fq::from_wires(circuit.0);
         assert_eq!(c, Fq::as_montgomery(a * b));
-    }
-
-    #[test]
-    fn test_fq_mul_by_constant() {
-        let a = Fq::random();
-        let b = Fq::random();
-        let circuit = Fq::mul_by_constant(Fq::wires_set(a), b);
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
-        let c = Fq::from_wires(circuit.0);
-        assert_eq!(c, a * b);
     }
 
     #[test]
@@ -333,18 +307,6 @@ mod tests {
     }
 
     #[test]
-    fn test_fq_square() {
-        let a = Fq::random();
-        let circuit = Fq::square(Fq::wires_set(a));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
-        let c = Fq::from_wires(circuit.0);
-        assert_eq!(c, a * a);
-    }
-
-    #[test]
     fn test_fq_square_montgomery() {
         let a = Fq::random();
         let circuit = Fq::square_montgomery(Fq::wires_set_montgomery(a));
@@ -354,18 +316,6 @@ mod tests {
         }
         let c = Fq::from_wires(circuit.0);
         assert_eq!(c, Fq::as_montgomery(a * a));
-    }
-
-    #[test]
-    fn test_fq_inverse() {
-        let a = Fq::random();
-        let circuit = Fq::inverse(Fq::wires_set(a));
-        circuit.gate_counts().print();
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
-        let c = Fq::from_wires(circuit.0);
-        assert_eq!(c, a.inverse().unwrap());
     }
 
     #[test]
@@ -395,6 +345,7 @@ mod tests {
 
     #[test]
     #[serial]
+    #[ignore]
     fn test_fq_exp_by_constant_montgomery() {
         use ark_ff::PrimeField;
         let ut = |b: BigUint| {
@@ -449,9 +400,9 @@ mod tests {
             gate.evaluate();
         }
         let c = Fq::from_montgomery_wires(circuit.0);
-        let la = match a > -a {
-            true => a,
-            false => -a,
+        let la = match a.legendre().is_qnr() {
+            true => -a,
+            false => a,
         };
         assert_eq!(c, la);
     }

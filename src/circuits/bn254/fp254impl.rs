@@ -40,10 +40,6 @@ pub trait Fp254Impl {
         BigUint::from_str(Self::MONTGOMERY_R_INVERSE).unwrap()
     }
 
-    fn modulus_as_bits() -> Vec<bool> {
-        bits_from_biguint(&Self::modulus_as_biguint())
-    }
-
     fn not_modulus_as_biguint() -> BigUint {
         let p = Self::modulus_as_biguint();
         let a = BigUint::from_str("2")
@@ -52,19 +48,11 @@ pub trait Fp254Impl {
         a - p
     }
 
-    fn not_modulus_as_bits() -> Vec<bool> {
-        bits_from_biguint(&Self::not_modulus_as_biguint())
-    }
-
     fn half_modulus() -> BigUint;
 
     fn one_third_modulus() -> BigUint;
 
     fn two_third_modulus() -> BigUint;
-
-    fn self_or_zero(a: Wires, s: Wirex) -> Circuit {
-        U254::self_or_zero(a, s)
-    }
 
     fn multiplexer(a: Vec<Wires>, s: Wires, w: usize) -> Circuit {
         U254::multiplexer(a, s, w)
@@ -263,22 +251,6 @@ pub trait Fp254Impl {
         circuit
     }
 
-    fn mul(a: Wires, b: Wires) -> Circuit {
-        assert_eq!(a.len(), Self::N_BITS);
-        assert_eq!(b.len(), Self::N_BITS);
-        let mut circuit = Circuit::empty();
-
-        let a_or_zero = circuit.extend(Self::self_or_zero(a.clone(), b[Self::N_BITS - 1].clone()));
-        let mut result: Vec<Wirex> = a_or_zero.clone();
-        for b_wire in b.iter().rev().skip(1) {
-            let result_double = circuit.extend(Self::double(result.clone()));
-            let a_or_zero_i = circuit.extend(Self::self_or_zero(a.clone(), b_wire.clone()));
-            result = circuit.extend(Self::add(result_double, a_or_zero_i));
-        }
-        circuit.add_wires(result);
-        circuit
-    }
-
     fn exp_by_constant_montgomery(a: Wires, b: BigUint) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
@@ -295,41 +267,22 @@ pub trait Fp254Impl {
 
         let b_bits = bits_from_biguint(&b);
 
-        {
-            let len = b_bits.len();
-            let mut i = len - 1;
-            while !b_bits[i] {
-                i -= 1;
-            }
-            let mut result = a.clone();
-            for b_bit in b_bits.iter().rev().skip(len - i) {
-                let result_square = circuit.extend(Self::square_montgomery(result.clone()));
-                if *b_bit {
-                    result = circuit.extend(Self::mul_montgomery(a.clone(), result_square));
-                } else {
-                    result = result_square;
-                }
-            }
-            circuit.add_wires(result);
-            circuit
+        let len = b_bits.len();
+        let mut i = len - 1;
+        while !b_bits[i] {
+            i -= 1;
         }
-        /* 
-        {
-            let nb_digits = change_to_neg_pos_decomposition(b_bits.clone());
-            let a_inv = circuit.extend(Self::inverse_montgomery(a.clone()));
-            let mut result = a.clone();
-            for digit in nb_digits.iter().rev().skip(1) {
-                result = circuit.extend(Self::square_montgomery(result));
-                if *digit == 1 {
-                    result = circuit.extend(Self::mul_montgomery(result, a.clone()));
-                } else if *digit == -1 {
-                    result = circuit.extend(Self::mul_montgomery(result, a_inv.clone()));
-                }
+        let mut result = a.clone();
+        for b_bit in b_bits.iter().rev().skip(len - i) {
+            let result_square = circuit.extend(Self::square_montgomery(result.clone()));
+            if *b_bit {
+                result = circuit.extend(Self::mul_montgomery(a.clone(), result_square));
+            } else {
+                result = result_square;
             }
-            circuit.add_wires(result);
-            circuit
-        }  
-        */      
+        }
+        circuit.add_wires(result);
+        circuit
     }
 
     fn exp_by_constant_montgomery_evaluate(a: Wires, b: BigUint) -> (Wires, GateCount) {
@@ -384,7 +337,6 @@ pub trait Fp254Impl {
         */      
     }
 
-
     fn montgomery_reduce(x: Wires) -> Circuit {
         let mut circuit = Circuit::empty();
 
@@ -427,40 +379,6 @@ pub trait Fp254Impl {
         (circuit.0.clone(), circuit.gate_counts())
     }
 
-
-    fn mul_by_constant(a: Wires, b: ark_bn254::Fq) -> Circuit {
-        assert_eq!(a.len(), Self::N_BITS);
-        let mut circuit = Circuit::empty();
-
-        if b == ark_bn254::Fq::ZERO {
-            circuit.add_wires(Fq::wires_set(ark_bn254::Fq::ZERO));
-            return circuit;
-        }
-
-        if b == ark_bn254::Fq::ONE {
-            circuit.add_wires(a);
-            return circuit;
-        }
-
-        let b_bits = Fq::to_bits(b);
-        let mut i = Self::N_BITS - 1;
-        while !b_bits[i] {
-            i -= 1;
-        }
-
-        let mut result = a.clone();
-        for b_bit in b_bits.iter().rev().skip(Self::N_BITS - i) {
-            let result_double = circuit.extend(Self::double(result.clone()));
-            if *b_bit {
-                result = circuit.extend(Self::add(a.clone(), result_double));
-            } else {
-                result = result_double;
-            }
-        }
-        circuit.add_wires(result);
-        circuit
-    }
-
     fn mul_by_constant_montgomery(a: Wires, b: ark_bn254::Fq) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
 
@@ -481,29 +399,6 @@ pub trait Fp254Impl {
         let mut result_circuit = Circuit::new(reduction_circuit.0, mul_circuit.1);
         result_circuit.1.extend(reduction_circuit.1);
         result_circuit
-    }
-
-    fn mul_by_constant_montgomery_evaluate(a: Wires, b: ark_bn254::Fq) -> (Wires, GateCount) {
-        let result_circuit = Self::mul_by_constant_montgomery(a, b);
-        for mut gate in result_circuit.1.clone() {
-            gate.evaluate();
-        }
-        (result_circuit.0.clone(), result_circuit.gate_counts())
-    }
-
-    fn square(a: Wires) -> Circuit {
-        assert_eq!(a.len(), Self::N_BITS);
-        let mut circuit = Circuit::empty();
-
-        let a_or_zero = circuit.extend(Self::self_or_zero(a.clone(), a[Self::N_BITS - 1].clone()));
-        let mut result = a_or_zero.clone();
-        for a_wire in a.iter().rev().skip(1) {
-            let result_double = circuit.extend(Self::double(result.clone()));
-            let a_or_zero_i = circuit.extend(Self::self_or_zero(a.clone(), a_wire.clone()));
-            result = circuit.extend(Self::add(result_double, a_or_zero_i));
-        }
-        circuit.add_wires(result);
-        circuit
     }
 
     fn square_montgomery(a: Wires) -> Circuit {
