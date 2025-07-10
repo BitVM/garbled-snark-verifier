@@ -357,6 +357,15 @@ impl Fq12 {
         circuit
     }
 
+    pub fn square_evaluate_montgomery(a: Wires) -> (Wires, GateCount) {
+        let circuit = Fq12::square_montgomery(a);
+        let n = circuit.gate_counts();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        (circuit.0, n)
+    }
+
     pub fn cyclotomic_square_montgomery(a: Wires) -> Circuit {
         // https://eprint.iacr.org/2009/565.pdf
         // based on the implementation in arkworks-rs, fq12_2over3over2.rs
@@ -435,6 +444,15 @@ impl Fq12 {
         circuit
     }
 
+    pub fn cyclotomic_square_evaluate_montgomery(a: Wires) -> (Wires, GateCount) {
+        let circuit = Fq12::cyclotomic_square_montgomery(a);
+        let n = circuit.gate_counts();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        (circuit.0, n)
+    }
+
     pub fn inverse_montgomery(a: Wires) -> Circuit {
         assert_eq!(a.len(), Self::N_BITS);
         let mut circuit = Circuit::empty();
@@ -452,6 +470,15 @@ impl Fq12 {
         circuit.add_wires(res_c0);
         circuit.add_wires(res_c1);
         circuit
+    }
+
+    pub fn inverse_evaluate_montgomery(a: Wires) -> (Wires, GateCount) {
+        let circuit = Fq12::inverse_montgomery(a);
+        let n = circuit.gate_counts();
+        for mut gate in circuit.1 {
+            gate.evaluate();
+        }
+        (circuit.0, n)
     }
 
     pub fn frobenius_montgomery(a: Wires, i: usize) -> Circuit {

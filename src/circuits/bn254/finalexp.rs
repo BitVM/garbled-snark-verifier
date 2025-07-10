@@ -137,6 +137,39 @@ pub fn cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(f: Wires) -> (Wires,
     (res, gate_count)
 }
 
+pub fn cyclotomic_exp_fast_inverse_evaluate_montgomery(f: Wires) -> (Wires, GateCount) {
+    let mut res = Fq12::wires_set_montgomery(ark_bn254::Fq12::ONE);
+    let mut gate_count = GateCount::zero();
+    let (f_inverse, gc) = Fq12::inverse_evaluate_montgomery(f.clone());
+    gate_count += gc;
+    let mut found_nonzero = false;
+    for value in ark_ff::biginteger::arithmetic::find_naf(ark_bn254::Config::X)
+        .into_iter()
+        .rev()
+    {
+        if found_nonzero {
+            let (wires1, gc) = Fq12::cyclotomic_square_evaluate_montgomery(res.clone());
+            res = wires1;
+            gate_count += gc;
+        }
+
+        if value != 0 {
+            found_nonzero = true;
+
+            if value > 0 {
+                let (wires2, gc) = Fq12::mul_evaluate_montgomery(res.clone(), f.clone());
+                res = wires2;
+                gate_count += gc;
+            } else {
+                let (wires2, gc) = Fq12::mul_evaluate_montgomery(res.clone(), f_inverse.clone());
+                res = wires2;
+                gate_count += gc;
+            }
+        }
+    }
+    (res, gate_count)
+}
+
 pub fn exp_by_neg_x(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     conjugate(cyclotomic_exp(f))
 }
@@ -309,6 +342,65 @@ pub fn final_exponentiation_evaluate_montgomery_fast(f: Wires) -> (Wires, GateCo
     (y20, gate_count)
 }
 
+pub fn final_exponentiation_evaluate_montgomery(f: Wires) -> (Wires, GateCount) {
+    let mut gate_count = GateCount::zero();
+    let (f_inv, gc) = Fq12::inverse_evaluate_montgomery(f.clone());
+    gate_count += gc;
+    let (f_conjugate, gc) = Fq12::conjugate_evaluate(f.clone());
+    gate_count += gc;
+    let (u, gc) = Fq12::mul_evaluate_montgomery(f_inv, f_conjugate);
+    gate_count += gc;
+    let (u_frobenius, gc) = Fq12::frobenius_evaluate_montgomery(u.clone(), 2);
+    gate_count += gc;
+    let (r, gc) = Fq12::mul_evaluate_montgomery(u_frobenius, u.clone());
+    gate_count += gc;
+    let (y0, gc) = exp_by_neg_x_evaluate_montgomery(r.clone());
+    gate_count += gc;
+    let (y1, gc) = Fq12::square_evaluate_montgomery(y0);
+    gate_count += gc;
+    let (y2, gc) = Fq12::square_evaluate_montgomery(y1.clone());
+    gate_count += gc;
+    let (y3, gc) = Fq12::mul_evaluate_montgomery(y1.clone(), y2);
+    gate_count += gc;
+    let (y4, gc) = exp_by_neg_x_evaluate_montgomery(y3.clone());
+    gate_count += gc;
+    let (y5, gc) = Fq12::square_evaluate_montgomery(y4.clone());
+    gate_count += gc;
+    let (y6, gc) = exp_by_neg_x_evaluate_montgomery(y5);
+    gate_count += gc;
+    let (y7, gc) = Fq12::conjugate_evaluate(y3);
+    gate_count += gc;
+    let (y8, gc) = Fq12::conjugate_evaluate(y6);
+    gate_count += gc;
+    let (y9, gc) = Fq12::mul_evaluate_montgomery(y8, y4.clone());
+    gate_count += gc;
+    let (y10, gc) = Fq12::mul_evaluate_montgomery(y9, y7);
+    gate_count += gc;
+    let (y11, gc) = Fq12::mul_evaluate_montgomery(y10.clone(), y1);
+    gate_count += gc;
+    let (y12, gc) = Fq12::mul_evaluate_montgomery(y10.clone(), y4);
+    gate_count += gc;
+    let (y13, gc) = Fq12::mul_evaluate_montgomery(y12, r.clone());
+    gate_count += gc;
+    let (y14, gc) = Fq12::frobenius_evaluate_montgomery(y11.clone(), 1);
+    gate_count += gc;
+    let (y15, gc) = Fq12::mul_evaluate_montgomery(y14, y13);
+    gate_count += gc;
+    let (y16, gc) = Fq12::frobenius_evaluate_montgomery(y10, 2);
+    gate_count += gc;
+    let (y17, gc) = Fq12::mul_evaluate_montgomery(y16, y15);
+    gate_count += gc;
+    let (r2, gc) = Fq12::conjugate_evaluate(r);
+    gate_count += gc;
+    let (y18, gc) = Fq12::mul_evaluate_montgomery(r2, y11);
+    gate_count += gc;
+    let (y19, gc) = Fq12::frobenius_evaluate_montgomery(y18, 3);
+    gate_count += gc;
+    let (y20, gc) = Fq12::mul_evaluate_montgomery(y19, y17);
+    gate_count += gc;
+    (y20, gate_count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,6 +460,45 @@ mod tests {
     }
 
     #[test]
+    fn test_cyclotomic_exp_fast_inverse_evaluate_montgomery() {
+        let p = Fq::modulus_as_biguint();
+        let u = (p.pow(6) - BigUint::from_str("1").unwrap())
+            * (p.pow(2) + BigUint::from_str("1").unwrap());
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let f = ark_bn254::Fq12::rand(&mut prng);
+        let cyclotomic_f = f.pow(u.to_u64_digits());
+        let c = cyclotomic_f.cyclotomic_exp(ark_bn254::Config::X);
+        let (d, gate_count) = cyclotomic_exp_fast_inverse_evaluate_montgomery(
+            Fq12::wires_set_montgomery(cyclotomic_f),
+        );
+        gate_count.print();
+        assert_eq!(c, Fq12::from_montgomery_wires(d));
+    }
+
+    #[test]
+    fn test_cyclotomic_exp_fast_inverse_evaluate_montgomery_debug() {
+        let p = Fq::modulus_as_biguint();
+        let u = (p.pow(6) - BigUint::from_str("1").unwrap())
+            * (p.pow(2) + BigUint::from_str("1").unwrap());
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let f = ark_bn254::Fq12::rand(&mut prng);
+        let cyclotomic_f = f.pow(u.to_u64_digits());
+        let c = cyclotomic_f.cyclotomic_exp(ark_bn254::Config::X);
+        let (e, gate_count2) = cyclotomic_exp_fast_inverse_evaluate_montgomery_fast(
+            Fq12::wires_set_montgomery(cyclotomic_f),
+        );
+        gate_count2.print();
+        let (d, gate_count) = cyclotomic_exp_fast_inverse_evaluate_montgomery(
+            Fq12::wires_set_montgomery(cyclotomic_f),
+        );
+        println!("c: {:?}", c);
+        println!("d: {:?}", Fq12::from_montgomery_wires(d.clone()));
+        println!("e: {:?}", Fq12::from_montgomery_wires(e));
+        gate_count.print();
+        assert_eq!(c, Fq12::from_montgomery_wires(d));
+    }
+
+    #[test]
     fn test_final_exponentiation() {
         let mut prng = ChaCha20Rng::seed_from_u64(0);
         let f = ark_bn254::Fq12::rand(&mut prng);
@@ -389,6 +520,21 @@ mod tests {
             .0;
         let (d, gate_count) =
             final_exponentiation_evaluate_montgomery_fast(Fq12::wires_set_montgomery(f));
+        gate_count.print();
+
+        assert_eq!(Fq12::from_montgomery_wires(d), c);
+    }
+
+    #[test]
+    fn test_final_exponentiation_evaluate_montgomery() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let f = ark_bn254::Fq12::rand(&mut prng);
+
+        let c = ark_bn254::Bn254::final_exponentiation(MillerLoopOutput(f))
+            .unwrap()
+            .0;
+        let (d, gate_count) =
+            final_exponentiation_evaluate_montgomery(Fq12::wires_set_montgomery(f));
         gate_count.print();
 
         assert_eq!(Fq12::from_montgomery_wires(d), c);
