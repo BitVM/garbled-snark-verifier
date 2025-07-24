@@ -156,6 +156,11 @@ impl BigIntWires {
 
         Ok(move |wire_id| mapping.get(&wire_id).copied())
     }
+
+    pub fn to_bitmask(&self, get_val: impl Fn(WireId) -> bool) -> String {
+        let to_char = |wire_id: &WireId| if (get_val)(*wire_id) { '1' } else { '0' };
+        self.bits.iter().map(to_char).collect()
+    }
 }
 
 impl AsRef<[WireId]> for BigIntWires {

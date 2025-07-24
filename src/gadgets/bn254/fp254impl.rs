@@ -5,7 +5,10 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Zero};
 
 use super::super::bigint::{self, BigIntWires};
-use crate::{Circuit, Gate, WireId, math::montgomery::calculate_montgomery_constants};
+use crate::{
+    gadgets::bigint::select, math::montgomery::calculate_montgomery_constants, Circuit, Gate,
+    WireId,
+};
 
 /// Core trait for BN254 field implementation with 254-bit prime field arithmetic
 /// Provides constants and operations for field elements in Montgomery form
@@ -137,7 +140,7 @@ pub trait Fp254Impl {
 
         let not_a = BigIntWires::new(circuit, a.len(), false, false);
         not_a.iter().zip(a.iter()).for_each(|(not_a, a_i)| {
-            circuit.add_gate(Gate::nand(*a_i, *a_i, *not_a));
+            circuit.add_gate(Gate::xor(*a_i, circuit.get_true_wire_constant(), *not_a));
         });
 
         Self::add_constant(
@@ -314,10 +317,13 @@ pub trait Fp254Impl {
         let neg_odd_part = Self::neg(circuit, &odd_part);
         let mut u = bigint::half(circuit, &neg_odd_part);
         let mut v = odd_part;
+
         let mut k = BigIntWires::new_constant(circuit, a.len(), &BigUint::from(ark_bn254::Fq::ONE))
             .unwrap();
+
         let mut r = BigIntWires::new_constant(circuit, a.len(), &BigUint::from(ark_bn254::Fq::ONE))
             .unwrap();
+
         let mut s = BigIntWires::new_constant(
             circuit,
             a.len(),

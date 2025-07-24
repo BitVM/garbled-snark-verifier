@@ -8,6 +8,7 @@
 
 pub mod fp254impl;
 pub mod fq;
+pub mod fq2;
 pub mod fr;
 
 pub use fp254impl::Fp254Impl;

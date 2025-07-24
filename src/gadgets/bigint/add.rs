@@ -140,9 +140,7 @@ pub fn double_without_overflow(circuit: &mut Circuit, a: &BigIntWires) -> BigInt
 }
 
 pub fn half(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
-    let zero_wire = circuit.issue_wire();
     let false_ = circuit.get_false_wire_constant();
-    circuit.add_gate(Gate::and(false_, false_, zero_wire));
 
     BigIntWires {
         bits: a
@@ -150,7 +148,7 @@ pub fn half(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
             .iter()
             .skip(1)
             .copied()
-            .chain(iter::once(zero_wire))
+            .chain(iter::once(false_))
             .collect(),
     }
 }
@@ -394,46 +392,20 @@ mod tests {
         let expected_odd_fn = odd_result.get_wire_bits_fn(&expected_odd).unwrap();
         let expected_k_fn = k_result.get_wire_bits_fn(&expected_k).unwrap();
 
-        let mut actual_odd_bits = HashMap::new();
-        let mut actual_k_bits = HashMap::new();
-
-        circuit
+        let output = circuit
             .simple_evaluate(a_input)
             .unwrap()
-            .for_each(|(wire_id, value)| {
-                if odd_result.bits.contains(&wire_id) {
-                    actual_odd_bits.insert(wire_id, value);
-                } else if k_result.bits.contains(&wire_id) {
-                    actual_k_bits.insert(wire_id, value);
-                } else {
-                    unreachable!("{wire_id}: {value}");
-                }
-            });
+            .collect::<HashMap<WireId, bool>>();
 
-        let (expected_odd, actual_odd): (String, String) = odd_result
-            .bits
-            .iter()
-            .map(|wire_id| {
-                (
-                    (expected_odd_fn)(*wire_id).unwrap(),
-                    *actual_odd_bits.get(wire_id).unwrap(),
-                )
-            })
-            .map(|(l, r)| (if l { "1" } else { "0" }, if r { "1" } else { "0" }))
-            .unzip();
+        let expected_odd_bitmask = odd_result.to_bitmask(|w| expected_odd_fn(w).unwrap());
+        let expected_k_bitmask = k_result.to_bitmask(|w| expected_k_fn(w).unwrap());
 
-        let (expected_k, actual_k): (String, String) = k_result
-            .bits
-            .iter()
-            .map(|wire_id| {
-                (
-                    (expected_k_fn)(*wire_id).unwrap(),
-                    *actual_k_bits.get(wire_id).unwrap(),
-                )
-            })
-            .map(|(l, r)| (if l { "1" } else { "0" }, if r { "1" } else { "0" }))
-            .unzip();
+        let actual_odd_bitmask = odd_result.to_bitmask(|w| *output.get(&w).unwrap());
+        let actual_k_bitmask = k_result.to_bitmask(|w| *output.get(&w).unwrap());
 
-        assert_eq!((expected_odd, expected_k), (actual_odd, actual_k));
+        assert_eq!(
+            (expected_odd_bitmask, expected_k_bitmask),
+            (actual_odd_bitmask, actual_k_bitmask)
+        );
     }
 }

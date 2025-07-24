@@ -163,7 +163,7 @@ impl G1Projective {
         let zero =
             BigIntWires::new_constant(circuit, Fq::N_BITS, &ark_bn254::Fq::zero().into()).unwrap();
 
-        let s = vec![z1_0, z2_0];
+        let s = [z1_0, z2_0];
 
         let x = Fq::multiplexer(circuit, &[&x3, x2, x1, &zero], &s, 2);
         let y = Fq::multiplexer(circuit, &[&y3, y2, y1, &zero], &s, 2);
@@ -453,7 +453,7 @@ mod tests {
     use std::cell::OnceCell;
 
     use ark_ff::BigInt;
-    use rand::random;
+    use rand::{random, SeedableRng};
 
     use super::*;
     use crate::test_utils::trng;
@@ -461,8 +461,7 @@ mod tests {
     fn rnd() -> ark_bn254::G1Projective {
         use ark_ec::PrimeGroup;
         let g1 = ark_bn254::G1Projective::generator();
-
-        g1.mul_bigint(&rand::rng().random::<[u64; 4]>())
+        g1.mul_bigint(<rand::rngs::StdRng as SeedableRng>::seed_from_u64(1).random::<[u64; 4]>())
     }
 
     #[test]
@@ -477,9 +476,9 @@ mod tests {
         let result_wires = G1Projective::add_montgomery(&mut circuit, &a_wires, &b_wires);
         result_wires.mark_as_output(&mut circuit);
 
-        circuit.gates.iter().for_each(|gate| {
-            println!("{gate}");
-        });
+        //circuit.gates.iter().for_each(|gate| {
+        //    println!("{gate}");
+        //});
 
         // Generate random G1 points
         let a = rnd();

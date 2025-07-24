@@ -218,28 +218,34 @@ pub fn mul_karatsuba_generic(
         };
     }
 
-    let generic_count = {
-        let mut tmp = Circuit::default();
-        let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
-        let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-        mul_generic(&mut tmp, &a_tmp, &b_tmp);
-        tmp.gates.len()
-    };
+    let (generic_count, karatsuba_count) = rayon::join(
+        || {
+            let mut tmp = Circuit::default();
+            let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
+            let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
+            mul_generic(&mut tmp, &a_tmp, &b_tmp);
+            tmp.gate_count.nonfree_gate_count()
+        },
+        || {
+            let mut tmp = Circuit::default();
+            let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
+            let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
+            mul_karatsuba_generic_impl(&mut tmp, &a_tmp, &b_tmp);
+            tmp.gate_count.nonfree_gate_count()
+        },
+    );
 
-    let karatsuba_count = {
-        let mut tmp = Circuit::default();
-        let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
-        let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-        mul_karatsuba_generic_impl(&mut tmp, &a_tmp, &b_tmp);
-        tmp.gates.len()
-    };
+    debug!("karatsuba_count: {karatsuba_count}");
+    debug!("generic_count: {generic_count}");
 
     let use_karatsuba = karatsuba_count < generic_count;
     set_karatsuba_decision_flag(len, use_karatsuba);
 
     if use_karatsuba {
+        debug!("use karatsube");
         mul_karatsuba_generic_impl(circuit, a, b)
     } else {
+        debug!("use generic");
         mul_generic(circuit, a, b)
     }
 }
