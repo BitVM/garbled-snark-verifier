@@ -4,7 +4,7 @@ use rand::{rng, Rng};
 
 use crate::{
     gadgets::{
-        bigint::{self, BigIntWires, select},
+        bigint::{self, select, BigIntWires},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
     },
     Circuit, WireId,
@@ -61,7 +61,7 @@ impl Fq2 {
         loop {
             let c0_bytes: [u8; 32] = rng().random();
             let c1_bytes: [u8; 32] = rng().random();
-            
+
             if let (Some(c0), Some(c1)) = (
                 ark_bn254::Fq::from_random_bytes(&c0_bytes),
                 ark_bn254::Fq::from_random_bytes(&c1_bytes),
@@ -107,19 +107,21 @@ impl Fq2 {
         value: &ark_bn254::Fq2,
     ) -> Result<impl Fn(WireId) -> Option<bool> + use<>, crate::gadgets::bigint::Error> {
         let (_c0_bits, _c1_bits) = Self::to_bits(*value);
-        
-        let c0_fn = wires.0.get_wire_bits_fn(&num_bigint::BigUint::from(value.c0.into_bigint()))?;
-        let c1_fn = wires.1.get_wire_bits_fn(&num_bigint::BigUint::from(value.c1.into_bigint()))?;
-        
-        Ok(move |wire_id| {
-            c0_fn(wire_id).or_else(|| c1_fn(wire_id))
-        })
+
+        let c0_fn = wires
+            .0
+            .get_wire_bits_fn(&num_bigint::BigUint::from(value.c0.into_bigint()))?;
+        let c1_fn = wires
+            .1
+            .get_wire_bits_fn(&num_bigint::BigUint::from(value.c1.into_bigint()))?;
+
+        Ok(move |wire_id| c0_fn(wire_id).or_else(|| c1_fn(wire_id)))
     }
 
     pub fn to_bitmask(wires: &Pair<BigIntWires>, get_val: impl Fn(WireId) -> bool) -> String {
         let c0_mask = wires.0.to_bitmask(&get_val);
         let c1_mask = wires.1.to_bitmask(&get_val);
-        format!("c0: {}, c1: {}", c0_mask, c1_mask)
+        format!("c0: {c0_mask}, c1: {c1_mask}")
     }
 
     pub fn neg(circuit: &mut Circuit, a: Pair<BigIntWires>) -> Pair<BigIntWires> {
@@ -170,8 +172,8 @@ impl Fq2 {
         assert_eq!(a.1.len(), Self::N_BITS / 2);
 
         let a_2 = Self::double(circuit, a);
-        let a_3 = Self::add(circuit, (a.0.clone(), a.1.clone()), a_2);
-        a_3
+
+        Self::add(circuit, (a.0.clone(), a.1.clone()), a_2)
     }
 
     pub fn mul_montgomery(
@@ -187,17 +189,17 @@ impl Fq2 {
         // (a0 + a1) and (b0 + b1)
         let a_sum = Fq::add(circuit, &a.0, &a.1);
         let b_sum = Fq::add(circuit, &b.0, &b.1);
-        
+
         // a0 * b0 and a1 * b1
         let a0_b0 = Fq::mul_montgomery(circuit, &a.0, &b.0);
         let a1_b1 = Fq::mul_montgomery(circuit, &a.1, &b.1);
-        
+
         // (a0 + a1) * (b0 + b1)
         let sum_prod = Fq::mul_montgomery(circuit, &a_sum, &b_sum);
-        
+
         // Result c0 = a0*b0 - a1*b1 (subtracting nonresidue multiplication)
         let c0 = Fq::sub(circuit, &a0_b0, &a1_b1);
-        
+
         // Result c1 = (a0+a1)*(b0+b1) - a0*b0 - a1*b1 = a0*b1 + a1*b0
         let sum_a0b0_a1b1 = Fq::add(circuit, &a0_b0, &a1_b1);
         let c1 = Fq::sub(circuit, &sum_prod, &sum_a0b0_a1b1);
@@ -222,7 +224,7 @@ impl Fq2 {
         let a0_b0 = Fq::mul_by_constant_montgomery(circuit, &a.0, &b.c0);
         let a1_b1 = Fq::mul_by_constant_montgomery(circuit, &a.1, &b.c1);
         let sum_mul_sum = Fq::mul_by_constant_montgomery(circuit, &a_sum, &(b.c0 + b.c1));
-        
+
         let c0 = Fq::sub(circuit, &a0_b0, &a1_b1);
         let a0b0_plus_a1b1 = Fq::add(circuit, &a0_b0, &a1_b1);
         let c1 = Fq::sub(circuit, &sum_mul_sum, &a0b0_plus_a1b1);
@@ -358,8 +360,8 @@ impl Fq2 {
 
         let c0_square = Fq::square_montgomery(circuit, c0);
         let c1_square = Fq::square_montgomery(circuit, c1);
-        let norm = Fq::add(circuit, &c0_square, &c1_square);
-        norm
+
+        Fq::add(circuit, &c0_square, &c1_square)
     }
 
     // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
@@ -414,6 +416,7 @@ impl Fq2 {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+
     use ark_ff::{AdditiveGroup, Fp6Config};
 
     //use serial_test::serial;
@@ -422,10 +425,10 @@ mod tests {
     #[test]
     fn test_fq2_random() {
         let u = Fq2::random();
-        println!("u: {:?}", u);
+        println!("u: {u:?}");
         let b = Fq2::to_bits(u);
         let v = Fq2::from_bits(b);
-        println!("v: {:?}", v);
+        println!("v: {v:?}");
         assert_eq!(u, v);
     }
 
@@ -435,7 +438,7 @@ mod tests {
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let b_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::add(&mut circuit, a_wires.clone(), b_wires.clone());
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -460,7 +463,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::neg(&mut circuit, a_wires.clone());
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -471,7 +474,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -484,7 +487,7 @@ mod tests {
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let b_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::sub(&mut circuit, &a_wires, &b_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -509,7 +512,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::double(&mut circuit, &a_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -520,7 +523,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -532,7 +535,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::triple(&mut circuit, &a_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -543,7 +546,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -556,7 +559,7 @@ mod tests {
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let b_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::mul_montgomery(&mut circuit, &a_wires, &b_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -580,11 +583,12 @@ mod tests {
     fn test_fq2_mul_by_constant_montgomery() {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
-        
+
         let a_val = Fq2::random();
         let b_val = Fq2::random();
-        let c_wires = Fq2::mul_by_constant_montgomery(&mut circuit, &a_wires, &Fq2::as_montgomery(b_val));
-        
+        let c_wires =
+            Fq2::mul_by_constant_montgomery(&mut circuit, &a_wires, &Fq2::as_montgomery(b_val));
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -594,7 +598,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -607,7 +611,7 @@ mod tests {
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let b_wires = Fq::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::mul_by_fq_montgomery(&mut circuit, &a_wires, &b_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -631,11 +635,12 @@ mod tests {
     fn test_fq2_mul_by_constant_fq_montgomery() {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
-        
+
         let a_val = Fq2::random();
         let b_val = crate::gadgets::bn254::fq::tests::rnd();
-        let c_wires = Fq2::mul_by_constant_fq_montgomery(&mut circuit, &a_wires, &Fq::as_montgomery(b_val));
-        
+        let c_wires =
+            Fq2::mul_by_constant_fq_montgomery(&mut circuit, &a_wires, &Fq::as_montgomery(b_val));
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -645,7 +650,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -657,7 +662,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::mul_by_nonresidue(&mut circuit, &a_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -668,7 +673,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -680,7 +685,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::square_montgomery(&mut circuit, &a_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -691,7 +696,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -703,7 +708,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::inverse_montgomery(&mut circuit, &a_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -714,7 +719,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         let actual_c = circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .collect::<HashMap<WireId, bool>>();
 
@@ -727,13 +732,13 @@ mod tests {
     #[test]
     fn test_fq2_frobenius_montgomery() {
         let a_val = Fq2::random();
-        
+
         // Test frobenius_map(0)
         {
             let mut circuit = Circuit::default();
             let a_wires = Fq2::new_bn(&mut circuit, true, false);
             let c_wires = Fq2::frobenius_montgomery(&mut circuit, &a_wires, 0);
-            
+
             c_wires.0.mark_as_output(&mut circuit);
             c_wires.1.mark_as_output(&mut circuit);
 
@@ -743,7 +748,7 @@ mod tests {
             let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
             circuit
-                .simple_evaluate(|wire_id| (a_input)(wire_id))
+                .simple_evaluate(a_input)
                 .unwrap()
                 .for_each(|(wire_id, value)| {
                     assert_eq!((c_output)(wire_id), Some(value));
@@ -755,7 +760,7 @@ mod tests {
             let mut circuit = Circuit::default();
             let a_wires = Fq2::new_bn(&mut circuit, true, false);
             let c_wires = Fq2::frobenius_montgomery(&mut circuit, &a_wires, 1);
-            
+
             c_wires.0.mark_as_output(&mut circuit);
             c_wires.1.mark_as_output(&mut circuit);
 
@@ -765,7 +770,7 @@ mod tests {
             let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
             circuit
-                .simple_evaluate(|wire_id| (a_input)(wire_id))
+                .simple_evaluate(a_input)
                 .unwrap()
                 .for_each(|(wire_id, value)| {
                     assert_eq!((c_output)(wire_id), Some(value));
@@ -778,7 +783,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let c_wires = Fq2::div6(&mut circuit, &a_wires);
-        
+
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
 
@@ -789,7 +794,7 @@ mod tests {
         let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
         circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .simple_evaluate(a_input)
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
@@ -802,7 +807,7 @@ mod tests {
         let c0_wires = Fq::new_bn(&mut circuit, true, false);
         let c1_wires = Fq::new_bn(&mut circuit, true, false);
         let norm_wires = Fq2::norm_montgomery(&mut circuit, &c0_wires, &c1_wires);
-        
+
         norm_wires.mark_as_output(&mut circuit);
 
         let r_val = Fq2::random();
@@ -850,21 +855,21 @@ mod tests {
     //     let mut circuit = Circuit::default();
     //     let a_wires = Fq2::new_bn(&mut circuit, true, false);
     //     let is_qr_wire = circuit.new_wire(true, false);
-    //     
+    //
     //     let mut r = Fq2::random();
     //     r.c1 = ark_bn254::Fq::ZERO; // Ensure c1 is zero to simplify the test
-    //     
+    //
     //     let (c, _gate_count) = Fq2::sqrt_c1_zero_montgomery_evaluate(a_wires.clone(), is_qr_wire);
-    //     
+    //
     //     c.0.mark_as_output(&mut circuit);
     //     c.1.mark_as_output(&mut circuit);
-    //     
+    //
     //     let rq = r.sqrt().unwrap();
-    //     
+    //
     //     let a_input = Fq2::get_wire_bits_fn(&a_wires, &Fq2::as_montgomery(r)).unwrap();
     //     let is_qr_input = |wire_id: WireId| if wire_id == is_qr_wire { Some(r.c0.legendre().is_qr()) } else { None };
     //     let c_output = Fq2::get_wire_bits_fn(&c, &Fq2::as_montgomery(rq)).unwrap();
-    //     
+    //
     //     circuit
     //         .simple_evaluate(|wire_id| (a_input)(wire_id).or((is_qr_input)(wire_id)))
     //         .unwrap()
@@ -894,20 +899,20 @@ mod tests {
     // fn test_fq2_sqrt_general_montgomery_evaluate() {
     //     let mut circuit = Circuit::default();
     //     let a_wires = Fq2::new_bn(&mut circuit, true, false);
-    //     
+    //
     //     let r = Fq2::random();
     //     let rr = r * r;
-    //     
+    //
     //     let (c, _gate_count) = Fq2::sqrt_general_montgomery_evaluate(a_wires.clone());
-    //     
+    //
     //     c.0.mark_as_output(&mut circuit);
     //     c.1.mark_as_output(&mut circuit);
-    //     
+    //
     //     let expected = rr.sqrt().unwrap();
-    //     
+    //
     //     let a_input = Fq2::get_wire_bits_fn(&a_wires, &Fq2::as_montgomery(rr)).unwrap();
     //     let c_output = Fq2::get_wire_bits_fn(&c, &Fq2::as_montgomery(expected)).unwrap();
-    //     
+    //
     //     circuit
     //         .simple_evaluate(|wire_id| (a_input)(wire_id))
     //         .unwrap()
