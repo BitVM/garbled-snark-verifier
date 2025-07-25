@@ -10,7 +10,7 @@ use crate::{
     Circuit, WireId,
 };
 
-type Pair<T> = (T, T);
+pub type Pair<T> = (T, T);
 
 pub struct Fq2;
 
@@ -367,8 +367,6 @@ impl Fq2 {
     // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
     // Assume that the square root exists.
     // Special case: c1 == 0, not used in real case, just for testing
-    // TODO: Update this method to use new API - currently commented out due to missing types
-    /*
     pub fn sqrt_c1_zero_montgomery(
         circuit: &mut Circuit,
         a: &Pair<BigIntWires>,
@@ -385,7 +383,6 @@ impl Fq2 {
 
         (c0_final, c1_final)
     }
-    */
 
     // General case: c1 != 0
     // TODO: Update this method to use new API - currently commented out due to missing types
