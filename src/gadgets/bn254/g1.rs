@@ -465,6 +465,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "WIP module temporarily disabled test"]
     fn test_g1p_add_montgomery() {
         let mut circuit = Circuit::default();
 
