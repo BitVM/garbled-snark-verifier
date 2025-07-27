@@ -315,7 +315,7 @@ pub trait Fp254Impl {
 
         // initialize value for wires
         let neg_odd_part = Self::neg(circuit, &odd_part);
-        let mut u = bigint::half(circuit, &neg_odd_part);
+        let mut u = Self::half(circuit, &neg_odd_part);
         let mut v = odd_part;
 
         let mut k = BigIntWires::new_constant(circuit, a.len(), &BigUint::from(ark_bn254::Fq::ONE))
@@ -446,8 +446,8 @@ pub trait Fp254Impl {
 
         // divide result by even part
         for _ in 0..Self::N_BITS {
-            let updated_s = bigint::half(circuit, &s);
-            let updated_even_part = bigint::half(circuit, &even_part);
+            let updated_s = Self::half(circuit, &s);
+            let updated_even_part = Self::half(circuit, &even_part);
 
             let selector = bigint::equal_constant(circuit, &even_part, &BigUint::one());
 
@@ -457,7 +457,7 @@ pub trait Fp254Impl {
 
         // divide result by 2^k
         for _ in 0..2 * Self::N_BITS {
-            let updated_s = bigint::half(circuit, &s);
+            let updated_s = Self::half(circuit, &s);
             let updated_k = Self::add_constant(circuit, &k, &ark_bn254::Fq::from(-1));
 
             let selector = Self::equal_constant(circuit, &k, &ark_bn254::Fq::ZERO);
