@@ -183,45 +183,53 @@ impl G1Projective {
     }
     */
 
-    /*
-    pub fn double_montgomery(p: Wires) -> Circuit {
-        assert_eq!(p.len(), Self::N_BITS);
-        let mut circuit = Circuit::empty();
+    
+    pub fn double_montgomery(
+        circuit: &mut Circuit,
+        p: &Point<BigIntWires>) -> Point<BigIntWires> {
+            assert_eq!(p.x.len(), Fq::N_BITS);
+            assert_eq!(p.y.len(), Fq::N_BITS);
+            assert_eq!(p.z.len(), Fq::N_BITS);
 
-        let x = p[0..Fq::N_BITS].to_vec();
-        let y = p[Fq::N_BITS..2 * Fq::N_BITS].to_vec();
-        let z = p[2 * Fq::N_BITS..3 * Fq::N_BITS].to_vec();
 
-        let x2 = Fq::square_montgomery(x.clone()));
-        let y2 = Fq::square_montgomery(y.clone()));
-        let m = Fq::triple(x2.clone()));
-        let t = Fq::square_montgomery(y2.clone()));
-        let xy2 = Fq::mul_montgomery(x.clone(), y2.clone()));
-        let xy2d = Fq::double(xy2.clone()));
-        let s = Fq::double(xy2d.clone()));
-        let m2 = Fq::square_montgomery(m.clone()));
-        let sd = Fq::double(s.clone()));
-        let xr = Fq::sub(m2.clone(), sd.clone()));
-        let sxr = Fq::sub(s.clone(), xr.clone()));
-        let msxr = Fq::mul_montgomery(m.clone(), sxr.clone()));
-        let td = Fq::double(t.clone()));
-        let tdd = Fq::double(td.clone()));
-        let tddd = Fq::double(tdd.clone()));
-        let yr = Fq::sub(msxr.clone(), tddd.clone()));
-        let yz = Fq::mul_montgomery(y.clone(), z.clone()));
-        let zr = Fq::double(yz.clone()));
+        let Point {
+            x: x1,
+            y: y1,
+            z: z1,
+        } = p;
 
-        let z_0 = Fq::equal_zero(z));
-        let zero = Fq::wires_set(ark_bn254::Fq::ZERO);
-        let z = Fq::multiplexer(vec![zr, zero], z_0, 1));
+        let x2 = Fq::square_montgomery(circuit, x1);
+        let y2 = Fq::square_montgomery(circuit, y1);
+        let m = Fq::triple(circuit, &x2);
+        let t = Fq::square_montgomery(circuit, &y2);
+        let xy2 = Fq::mul_montgomery(circuit, x1, &y2);
+        let xy2d = Fq::double(circuit, &xy2);
+        let s = Fq::double(circuit, &xy2d);
+        let m2 = Fq::square_montgomery(circuit, &m);
+        let sd = Fq::double(circuit, &s);
+        let xr = Fq::sub(circuit, &m2, &sd);
+        let sxr = Fq::sub(circuit, &s, &xr);
+        let msxr = Fq::mul_montgomery(circuit, &m, &sxr);
+        let td = Fq::double(circuit, &t);
+        let tdd = Fq::double(circuit, &td);
+        let tddd = Fq::double(circuit, &tdd);
+        let yr = Fq::sub(circuit, &msxr, &tddd);
+        let yz = Fq::mul_montgomery(circuit,y1,z1);
+        let zr = Fq::double(circuit,&yz);
 
-        circuit.add_wires(xr);
-        circuit.add_wires(yr);
-        circuit.add_wires(z);
+        let z_0 = Fq::equal_constant(circuit, z1, &ark_bn254::Fq::zero()); //equal _zero _function ?
+        let zero =
+            BigIntWires::new_constant(circuit, Fq::N_BITS, &ark_bn254::Fq::zero().into()).unwrap();
+        // let z = Fq::multiplexer(circuit, &[&x3, x2, x1, &zero], &s, 1);
+        let z = Fq::multiplexer(circuit, &[&zr, &zero], &vec![z_0], 1);
 
-        circuit
+        Point { 
+            x: xr,
+            y: yr,
+            z 
+        }
     }
-    */
+    
 
     /*
     pub fn multiplexer(a: Vec<Wires>, s: Wires, w: usize) -> Circuit {
@@ -502,6 +510,47 @@ mod tests {
 
         let output = circuit
             .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
+            .unwrap()
+            .collect::<HashMap<WireId, bool>>();
+
+        let actual_result = result_wires.to_bitmask(|wire_id| *output.get(&wire_id).unwrap());
+        let expected_result = result_wires.to_bitmask(|wire_id| result_output(wire_id).unwrap());
+
+        assert_eq!(actual_result, expected_result);
+    }
+    
+    #[test]
+    #[ignore = "WIP module temporarily disabled test"]
+    fn test_g1p_double_montgomery() {
+        let mut circuit = Circuit::default();
+
+        // Create input wires for two G1 points
+        let a_wires = G1Projective::new_bn(&mut circuit, true, false);
+        // Perform addition
+        let result_wires = G1Projective::double_montgomery(&mut circuit, &a_wires);
+        result_wires.mark_as_output(&mut circuit);
+
+        //circuit.gates.iter().for_each(|gate| {
+        //    println!("{gate}");
+        //});
+
+        // Generate random G1 points
+        let a = rnd();
+        let c = a + a;
+
+        dbg!((&a, &a, &c));
+
+        // Convert to Montgomery form
+        let a_mont = G1Projective::as_montgomery(a);
+        let c_mont = G1Projective::as_montgomery(c);
+
+        dbg!((&a_mont, &a_mont, &c_mont));
+
+        // Set up input and output functions
+        let a_input = G1Projective::get_wire_bits_fn(&a_wires, &a_mont).unwrap();        let result_output = G1Projective::get_wire_bits_fn(&result_wires, &c_mont).unwrap();
+
+        let output = circuit
+            .simple_evaluate(|wire_id| (a_input)(wire_id).or((a_input)(wire_id)))
             .unwrap()
             .collect::<HashMap<WireId, bool>>();
 
