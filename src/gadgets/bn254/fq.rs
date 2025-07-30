@@ -3,6 +3,7 @@ use std::str::FromStr;
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
+use rand::{rng, Rng};
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
@@ -37,6 +38,11 @@ impl Fp254Impl for Fq {
 }
 
 impl Fq {
+    pub fn random() -> ark_bn254::Fq {
+        let bytes: [u8; 32] = rng().random();
+        ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
+    }
+    
     /// Create new field element wires
     pub fn new_bn(circuit: &mut Circuit, is_input: bool, is_output: bool) -> BigIntWires {
         BigIntWires::new(circuit, Self::N_BITS, is_input, is_output)

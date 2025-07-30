@@ -1,5 +1,4 @@
 use std::{cmp::min, collections::HashMap, iter::zip};
-
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
 use digest::typenum::bit;
 use num_bigint::BigUint;
@@ -105,6 +104,10 @@ impl G1Projective {
 
         Ok(move |wire_id: WireId| bits.get(&wire_id).copied())
     }
+
+    pub fn random() -> ark_bn254::G1Projective {
+        ark_bn254::G1Projective::new(ark_bn254::Fq::ONE, ark_bn254::Fq::ONE + ark_bn254::Fq::ONE, ark_bn254::Fq::ONE) * Fr::random()
+    }
 }
 
 impl G1Projective {
@@ -186,10 +189,11 @@ impl G1Projective {
     
     pub fn double_montgomery(
         circuit: &mut Circuit,
-        p: &Point<BigIntWires>) -> Point<BigIntWires> {
-            assert_eq!(p.x.len(), Fq::N_BITS);
-            assert_eq!(p.y.len(), Fq::N_BITS);
-            assert_eq!(p.z.len(), Fq::N_BITS);
+        p: &Point<BigIntWires>
+    ) -> Point<BigIntWires> {
+        assert_eq!(p.x.len(), Fq::N_BITS);
+        assert_eq!(p.y.len(), Fq::N_BITS);
+        assert_eq!(p.z.len(), Fq::N_BITS);
 
 
         let Point {
@@ -231,24 +235,37 @@ impl G1Projective {
     }
     
 
-    /*
-    pub fn multiplexer(a: Vec<Wires>, s: Wires, w: usize) -> Circuit {
+    
+    pub fn multiplexer(circuit: &mut Circuit, a: &Vec<Point<BigIntWires>>, s: Vec<WireId>, w: usize) -> Point<BigIntWires>{
         let n = 2_usize.pow(w.try_into().unwrap());
         assert_eq!(a.len(), n);
-        for x in a.iter() {
-            assert_eq!(x.len(), Self::N_BITS);
-        }
         assert_eq!(s.len(), w);
-        let mut circuit = Circuit::empty();
-
-        for i in 0..Self::N_BITS {
-            let ith_wires = a.iter().map(|x| x[i].clone()).collect();
-            let ith_result = multiplexer(ith_wires, s.clone(), w))[0].clone();
-            circuit.add_wire(ith_result);
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut z = Vec::new();
+        for i in 0..Self::N_BITS/3 {
+            let ith_wires: Vec<WireId> = a.iter().map(|p| p.x.bits[i].clone()).collect();
+            let ith_result = circuit.multiplexer(&ith_wires, &s, w);
+            x.push(ith_result);
+            let ith_wires: Vec<WireId> = a.iter().map(|p| p.y.bits[i].clone()).collect();
+            let ith_result = circuit.multiplexer(&ith_wires, &s, w);
+            y.push(ith_result);
+            let ith_wires: Vec<WireId> = a.iter().map(|p| p.z.bits[i].clone()).collect();
+            let ith_result = circuit.multiplexer(&ith_wires, &s, w);
+            z.push(ith_result);
         }
 
-        circuit
+        let x = BigIntWires {bits: x};
+        let y = BigIntWires {bits: y};
+        let z = BigIntWires {bits: z};
+
+        Point {
+            x,
+            y,
+            z
+        }
     }
+    /*
 
     pub fn multiplexer_evaluate(a: Vec<Wires>, s: Wires, w: usize) -> (Wires, GateCount) {
         let circuit = Self::multiplexer(a, s, w);
@@ -258,7 +275,6 @@ impl G1Projective {
         }
         (circuit.0, n)
     }
-
     pub fn scalar_mul_by_constant_base_evaluate_montgomery<const W: usize>(
         s: Wires,
         base: ark_bn254::G1Projective,
@@ -462,9 +478,10 @@ mod tests {
 
     use ark_ff::BigInt;
     use rand::{random, SeedableRng};
+    use rayon::iter::Enumerate;
 
     use super::*;
-    use crate::test_utils::trng;
+    use crate::{circuit, test_utils::trng};
 
     fn rnd() -> ark_bn254::G1Projective {
         use ark_ec::PrimeGroup;
@@ -547,7 +564,8 @@ mod tests {
         dbg!((&a_mont, &a_mont, &c_mont));
 
         // Set up input and output functions
-        let a_input = G1Projective::get_wire_bits_fn(&a_wires, &a_mont).unwrap();        let result_output = G1Projective::get_wire_bits_fn(&result_wires, &c_mont).unwrap();
+        let a_input = G1Projective::get_wire_bits_fn(&a_wires, &a_mont).unwrap();        
+        let result_output = G1Projective::get_wire_bits_fn(&result_wires, &c_mont).unwrap();
 
         let output = circuit
             .simple_evaluate(|wire_id| (a_input)(wire_id).or((a_input)(wire_id)))
@@ -681,39 +699,113 @@ mod tests {
         let c = G1Projective::from_wires_unchecked(circuit.0);
         assert_eq!(c, G1Projective::as_montgomery(b));
     }
-
+    */
     #[test]
     fn test_g1p_multiplexer() {
-        let w = 10;
-        let n = 2_usize.pow(w as u32);
-        let a: Vec<ark_bn254::G1Projective> = (0..n).map(|_| G1Projective::random()).collect();
-        let s: Wires = (0..w).map(|_| new_wirex()).collect();
+        let mut circuit = Circuit::default();
 
-        let mut a_wires = Vec::new();
-        for e in a.iter() {
-            a_wires.push(G1Projective::wires_set(*e));
-        }
+        let w = 2;
+        let n = 2_usize.pow(w as u32);
+        let a = (0..n).map(|_| G1Projective::new_bn(&mut circuit, true, false)).collect::<Vec<_>>();
+        let s = (0..w).map(|_| circuit.issue_wire()).collect::<Vec<_>>();
+        let c = G1Projective::multiplexer(&mut circuit, &a, s.clone(), w);
+
+        c.x.mark_as_output(&mut circuit);
+        c.y.mark_as_output(&mut circuit);
+        c.z.mark_as_output(&mut circuit);
+
+        let a_val = (0..n).map(|_| G1Projective::random()).collect::<Vec<_>>();
+        let s_val = (0..w).map(|_| rng().random()).collect::<Vec<_>>();
 
         let mut u = 0;
-        for wire in s.iter().rev() {
-            let x = rng().random();
-            u = u + u + if x { 1 } else { 0 };
-            wire.borrow_mut().set(x);
+        for i in s_val.iter().rev(){
+            u = u + u + if *i { 1 } else { 0 };
         }
+        println!("s: {:?}", s_val);
+        println!("u: {:?}", u);
+        let expected = a_val[u];
 
-        let circuit = G1Projective::multiplexer(a_wires, s.clone(), w);
-        circuit.gate_counts().print();
 
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
+        // let a_input = {
+        //     move |wire_id: WireId| {
+        //         let u = G1Projective::get_wire_bits_fn(&a[0], &a_val[0]).unwrap();
+        //         let mut x = u(wire_id);
+        //         for p in zip(a, a_val).skip(1) {
+        //             let v = G1Projective::get_wire_bits_fn(&p.0, &p.1).unwrap();
+        //             x = x.or(v(wire_id));
+        //         }
+        //         x
+        //     }
+        // };
 
-        let result = G1Projective::from_wires(circuit.0);
-        let expected = a[u];
+        let a_input = {
+            let mut map = HashMap::new();
+            for (w, v) in a.iter().zip(a_val.iter()) {
+                let f = G1Projective::get_wire_bits_fn(w, v).unwrap();
+                for id in w.x.iter().chain(w.y.iter()).chain(w.z.iter()) {
+                    if let Some(b) = f(*id) {
+                        map.insert(*id, b);
+                    }
+                }
+            }
+            move |wire_id: WireId| map.get(&wire_id).copied()
+        };
 
-        assert_eq!(result, expected);
+        // let s_input = {
+        //     move |wire_id: WireId| {
+                
+        //     }
+        // };
+
+        let s_input = {
+            let map: HashMap<WireId, bool> = s.iter().copied().zip(s_val.iter().copied()).collect();
+            move |wire_id: WireId| map.get(&wire_id).copied()
+        };
+        
+        let c_output = G1Projective::get_wire_bits_fn(&c, &expected).unwrap();
+        println!("{:?}", a_val);
+        println!("-----");
+        println!("{:?}", s_val);
+        println!("-----");
+        println!("-----");
+
+        circuit
+            .simple_evaluate(move |wire_id: WireId| a_input(wire_id).or(s_input(wire_id)))
+            .unwrap()
+            .for_each(|(wire_id, value)| {
+                //println!("{:?}", (c_output)(wire_id).unwrap() == value);
+                // println!("{:?} {:?} {:?}", (c_output)(wire_id).unwrap(), value, (c_output)(wire_id).unwrap() == value );
+                assert_eq!(
+                    (c_output)(wire_id),
+                    Some(value)
+                );
+            });
+
+        //let mut a_wires = Vec::new();
+        // for e in a.iter() {
+        //     a_wires.push(G1Projective::wires_set(*e));
+        // }
+
+        // let mut u = 0;
+        // for wire in s.iter().rev() {
+        //     let x = rng().random();
+        //     u = u + u + if x { 1 } else { 0 };
+        //     wire.borrow_mut().set(x);
+        // }
+
+        //G1Projective::multiplexer(&mut circuit, a_wires, s.clone(), w);
+        // circuit.gate_counts().print();
+
+        // for mut gate in circuit.1 {
+        //     gate.evaluate();
+        // }
+
+        // let result = G1Projective::from_wires(circuit.0);
+        // let expected = a[u];
+
+        // assert_eq!(result, expected);
     }
-
+    /* 
     #[test]
     fn test_g1p_multiplexer_evaluate() {
         let w = 10;

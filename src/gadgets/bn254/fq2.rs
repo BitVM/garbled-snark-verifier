@@ -58,17 +58,7 @@ impl Fq2 {
     }
 
     pub fn random() -> ark_bn254::Fq2 {
-        loop {
-            let c0_bytes: [u8; 32] = rng().random();
-            let c1_bytes: [u8; 32] = rng().random();
-
-            if let (Some(c0), Some(c1)) = (
-                ark_bn254::Fq::from_random_bytes(&c0_bytes),
-                ark_bn254::Fq::from_random_bytes(&c1_bytes),
-            ) {
-                return ark_bn254::Fq2::new(c0, c1);
-            }
-        }
+        ark_bn254::Fq2::new(Fq::random(), Fq::random())
     }
 
     pub fn from_bits(bits: Pair<Vec<bool>>) -> ark_bn254::Fq2 {

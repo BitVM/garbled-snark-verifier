@@ -1,6 +1,7 @@
-use ark_ff::UniformRand;
+use ark_ff::{Field, UniformRand};
 use num_bigint::BigUint;
 use rand::{Rng, rng};
+use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 
 use super::Fp254Impl;
 use crate::gadgets::bigint::BigIntWires;
@@ -29,6 +30,10 @@ impl Fp254Impl for Fr {
 }
 
 impl Fr {
+    pub fn random() -> ark_bn254::Fr {
+        let mut prng = ChaCha20Rng::seed_from_u64(rng().random());
+        ark_bn254::Fr::rand(&mut prng)
+    }
     pub fn as_montgomery(a: ark_bn254::Fr) -> ark_bn254::Fr {
         a * ark_bn254::Fr::from(Self::montgomery_r_as_biguint())
     }
