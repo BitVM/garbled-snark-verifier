@@ -30,7 +30,7 @@ impl Circuit {
             self.gates.len()
         );
 
-        let delta = Delta::generate();
+        let delta = Delta::generate(rng);
 
         let mut wires = GarbledWires::new(self.num_wire);
         let mut issue_fn = || GarbledWire::random(rng, &delta);

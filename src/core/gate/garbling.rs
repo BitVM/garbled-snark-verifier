@@ -67,7 +67,8 @@ mod tests {
         [(false, false), (false, true), (true, false), (true, true)];
 
     fn garble_consistency(gt: GateType) {
-        let delta = Delta::generate();
+        use rand::rng;
+        let delta = Delta::generate(&mut rng());
 
         #[derive(Debug, PartialEq, Eq)]
         struct FailedCase {
@@ -161,8 +162,9 @@ mod tests {
     #[test]
     fn test_different_hash_functions() {
         use sha2::Sha256;
+        use rand::rng;
 
-        let delta = Delta::generate();
+        let delta = Delta::generate(&mut rng());
         let mut rng = trng();
 
         let a_label0 = S::random(&mut rng);

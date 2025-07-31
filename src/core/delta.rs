@@ -1,38 +1,30 @@
 use std::ops::Deref;
 
-use rand::{rng, Rng};
+use rand::Rng;
 
-use crate::{S, core::s::S_SIZE};
+use crate::S;
 
-/// A wrapper type for the global Free-XOR delta `Δ`,
-/// ensuring that its permutation bit (LSB of the last byte) is always `1`.
+/// A wrapper type for the global Free-XOR delta `Δ`.
 ///
-/// This is **required** for compatibility with point-and-permute:
-/// when computing `label1 = label0 ⊕ Δ`, the resulting labels must differ
-/// in their permutation bit so that the evaluator can use it to select
-/// the correct entry in the garbled table.
+/// This wrapper provides semantic clarity and ensures proper handling
+/// of the delta value in garbled circuits. The delta is used in the
+/// Free-XOR technique where `label1 = label0 ⊕ Δ`.
 ///
-/// Use [`Delta::generate()`] to obtain a valid instance.
+/// Use [`Delta::generate(rng)`] to obtain a valid instance.
 ///
-/// # Invariant
-/// ```text
-/// delta.0[S_SIZE - 1] & 1 == 1
-/// ```
+/// # Security Note
+/// The delta value must be kept secret during garbling and must not leak
+/// to the evaluator. Proper wrapper usage helps prevent accidental exposure.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Delta(S);
 
 impl Delta {
-    /// Generates a new delta with a guaranteed permutation bit of 1.
+    /// Generates a new delta using the provided RNG.
     ///
-    /// This function loops internally until the generated value
-    /// satisfies `delta.0[S_SIZE - 1] & 1 == 1`.
-    ///
-    /// This ensures that XOR-ing with delta flips the LSB of the last byte,
-    /// enabling safe use of point-and-permute.
-    pub fn generate() -> Self {
-        let mut s = rng().random::<[u8; S_SIZE]>();
-        s[S_SIZE - 1] |= 1; // set LSB of last byte
-        Self(S(s))
+    /// This ensures the delta generation is part of the single source of truth
+    /// for randomness in the garbling process.
+    pub fn generate(rng: &mut impl Rng) -> Self {
+        Self(S::random(rng))
     }
 }
 
