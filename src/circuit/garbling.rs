@@ -4,8 +4,9 @@ use super::{
     Error, FinalizedCircuit, errors::CircuitError, evaluation::EvaluatedCircuit, structure::Circuit,
 };
 use crate::{Delta, GarbledWire, GarbledWires, S, WireId};
+use crate::core::gate::garbling::Blake3Hasher;
 
-type DefaultHasher = blake3::Hasher;
+type DefaultHasher = Blake3Hasher;
 
 #[derive(Debug)]
 pub struct GarbledCircuit {
@@ -20,7 +21,7 @@ impl Circuit {
         self.garble_with::<DefaultHasher>(rng)
     }
 
-    pub fn garble_with<H: digest::Digest + Default + Clone>(
+    pub fn garble_with<H: crate::core::gate::garbling::GateHasher>(
         &self,
         rng: &mut impl Rng,
     ) -> Result<GarbledCircuit, CircuitError> {
