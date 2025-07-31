@@ -74,20 +74,33 @@ impl Circuit {
         get_input: impl Fn(WireId) -> Option<bool>,
     ) -> Result<impl Iterator<Item = (WireId, bool)>, super::Error> {
         let mut wire_values = bitvec![0; self.num_wire];
+        let mut wire_initialized = bitvec![0; self.num_wire];
 
         wire_values.set(self.get_false_wire_constant().0, false);
+        wire_initialized.set(self.get_false_wire_constant().0, true);
+        
         wire_values.set(self.get_true_wire_constant().0, true);
+        wire_initialized.set(self.get_true_wire_constant().0, true);
 
         for &wire_id in &self.input_wires {
             let value = get_input(wire_id).ok_or(super::Error::LostInput(wire_id))?;
             wire_values.set(wire_id.0, value);
+            wire_initialized.set(wire_id.0, true);
         }
 
         for gate in &self.gates {
+            if !wire_initialized[gate.wire_a.0] {
+                return Err(super::Error::WrongGateOrder { gate: gate.clone(), wire_id: gate.wire_a });
+            }
+            if !wire_initialized[gate.wire_b.0] {
+                return Err(super::Error::WrongGateOrder { gate: gate.clone(), wire_id: gate.wire_b });
+            }
+            
             let a = wire_values[gate.wire_a.0];
             let b = wire_values[gate.wire_b.0];
             let result = gate.gate_type.f()(a, b);
             wire_values.set(gate.wire_c.0, result);
+            wire_initialized.set(gate.wire_c.0, true);
         }
 
         Ok(self
