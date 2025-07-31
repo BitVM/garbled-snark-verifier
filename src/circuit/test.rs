@@ -258,4 +258,102 @@ mod finalization_consistency_tests {
             }
         }
     }
+
+    #[test]
+    fn test_simple_evaluate_uninitialized_wire() {
+        let mut circuit = Circuit::default();
+        
+        let input_a = circuit.issue_input_wire();
+        let uninitialized_wire = circuit.issue_wire(); // This wire is never set
+        let output_wire = circuit.issue_wire();
+        
+        // Create a gate that tries to use the uninitialized wire
+        circuit.add_gate(crate::Gate::new(
+            crate::GateType::And,
+            input_a,
+            uninitialized_wire, // This wire was never initialized
+            output_wire,
+        ));
+        
+        circuit.make_wire_output(output_wire);
+        
+        let input_map = [(input_a, true)].into_iter().collect::<HashMap<_, _>>();
+        let get_input = |wire_id: WireId| input_map.get(&wire_id).copied();
+        
+        // Should return an error for uninitialized wire
+        let result = circuit.simple_evaluate(get_input);
+        assert!(result.is_err(), "Should fail with uninitialized wire error");
+        
+        if let Err(crate::circuit::Error::WrongGateOrder { gate: _, wire_id }) = result {
+            assert_eq!(wire_id, uninitialized_wire);
+        } else {
+            panic!("Expected WrongGateOrder error, got: {:?}", result.err());
+        }
+    }
+
+    #[test] 
+    fn test_simple_evaluate_missing_input() {
+        let mut circuit = Circuit::default();
+        
+        let input_a = circuit.issue_input_wire();
+        let input_b = circuit.issue_input_wire();
+        let output_wire = circuit.issue_wire();
+        
+        circuit.add_gate(crate::Gate::new(
+            crate::GateType::And,
+            input_a,
+            input_b,
+            output_wire,
+        ));
+        
+        circuit.make_wire_output(output_wire);
+        
+        // Only provide input for input_a, missing input_b
+        let input_map = [(input_a, true)].into_iter().collect::<HashMap<_, _>>();
+        let get_input = |wire_id: WireId| input_map.get(&wire_id).copied();
+        
+        let result = circuit.simple_evaluate(get_input);
+        assert!(result.is_err(), "Should fail with missing input error");
+        
+        if let Err(crate::circuit::Error::LostInput(wire_id)) = result {
+            assert_eq!(wire_id, input_b);
+        } else {
+            panic!("Expected LostInput error, got: {:?}", result.err());
+        }
+    }
+
+    #[test]
+    fn test_simple_evaluate_empty_circuit() {
+        let circuit = Circuit::default();
+        let get_input = |_: WireId| None;
+        
+        let outputs: Vec<_> = circuit
+            .simple_evaluate(get_input)
+            .expect("Empty circuit should succeed")
+            .collect();
+        
+        assert_eq!(outputs.len(), 0, "Empty circuit should have no outputs");
+    }
+
+    #[test]
+    fn test_simple_evaluate_constants_only() {
+        let mut circuit = Circuit::default();
+        
+        // Make constants as outputs
+        circuit.make_wire_output(circuit.get_false_wire_constant());
+        circuit.make_wire_output(circuit.get_true_wire_constant());
+        
+        let get_input = |_: WireId| None;
+        
+        let outputs: Vec<_> = circuit
+            .simple_evaluate(get_input)
+            .expect("Constants-only circuit should succeed")
+            .collect();
+        
+        assert_eq!(outputs.len(), 2);
+        
+        // Should have false and true outputs (order matches output_wires order)
+        let output_values: Vec<bool> = outputs.iter().map(|&(_, value)| value).collect();
+        assert_eq!(output_values, vec![false, true]);
+    }
 }
