@@ -1,19 +1,19 @@
 use digest::Digest;
 
 use super::{GateId, GateType};
-use crate::{Delta, EvaluatedWire, GarbledWire, S};
+use crate::{Delta, EvaluatedWire, GarbledWire, S, core::s::S_SIZE};
 
 /// Generic hash function with unique tweak per gate using any digest implementation
 fn hash_gate_with_tweak<D: Digest + Default>(x: &S, tweak: GateId) -> S {
-    assert!(<D as Digest>::output_size() >= 32);
-    let mut result = [0u8; 32];
+    assert!(<D as Digest>::output_size() >= S_SIZE);
+    let mut result = [0u8; S_SIZE];
 
-    result.copy_from_slice(
-        &D::default()
-            .chain_update(x.0)
-            .chain_update(tweak.to_le_bytes())
-            .finalize(),
-    );
+    let hash_output = D::default()
+        .chain_update(x.0)
+        .chain_update(tweak.to_le_bytes())
+        .finalize();
+    
+    result.copy_from_slice(&hash_output[..S_SIZE]);
 
     S(result)
 }

@@ -4,16 +4,19 @@ use std::{
     ops::{Add, BitXor, BitXorAssign},
 };
 
-use blake3::hash;
+use blake3::Hasher;
 use rand::Rng;
 
+/// Size of the S struct in bytes - optimized for performance and cache alignment
+pub const S_SIZE: usize = 16;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct S(pub [u8; 32]);
+pub struct S(pub [u8; S_SIZE]);
 
 impl S {
     pub const fn one() -> Self {
-        let mut s = [0_u8; 32];
-        s[31] = 1;
+        let mut s = [0_u8; S_SIZE];
+        s[S_SIZE - 1] = 1;
         Self(s)
     }
 
@@ -38,13 +41,18 @@ impl S {
     }
 
     pub fn hash(&self) -> Self {
-        Self(*hash(&self.0).as_bytes())
+        let mut output = [0u8; S_SIZE];
+        Hasher::new().update(&self.0).finalize_xof().fill(&mut output);
+        Self(output)
     }
 
     pub fn hash_together(a: Self, b: Self) -> Self {
-        let mut h = a.0.to_vec();
-        h.extend(b.0.to_vec());
-        Self(*hash(&h).as_bytes())
+        let mut input = [0u8; S_SIZE * 2];
+        input[..S_SIZE].copy_from_slice(&a.0);
+        input[S_SIZE..].copy_from_slice(&b.0);
+        let mut output = [0u8; S_SIZE];
+        Hasher::new().update(&input).finalize_xof().fill(&mut output);
+        Self(output)
     }
 
     pub fn xor(a: Self, b: Self) -> Self {
@@ -68,7 +76,7 @@ impl Add for S {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut s = [0_u8; 32];
+        let mut s = [0_u8; S_SIZE];
         let mut carry = 0;
         for (i, (u, v)) in zip(self.0, rhs.0).enumerate().rev() {
             let x = (u as u32) + (v as u32) + carry;
@@ -83,12 +91,12 @@ impl BitXor for &S {
     type Output = S;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        let mut out = [0u8; 32];
+        let mut out = [0u8; S_SIZE];
 
         // Why `Allow` here: the compiler will expand the call and remove the check on the fixed
         // array
         #[allow(clippy::needless_range_loop)]
-        for i in 0..32 {
+        for i in 0..S_SIZE {
             out[i] = self.0[i] ^ rhs.0[i];
         }
 
@@ -100,7 +108,7 @@ impl BitXor<&S> for S {
     type Output = S;
 
     fn bitxor(mut self, rhs: &S) -> Self::Output {
-        for i in 0..32 {
+        for i in 0..S_SIZE {
             self.0[i] ^= rhs.0[i];
         }
         self
@@ -109,7 +117,7 @@ impl BitXor<&S> for S {
 
 impl BitXorAssign<&S> for S {
     fn bitxor_assign(&mut self, rhs: &S) {
-        for i in 0..32 {
+        for i in 0..S_SIZE {
             self.0[i] ^= rhs.0[i];
         }
     }
@@ -126,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_xor_zero_identity() {
-        let zero = S([0u8; 32]);
+        let zero = S([0u8; S_SIZE]);
         let a = rnd();
         assert_eq!(&a ^ &zero, a, "a ^ 0 should be a");
         assert_eq!(&zero ^ &a, a, "0 ^ a should be a");
@@ -136,7 +144,7 @@ mod tests {
     fn test_xor_self_is_zero() {
         let a = rnd();
         let result = &a ^ &a;
-        assert_eq!(result, S([0u8; 32]), "a ^ a should be 0");
+        assert_eq!(result, S([0u8; S_SIZE]), "a ^ a should be 0");
     }
 
     #[test]
@@ -156,9 +164,9 @@ mod tests {
 
     #[test]
     fn test_xor_known_value() {
-        let a = S([0xFF; 32]);
-        let b = S([0x0F; 32]);
-        let expected = S([0xF0; 32]);
+        let a = S([0xFF; S_SIZE]);
+        let b = S([0x0F; S_SIZE]);
+        let expected = S([0xF0; S_SIZE]);
         assert_eq!(&a ^ &b, expected);
     }
 

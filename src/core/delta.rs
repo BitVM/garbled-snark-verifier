@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use rand::{rng, Rng};
 
-use crate::S;
+use crate::{S, core::s::S_SIZE};
 
 /// A wrapper type for the global Free-XOR delta `Δ`,
 /// ensuring that its permutation bit (LSB of the last byte) is always `1`.
@@ -16,7 +16,7 @@ use crate::S;
 ///
 /// # Invariant
 /// ```text
-/// delta.0[31] & 1 == 1
+/// delta.0[S_SIZE - 1] & 1 == 1
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Delta(S);
@@ -25,13 +25,13 @@ impl Delta {
     /// Generates a new delta with a guaranteed permutation bit of 1.
     ///
     /// This function loops internally until the generated value
-    /// satisfies `delta.0[31] & 1 == 1`.
+    /// satisfies `delta.0[S_SIZE - 1] & 1 == 1`.
     ///
     /// This ensures that XOR-ing with delta flips the LSB of the last byte,
     /// enabling safe use of point-and-permute.
     pub fn generate() -> Self {
-        let mut s = rng().random::<[u8; 32]>();
-        s[31] |= 1; // set LSB of last byte
+        let mut s = rng().random::<[u8; S_SIZE]>();
+        s[S_SIZE - 1] |= 1; // set LSB of last byte
         Self(S(s))
     }
 }

@@ -173,7 +173,7 @@ pub struct EvaluatedWire {
 impl Default for EvaluatedWire {
     fn default() -> Self {
         Self {
-            active_label: S([0u8; 32]),
+            active_label: S([0u8; crate::core::s::S_SIZE]),
             value: Default::default(),
         }
     }
