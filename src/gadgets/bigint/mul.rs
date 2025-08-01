@@ -48,7 +48,7 @@ pub fn mul_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> B
     BigIntWires { bits: result_bits }
 }
 
-fn mul_karatsuba_generic_impl(
+pub fn mul_karatsuba(
     circuit: &mut Circuit,
     a: &BigIntWires,
     b: &BigIntWires,
@@ -79,8 +79,17 @@ fn mul_karatsuba_generic_impl(
         bits: b.bits[len_0..].to_vec(),
     };
 
-    let sq_0 = mul_karatsuba_generic_impl(circuit, &a_0, &b_0);
-    let sq_1 = mul_karatsuba_generic_impl(circuit, &a_1, &b_1);
+    // Use optimal algorithm choice for recursive calls
+    let sq_0 = if is_use_karatsuba(len_0) {
+        mul_karatsuba(circuit, &a_0, &b_0)
+    } else {
+        mul_generic(circuit, &a_0, &b_0)
+    };
+    let sq_1 = if is_use_karatsuba(len_1) {
+        mul_karatsuba(circuit, &a_1, &b_1)
+    } else {
+        mul_generic(circuit, &a_1, &b_1)
+    };
 
     let mut extended_a_0 = a_0.bits.clone();
     let mut extended_b_0 = b_0.bits.clone();
@@ -105,7 +114,12 @@ fn mul_karatsuba_generic_impl(
     );
     extend_with_zero(circuit, &mut sq_sum.bits);
 
-    let sum_mul = mul_karatsuba_generic_impl(circuit, &sum_a, &sum_b);
+    // Use optimal algorithm choice for sum multiplication
+    let sum_mul = if is_use_karatsuba(sum_a.len()) {
+        mul_karatsuba(circuit, &sum_a, &sum_b)
+    } else {
+        mul_generic(circuit, &sum_a, &sum_b)
+    };
     let cross_term_full = super::add::sub_generic_without_borrow(circuit, &sum_mul, &sq_sum);
     let cross_term = BigIntWires {
         bits: cross_term_full.bits[..(len + 1)].to_vec(),
@@ -128,7 +142,7 @@ fn mul_karatsuba_generic_impl(
     BigIntWires { bits: result_bits }
 }
 
-pub fn mul_karatsuba_generic(
+pub fn mul(
     circuit: &mut Circuit,
     a: &BigIntWires,
     b: &BigIntWires,
@@ -137,7 +151,7 @@ pub fn mul_karatsuba_generic(
     let len = a.len();
 
     if len < 5 {
-        debug!("mul_karatsuba_generic: <5 case");
+        debug!("mul: <5 case");
         return mul_generic(circuit, a, b);
     }
 
@@ -148,7 +162,7 @@ pub fn mul_karatsuba_generic(
 
     if is_use_karatsuba(len) {
         debug!("use karatsuba (pre-computed)");
-        mul_karatsuba_generic_impl(circuit, a, b)
+        mul_karatsuba(circuit, a, b)
     } else {
         debug!("use generic (pre-computed)");
         mul_generic(circuit, a, b)
@@ -347,45 +361,45 @@ mod tests {
     // Karatsuba multiplication tests
     #[test]
     fn test_mul_karatsuba_basic() {
-        test_mul_operation(NUM_BITS, 5, 3, 15, mul_karatsuba_generic);
+        test_mul_operation(NUM_BITS, 5, 3, 15, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_larger() {
-        test_mul_operation(NUM_BITS, 15, 17, 255, mul_karatsuba_generic);
+        test_mul_operation(NUM_BITS, 15, 17, 255, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_zero() {
-        test_mul_operation(NUM_BITS, 0, 42, 0, mul_karatsuba_generic);
-        test_mul_operation(NUM_BITS, 42, 0, 0, mul_karatsuba_generic);
+        test_mul_operation(NUM_BITS, 0, 42, 0, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 42, 0, 0, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_one() {
-        test_mul_operation(NUM_BITS, 1, 42, 42, mul_karatsuba_generic);
-        test_mul_operation(NUM_BITS, 42, 1, 42, mul_karatsuba_generic);
+        test_mul_operation(NUM_BITS, 1, 42, 42, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 42, 1, 42, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_max_values() {
         let max_val = (1u64 << NUM_BITS) - 1;
-        test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, mul_karatsuba_generic);
+        test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, mul_karatsuba);
         test_mul_operation(
             NUM_BITS,
             max_val,
             max_val,
             (max_val as u128) * (max_val as u128),
-            mul_karatsuba_generic,
+            mul_karatsuba,
         );
     }
 
     #[test]
     fn test_mul_karatsuba_powers_of_two() {
-        test_mul_operation(NUM_BITS, 2, 2, 4, mul_karatsuba_generic);
-        test_mul_operation(NUM_BITS, 4, 4, 16, mul_karatsuba_generic);
-        test_mul_operation(NUM_BITS, 8, 8, 64, mul_karatsuba_generic);
-        test_mul_operation(NUM_BITS, 16, 16, 256, mul_karatsuba_generic);
+        test_mul_operation(NUM_BITS, 2, 2, 4, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 4, 4, 16, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 8, 8, 64, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 16, 16, 256, mul_karatsuba);
     }
 
     #[test]
@@ -397,14 +411,14 @@ mod tests {
                 a,
                 b,
                 (a as u128) * (b as u128),
-                mul_karatsuba_generic,
+                mul_karatsuba,
             );
             test_mul_operation(
                 NUM_BITS,
                 b,
                 a,
                 (a as u128) * (b as u128),
-                mul_karatsuba_generic,
+                mul_karatsuba,
             );
         }
     }
@@ -436,7 +450,7 @@ mod tests {
             let mut circuit2 = Circuit::default();
             let a_wires2 = BigIntWires::new(&mut circuit2, NUM_BITS, true, false);
             let b_wires2 = BigIntWires::new(&mut circuit2, NUM_BITS, true, false);
-            let result2 = mul_karatsuba_generic(&mut circuit2, &a_wires2, &b_wires2);
+            let result2 = mul_karatsuba(&mut circuit2, &a_wires2, &b_wires2);
 
             // Both should produce same bit length
             assert_eq!(result1.bits.len(), result2.bits.len());
@@ -444,7 +458,7 @@ mod tests {
             // Test with same inputs
             let expected = (a as u128) * (b as u128);
             test_mul_operation(NUM_BITS, a, b, expected, mul_generic);
-            test_mul_operation(NUM_BITS, a, b, expected, mul_karatsuba_generic);
+            test_mul_operation(NUM_BITS, a, b, expected, mul_karatsuba);
         }
     }
 
@@ -619,7 +633,7 @@ mod tests {
                         let mut tmp = Circuit::default();
                         let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
                         let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-                        mul_karatsuba_generic_impl(&mut tmp, &a_tmp, &b_tmp);
+                        mul_karatsuba(&mut tmp, &a_tmp, &b_tmp);
                         tmp.gate_count.nonfree_gate_count()
                     },
                 );

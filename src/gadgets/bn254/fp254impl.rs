@@ -200,7 +200,7 @@ pub trait Fp254Impl {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
 
-        let mul_result = bigint::mul_karatsuba_generic(circuit, a, b);
+        let mul_result = bigint::mul(circuit, a, b);
         Self::montgomery_reduce(circuit, &mul_result)
     }
 
