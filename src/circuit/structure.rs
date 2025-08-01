@@ -1,55 +1,10 @@
 use bitvec::prelude::*;
 
-use crate::{Gate, WireId, core::gate_type::GateCount};
-
-pub trait CircuitContext {
-    const FALSE_WIRE: WireId = WireId(0);
-    const TRUE_WIRE: WireId = WireId(1);
-
-    fn issue_wire(&mut self) -> WireId;
-    fn issue_input_wire(&mut self) -> WireId;
-
-    fn issue_output_wire(&mut self) -> WireId;
-
-    fn make_wire_input(&mut self, w: WireId);
-    fn make_wire_output(&mut self, w: WireId);
-
-    fn add_gate(&mut self, gate: Gate);
-}
-
-pub trait GateSource: Clone {
-    fn iter(&self) -> impl Iterator<Item = &Gate>;
-    fn push(&mut self, gate: Gate);
-    fn gate_count(&mut self) -> &GateCount;
-}
-
-#[derive(Clone, Default)]
-pub struct VecGate {
-    gates: Vec<Gate>,
-    gate_count: GateCount,
-}
-
-#[cfg(test)]
-impl VecGate {
-    pub(crate) fn update(&mut self, index: usize, upd: impl FnOnce(&mut Gate)) {
-        upd(&mut self.gates[index])
-    }
-}
-
-impl GateSource for VecGate {
-    fn iter(&self) -> impl Iterator<Item = &Gate> {
-        self.gates.iter()
-    }
-
-    fn push(&mut self, gate: Gate) {
-        self.gate_count.handle(gate.gate_type);
-        self.gates.push(gate)
-    }
-
-    fn gate_count(&mut self) -> &GateCount {
-        &self.gate_count
-    }
-}
+pub use super::{
+    circuit_context::CircuitContext,
+    gate_source::{GateSource, VecGate},
+};
+use crate::{core::gate_type::GateCount, Gate, WireId};
 
 #[derive(Clone, Debug)]
 pub struct Circuit<G: GateSource = VecGate> {

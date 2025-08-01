@@ -75,18 +75,22 @@
 //! - Allows you to check if the garbled circuit is correct and if the input and commit outputs match
 //! - It is supposed to be sent to the other party
 
+pub mod circuit_context;
 pub mod commitment;
 pub mod errors;
 pub mod evaluation;
 pub mod finalized;
 pub mod garbling;
+pub mod gate_source;
 pub mod structure;
-#[cfg(test)]
-pub mod test;
-pub mod test_util;
-
+pub use circuit_context::CircuitContext;
 pub use errors::CircuitError;
 pub use evaluation::{Error, EvaluatedCircuit};
 pub use finalized::FinalizedCircuit;
 pub use garbling::GarbledCircuit;
-pub use structure::{Circuit, CircuitContext};
+pub use structure::Circuit;
+
+#[cfg(test)]
+pub mod test;
+#[cfg(test)]
+pub mod test_util;

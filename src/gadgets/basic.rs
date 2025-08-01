@@ -102,7 +102,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::{Circuit, test_utils::trng};
+    use crate::{test_utils::trng, Circuit};
 
     #[test]
     fn not_not() {
