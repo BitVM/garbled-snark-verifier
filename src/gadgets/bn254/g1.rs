@@ -34,6 +34,42 @@ impl Point<BigIntWires> {
 
         format!("x: {x}, y: {y}, z: {z}")
     }
+
+    pub fn to_bitvec(&self, get_val: impl Fn(WireId) -> bool) -> Vec<bool> {
+        let to_char = |wire_id: &WireId| (get_val)(*wire_id);
+        let x = self.x.iter().map(to_char).collect::<Vec<bool>>();
+        let y = self.y.iter().map(to_char).collect::<Vec<bool>>();
+        let z = self.z.iter().map(to_char).collect::<Vec<bool>>();
+
+        let mut v = Vec::new();
+        v.extend(x);
+        v.extend(y);
+        v.extend(z);
+
+        v
+    }
+
+    pub fn from_bits(bits: Vec<bool>) -> ark_bn254::G1Projective {
+        let bits1 = &bits[0..Fq::N_BITS].to_vec();
+        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
+        let bits3 = &bits[Fq::N_BITS * 2..Fq::N_BITS * 3].to_vec();
+        ark_bn254::G1Projective::new(
+            Fq::from_bits(bits1.clone()),
+            Fq::from_bits(bits2.clone()),
+            Fq::from_bits(bits3.clone()),
+        )
+    }
+
+    pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G1Projective {
+        let bits1 = &bits[0..Fq::N_BITS].to_vec();
+        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
+        let bits3 = &bits[Fq::N_BITS * 2..Fq::N_BITS * 3].to_vec();
+        ark_bn254::G1Projective {
+            x: Fq::from_bits(bits1.clone()),
+            y: Fq::from_bits(bits2.clone()),
+            z: Fq::from_bits(bits3.clone()),
+        }
+    }
 }
 
 pub struct G1Projective;
@@ -472,7 +508,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "WIP module temporarily disabled test"]
     fn test_g1p_add_montgomery() {
         let mut circuit = Circuit::default();
 
@@ -505,21 +540,17 @@ mod tests {
         // Set up input and output functions
         let a_input = G1Projective::get_wire_bits_fn(&a_wires, &a_mont).unwrap();
         let b_input = G1Projective::get_wire_bits_fn(&b_wires, &b_mont).unwrap();
-        let result_output = G1Projective::get_wire_bits_fn(&result_wires, &c_mont).unwrap();
 
         let output = circuit
             .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
             .unwrap()
             .collect::<HashMap<WireId, bool>>();
 
-        let actual_result = result_wires.to_bitmask(|wire_id| *output.get(&wire_id).unwrap());
-        let expected_result = result_wires.to_bitmask(|wire_id| result_output(wire_id).unwrap());
-
-        assert_eq!(actual_result, expected_result);
+        let actual_result = Point::<BigIntWires>::from_bits_unchecked(result_wires.to_bitvec(|wire_id| *output.get(&wire_id).unwrap()));
+        assert_eq!(actual_result, c_mont);
     }
     
     #[test]
-    #[ignore = "WIP module temporarily disabled test"]
     fn test_g1p_double_montgomery() {
         let mut circuit = Circuit::default();
 
