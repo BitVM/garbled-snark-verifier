@@ -39,7 +39,7 @@ impl Fp254Impl for Fq {
 
 impl Fq {
     pub fn random() -> ark_bn254::Fq {
-        let bytes: [u8; 32] = rng().random();
+        let bytes: [u8; 31] = rng().random();
         ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
     }
     
@@ -469,6 +469,55 @@ pub(super) mod tests {
 
         circuit
             .simple_evaluate(aa_input)
+            .unwrap()
+            .for_each(|(wire_id, value)| {
+                assert_eq!((c_output)(wire_id), Some(value));
+            });
+    }
+
+    #[test]
+    fn test_fq_multiplexer() {
+        let mut circuit = Circuit::default();
+
+        let w = 1;
+        let n = 2_usize.pow(w as u32);
+        let a = (0..n).map(|_| Fq::new_bn(&mut circuit, true, false)).collect::<Vec<_>>();
+        let s = (0..w).map(|_| circuit.issue_input_wire()).collect::<Vec<_>>();
+        let c = Fq::multiplexer(&mut circuit, &a, &s.clone(), w);
+
+        c.mark_as_output(&mut circuit);
+
+        let a_val = (0..n).map(|_| Fq::random()).collect::<Vec<_>>();
+        let s_val = (0..w).map(|_| rng().random()).collect::<Vec<_>>();
+
+        let mut u = 0;
+        for i in s_val.iter().rev(){
+            u = u + u + if *i { 1 } else { 0 };
+        }
+        let expected = a_val[u];
+
+        let a_input = {
+            let mut map = HashMap::new();
+            for (w, v) in a.iter().zip(a_val.iter()) {
+                let f = Fq::get_wire_bits_fn(w, v).unwrap();
+                for id in w.bits.clone() {
+                    if let Some(b) = f(id) {
+                        map.insert(*id, b);
+                    }
+                }
+            }
+            move |wire_id: WireId| map.get(&wire_id).copied()
+        };
+
+        let s_input = {
+            let map: HashMap<WireId, bool> = s.iter().copied().zip(s_val.iter().copied()).collect();
+            move |wire_id: WireId| map.get(&wire_id).copied()
+        };
+        
+        let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+
+        circuit
+            .simple_evaluate(move |wire_id: WireId| a_input(wire_id).or(s_input(wire_id)))
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
