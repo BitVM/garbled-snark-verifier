@@ -1,14 +1,14 @@
 use ark_ff::{AdditiveGroup, Field, Fp6Config, PrimeField, UniformRand};
 use num_traits::Zero;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use super::fq2::Pair;
 use crate::{
+    Circuit, WireId,
     gadgets::{
-        bigint::{self, select, BigIntWires},
+        bigint::{self, BigIntWires, select},
         bn254::{fq::Fq, fq2::Fq2},
     },
-    Circuit, WireId,
 };
 
 type Fq6Components<T> = [Pair<T>; 3];

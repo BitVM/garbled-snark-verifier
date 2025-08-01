@@ -4,9 +4,9 @@ use log::debug;
 use rand::Rng;
 
 pub use crate::GateType;
-use crate::{Delta, EvaluatedWire, GarbledWire, GarbledWires, WireError, WireId, S};
+use crate::{Delta, EvaluatedWire, GarbledWire, GarbledWires, S, WireError, WireId};
 pub mod garbling;
-use garbling::{Blake3Hasher, GateHasher, garble, degarble};
+use garbling::{Blake3Hasher, GateHasher, degarble, garble};
 
 type DefaultHasher = Blake3Hasher;
 

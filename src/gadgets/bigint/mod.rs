@@ -5,7 +5,7 @@ use std::{collections::HashMap, iter};
 use bitvec::prelude::*;
 pub use num_bigint::BigUint;
 
-use crate::{Circuit, WireId};
+use crate::{CircuitContext, WireId};
 
 mod add;
 mod cmp;
@@ -50,7 +50,12 @@ pub struct BigIntWires {
 }
 
 impl BigIntWires {
-    pub fn new(circuit: &mut Circuit, len: usize, is_input: bool, is_output: bool) -> Self {
+    pub fn new<C: CircuitContext>(
+        circuit: &mut C,
+        len: usize,
+        is_input: bool,
+        is_output: bool,
+    ) -> Self {
         Self {
             bits: iter::repeat_with(|| {
                 let w = circuit.issue_wire();
@@ -73,20 +78,24 @@ impl BigIntWires {
         }
     }
 
-    pub fn new_constant(circuit: &mut Circuit, len: usize, u: &BigUint) -> Result<Self, Error> {
+    pub fn new_constant<C: CircuitContext>(
+        _circuit: &mut C,
+        len: usize,
+        u: &BigUint,
+    ) -> Result<Self, Error> {
         let bits = bits_from_biguint_with_len(u, len)?;
 
         let bits = (0..len)
             .map(|i| match *bits.get(i).unwrap() {
-                true => circuit.get_true_wire_constant(),
-                false => circuit.get_false_wire_constant(),
+                true => C::TRUE_WIRE,
+                false => C::FALSE_WIRE,
             })
             .collect::<Vec<_>>();
 
         Ok(Self { bits })
     }
 
-    pub fn mark_as_output(&self, circuit: &mut Circuit) {
+    pub fn mark_as_output<C: CircuitContext>(&self, circuit: &mut C) {
         self.bits.iter().for_each(|wire_bit| {
             circuit.make_wire_output(*wire_bit);
         });

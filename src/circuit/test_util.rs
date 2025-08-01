@@ -36,8 +36,8 @@ mod failure_tests {
 
     use super::{super::evaluation::Error, Circuit};
     use crate::{
-        core::gate::CorrectnessError, test_utils::trng, CircuitError, Gate, GateError, GateType,
-        WireId,
+        CircuitContext, CircuitError, Gate, GateError, GateType, WireId,
+        core::gate::CorrectnessError, test_utils::trng,
     };
 
     #[test]

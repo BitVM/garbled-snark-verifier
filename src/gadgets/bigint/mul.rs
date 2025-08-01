@@ -1,26 +1,28 @@
 use log::debug;
 
 use super::{BigIntWires, BigUint};
-use crate::{Circuit, Gate, GateType, WireId};
+use crate::{CircuitContext, Gate, GateType, WireId};
 
 /// Pre-computed Karatsuba vs Generic algorithm decisions
 const fn is_use_karatsuba(len: usize) -> bool {
     len > 83
 }
 
-fn extend_with_zero(circuit: &mut Circuit, bits: &mut Vec<WireId>) {
+fn extend_with_zero<C: CircuitContext>(circuit: &mut C, bits: &mut Vec<WireId>) {
     let zero_wire = circuit.issue_wire();
     circuit.add_gate(Gate::new(GateType::Nimp, bits[0], bits[0], zero_wire));
     bits.push(zero_wire);
 }
 
-pub fn mul_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+pub fn mul_generic<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigIntWires,
+) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let len = a.len();
 
-    let mut result_bits: Vec<_> = (0..(len * 2))
-        .map(|_| circuit.get_false_wire_constant())
-        .collect();
+    let mut result_bits: Vec<_> = (0..(len * 2)).map(|_| C::FALSE_WIRE).collect();
 
     for (i, &current_bit) in b.iter().enumerate() {
         let addition_wires_0: Vec<WireId> = result_bits[i..i + len].to_vec();
@@ -48,8 +50,8 @@ pub fn mul_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> B
     BigIntWires { bits: result_bits }
 }
 
-pub fn mul_karatsuba(
-    circuit: &mut Circuit,
+pub fn mul_karatsuba<C: CircuitContext>(
+    circuit: &mut C,
     a: &BigIntWires,
     b: &BigIntWires,
 ) -> BigIntWires {
@@ -60,7 +62,7 @@ pub fn mul_karatsuba(
         return mul_generic(circuit, a, b);
     }
 
-    let mut result_bits = vec![circuit.get_false_wire_constant(); len * 2];
+    let mut result_bits = vec![C::FALSE_WIRE; len * 2];
 
     let len_0 = len / 2;
     let len_1 = len.div_ceil(2);
@@ -142,11 +144,7 @@ pub fn mul_karatsuba(
     BigIntWires { bits: result_bits }
 }
 
-pub fn mul(
-    circuit: &mut Circuit,
-    a: &BigIntWires,
-    b: &BigIntWires,
-) -> BigIntWires {
+pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let len = a.len();
 
@@ -169,7 +167,11 @@ pub fn mul(
     }
 }
 
-pub fn mul_by_constant(circuit: &mut Circuit, a: &BigIntWires, c: &BigUint) -> BigIntWires {
+pub fn mul_by_constant<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    c: &BigUint,
+) -> BigIntWires {
     let len = a.len();
     let c_bits = super::bits_from_biguint_with_len(c, len).unwrap();
 
@@ -193,8 +195,8 @@ pub fn mul_by_constant(circuit: &mut Circuit, a: &BigIntWires, c: &BigUint) -> B
     BigIntWires { bits: result_bits }
 }
 
-pub fn mul_by_constant_modulo_power_two(
-    circuit: &mut Circuit,
+pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
+    circuit: &mut C,
     a: &BigIntWires,
     c: &BigUint,
     power: usize,
@@ -241,7 +243,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::test_utils::trng;
+    use crate::{test_utils::trng, Circuit};
 
     fn test_mul_operation(
         n_bits: usize,
@@ -406,20 +408,8 @@ mod tests {
     fn test_mul_karatsuba_commutative() {
         let test_cases = [(5, 7), (13, 19), (1, 255), (17, 23)];
         for (a, b) in test_cases {
-            test_mul_operation(
-                NUM_BITS,
-                a,
-                b,
-                (a as u128) * (b as u128),
-                mul_karatsuba,
-            );
-            test_mul_operation(
-                NUM_BITS,
-                b,
-                a,
-                (a as u128) * (b as u128),
-                mul_karatsuba,
-            );
+            test_mul_operation(NUM_BITS, a, b, (a as u128) * (b as u128), mul_karatsuba);
+            test_mul_operation(NUM_BITS, b, a, (a as u128) * (b as u128), mul_karatsuba);
         }
     }
 
@@ -627,14 +617,14 @@ mod tests {
                         let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
                         let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
                         mul_generic(&mut tmp, &a_tmp, &b_tmp);
-                        tmp.gate_count.nonfree_gate_count()
+                        tmp.gate_count().nonfree_gate_count()
                     },
                     || {
                         let mut tmp = Circuit::default();
                         let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
                         let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
                         mul_karatsuba(&mut tmp, &a_tmp, &b_tmp);
-                        tmp.gate_count.nonfree_gate_count()
+                        tmp.gate_count().nonfree_gate_count()
                     },
                 );
 

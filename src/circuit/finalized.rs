@@ -1,9 +1,9 @@
 use super::{
     Circuit,
     commitment::{Commit, commit},
-    structure::GateSource,
+    structure::{GateSource, VecGate},
 };
-use crate::{EvaluatedWire, Gate, S, WireId};
+use crate::{EvaluatedWire, S, WireId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -47,7 +47,7 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct FinalizedCircuit<G: GateSource = Vec<Gate>> {
+pub struct FinalizedCircuit<G: GateSource = VecGate> {
     pub structure: Circuit<G>,
     pub input_wires: Vec<(WireId, EvaluatedWire)>,
     pub output_wires_commit: Commit,
@@ -153,10 +153,12 @@ impl<G: GateSource> FinalizedCircuit<G> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{Circuit, EvaluatedWire, Gate, GateType, S, WireId};
-    use rand::SeedableRng;
     use std::collections::HashMap;
+
+    use rand::SeedableRng;
+
+    use super::*;
+    use crate::{Circuit, CircuitContext, EvaluatedWire, Gate, GateType, S, WireId};
 
     fn test_rng() -> rand::rngs::StdRng {
         rand::rngs::StdRng::from_seed([42u8; 32])
@@ -330,7 +332,10 @@ mod tests {
         let mut finalized = create_test_finalized_circuit(circuit, &input_wires);
 
         // Corrupt a gate to reference an invalid output wire
-        finalized.structure.gates[0].wire_c = WireId(999);
+        finalized
+            .structure
+            .gates
+            .update(0, |g| g.wire_c = WireId(999));
 
         match finalized.check() {
             Err(Error::GateOutputWireIndexOutOfBounds {

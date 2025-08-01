@@ -42,7 +42,10 @@ impl S {
 
     pub fn hash(&self) -> Self {
         let mut output = [0u8; S_SIZE];
-        Hasher::new().update(&self.0).finalize_xof().fill(&mut output);
+        Hasher::new()
+            .update(&self.0)
+            .finalize_xof()
+            .fill(&mut output);
         Self(output)
     }
 
@@ -51,7 +54,10 @@ impl S {
         input[..S_SIZE].copy_from_slice(&a.0);
         input[S_SIZE..].copy_from_slice(&b.0);
         let mut output = [0u8; S_SIZE];
-        Hasher::new().update(&input).finalize_xof().fill(&mut output);
+        Hasher::new()
+            .update(&input)
+            .finalize_xof()
+            .fill(&mut output);
         Self(output)
     }
 

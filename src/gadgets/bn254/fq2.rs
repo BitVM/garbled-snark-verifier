@@ -1,13 +1,13 @@
 use ark_ff::{Field, Fp2Config, PrimeField, UniformRand};
 use num_traits::Zero;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use crate::{
+    Circuit, WireId,
     gadgets::{
-        bigint::{self, select, BigIntWires},
+        bigint::{self, BigIntWires, select},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
     },
-    Circuit, WireId,
 };
 
 pub type Pair<T> = (T, T);
@@ -376,7 +376,8 @@ impl Fq2 {
         let c0_neg = Fq::neg(circuit, &a.0);
         let c1_sqrt = Fq::sqrt_montgomery(circuit, &c0_neg);
 
-        let zero = BigIntWires::new_constant(circuit, Fq::N_BITS, &num_bigint::BigUint::ZERO).unwrap();
+        let zero =
+            BigIntWires::new_constant(circuit, Fq::N_BITS, &num_bigint::BigUint::ZERO).unwrap();
 
         let c0_final = select(circuit, &c0_sqrt, &zero, is_qr);
         let c1_final = select(circuit, &zero, &c1_sqrt, is_qr);

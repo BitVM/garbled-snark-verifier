@@ -1,9 +1,9 @@
 use num_bigint::BigUint;
 
 use super::BigIntWires;
-use crate::{gadgets::bigint::bits_from_biguint_with_len, Circuit, Gate, WireId};
+use crate::{gadgets::bigint::bits_from_biguint_with_len, CircuitContext, Gate, WireId};
 
-pub fn self_or_zero(circuit: &mut Circuit, a: &BigIntWires, s: WireId) -> BigIntWires {
+pub fn self_or_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, s: WireId) -> BigIntWires {
     BigIntWires {
         bits: a
             .iter()
@@ -17,7 +17,11 @@ pub fn self_or_zero(circuit: &mut Circuit, a: &BigIntWires, s: WireId) -> BigInt
 }
 
 //s is inverted
-pub fn self_or_zero_inv(circuit: &mut Circuit, a: &BigIntWires, s: WireId) -> BigIntWires {
+pub fn self_or_zero_inv<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    s: WireId,
+) -> BigIntWires {
     BigIntWires {
         bits: a
             .iter()
@@ -30,7 +34,7 @@ pub fn self_or_zero_inv(circuit: &mut Circuit, a: &BigIntWires, s: WireId) -> Bi
     }
 }
 
-pub fn equal(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> WireId {
+pub fn equal<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> WireId {
     assert_eq!(a.len(), b.len());
 
     let xor_bits = a
@@ -46,7 +50,7 @@ pub fn equal(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> WireId 
     equal_constant(circuit, &BigIntWires { bits: xor_bits }, &BigUint::ZERO)
 }
 
-pub fn equal_constant(circuit: &mut Circuit, a: &BigIntWires, b: &BigUint) -> WireId {
+pub fn equal_constant<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigUint) -> WireId {
     if b == &BigUint::ZERO {
         return equal_zero(circuit, a);
     }
@@ -72,7 +76,7 @@ pub fn equal_constant(circuit: &mut Circuit, a: &BigIntWires, b: &BigUint) -> Wi
     res
 }
 
-pub fn equal_zero(circuit: &mut Circuit, a: &BigIntWires) -> WireId {
+pub fn equal_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> WireId {
     if a.len() == 1 {
         let is_bit_zero = circuit.issue_wire();
 
@@ -93,7 +97,11 @@ pub fn equal_zero(circuit: &mut Circuit, a: &BigIntWires) -> WireId {
     res
 }
 
-pub fn greater_than(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> WireId {
+pub fn greater_than<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigIntWires,
+) -> WireId {
     let not_b = BigIntWires {
         bits: b
             .iter()
@@ -110,7 +118,11 @@ pub fn greater_than(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> 
     sum.last().unwrap()
 }
 
-pub fn less_than_constant(circuit: &mut Circuit, a: &BigIntWires, b: &BigUint) -> WireId {
+pub fn less_than_constant<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigUint,
+) -> WireId {
     let not_a = BigIntWires {
         bits: a
             .iter()
@@ -127,20 +139,25 @@ pub fn less_than_constant(circuit: &mut Circuit, a: &BigIntWires, b: &BigUint) -
     sum.last().unwrap()
 }
 
-pub fn select(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires, s: WireId) -> BigIntWires {
+pub fn select<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigIntWires,
+    s: WireId,
+) -> BigIntWires {
     assert_eq!(a.len(), b.len());
 
     BigIntWires {
         bits: a
             .iter()
             .zip(b.iter())
-            .map(|(a_i, b_i)| circuit.selector(*a_i, *b_i, s))
+            .map(|(a_i, b_i)| crate::gadgets::basic::selector(circuit, *a_i, *b_i, s))
             .collect(),
     }
 }
 
-pub fn multiplexer(
-    circuit: &mut Circuit,
+pub fn multiplexer<C: CircuitContext>(
+    circuit: &mut C,
     a: &[&BigIntWires],
     s: &[WireId],
     w: usize,
@@ -157,7 +174,7 @@ pub fn multiplexer(
         bits: (0..n_bits)
             .map(|i| {
                 let ith_wires = a.iter().map(|a_i| a_i.bits[i]).collect::<Vec<_>>();
-                circuit.multiplexer(&ith_wires, s, w)
+                crate::gadgets::basic::multiplexer(circuit, &ith_wires, s, w)
             })
             .collect(),
     }
@@ -169,7 +186,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::test_utils::trng;
+    use crate::{test_utils::trng, Circuit};
 
     fn test_comparison_operation(
         n_bits: usize,

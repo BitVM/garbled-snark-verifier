@@ -1,15 +1,19 @@
 use rand::Rng;
 
 use super::{
-    Error, FinalizedCircuit, errors::CircuitError, evaluation::EvaluatedCircuit, structure::{Circuit, GateSource},
+    Error, FinalizedCircuit,
+    errors::CircuitError,
+    evaluation::EvaluatedCircuit,
+    structure::{Circuit, GateSource, VecGate},
 };
-use crate::{Delta, Gate, GarbledWire, GarbledWires, S, WireId};
-use crate::core::gate::garbling::Blake3Hasher;
+use crate::{
+    CircuitContext, Delta, GarbledWire, GarbledWires, S, WireId, core::gate::garbling::Blake3Hasher,
+};
 
 type DefaultHasher = Blake3Hasher;
 
 #[derive(Debug)]
-pub struct GarbledCircuit<G: GateSource = Vec<Gate>> {
+pub struct GarbledCircuit<G: GateSource = VecGate> {
     pub structure: Circuit<G>,
     pub wires: GarbledWires,
     pub delta: Delta,
@@ -25,20 +29,14 @@ impl<G: GateSource> Circuit<G> {
         &self,
         rng: &mut impl Rng,
     ) -> Result<GarbledCircuit<G>, CircuitError> {
-        log::debug!(
-            "garble: start wires={} gates={}",
-            self.num_wire,
-            self.gates.len()
-        );
-
         let delta = Delta::generate(rng);
 
         let mut wires = GarbledWires::new(self.num_wire);
         let mut issue_fn = || GarbledWire::random(rng, &delta);
 
         [
-            self.get_false_wire_constant(),
-            self.get_true_wire_constant(),
+            <Self as CircuitContext>::FALSE_WIRE,
+            <Self as CircuitContext>::TRUE_WIRE,
         ]
         .iter()
         .chain(self.input_wires.iter())
@@ -93,25 +91,16 @@ impl<G: GateSource> GarbledCircuit<G> {
         &self,
         get_input: impl Fn(WireId) -> Option<bool>,
     ) -> Result<EvaluatedCircuit<G>, Error> {
-        log::debug!(
-            "evaluate: start wires={} gates={} table_entries={}",
-            self.structure.num_wire,
-            self.structure.gates.len(),
-            self.garbled_table.len()
-        );
         let mut evaluated = vec![Option::<crate::EvaluatedWire>::None; self.structure.num_wire];
 
-        let true_wire = self.structure.get_true_wire_constant();
-        let false_wire = self.structure.get_false_wire_constant();
-
-        [true_wire, false_wire]
+        [Circuit::<G>::FALSE_WIRE, Circuit::<G>::TRUE_WIRE]
             .iter()
             .chain(self.structure.input_wires.iter())
             .copied()
             .try_for_each(|wire_id| {
                 let value = match wire_id {
-                    w if w.eq(&true_wire) => true,
-                    w if w.eq(&false_wire) => false,
+                    Circuit::<G>::TRUE_WIRE => true,
+                    Circuit::<G>::FALSE_WIRE => false,
                     w => (get_input)(w).ok_or(Error::LostInput(wire_id))?,
                 };
                 let wire = self.wires.get(wire_id)?;
@@ -163,30 +152,27 @@ impl<G: GateSource> GarbledCircuit<G> {
             .collect::<std::collections::HashMap<_, _>>();
 
         // Collect input wires with their garbled wire labels
-        let input_wires = [
-            self.structure.get_false_wire_constant(),
-            self.structure.get_true_wire_constant(),
-        ]
-        .iter()
-        .chain(self.structure.input_wires.iter())
-        .map(|&wire_id| {
-            let value = match wire_id {
-                w if w == self.structure.get_true_wire_constant() => true,
-                w if w == self.structure.get_false_wire_constant() => false,
-                w => get_input(w).ok_or(Error::LostInput(wire_id))?,
-            };
-            let wire = self.wires.get(wire_id)?;
-            let active_label = wire.select(value);
+        let input_wires = [Circuit::<G>::TRUE_WIRE, Circuit::<G>::FALSE_WIRE]
+            .iter()
+            .chain(self.structure.input_wires.iter())
+            .map(|&wire_id| {
+                let value = match wire_id {
+                    Circuit::<G>::TRUE_WIRE => true,
+                    Circuit::<G>::FALSE_WIRE => false,
+                    w => get_input(w).ok_or(Error::LostInput(wire_id))?,
+                };
+                let wire = self.wires.get(wire_id)?;
+                let active_label = wire.select(value);
 
-            Ok((
-                wire_id,
-                crate::EvaluatedWire {
-                    active_label,
-                    value,
-                },
-            ))
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+                Ok((
+                    wire_id,
+                    crate::EvaluatedWire {
+                        active_label,
+                        value,
+                    },
+                ))
+            })
+            .collect::<Result<Vec<_>, Error>>()?;
 
         // Create output wires iterator with their garbled wire labels
         let output_wires = outputs.into_iter().map(|(wire_id, value)| {

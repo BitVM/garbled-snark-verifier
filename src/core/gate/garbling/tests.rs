@@ -1,11 +1,10 @@
-use super::*;
-use crate::{Delta, GarbledWire, GateType, S, EvaluatedWire, test_utils::trng};
 use super::super::GateId;
+use super::*;
+use crate::{Delta, EvaluatedWire, GarbledWire, GateType, S, test_utils::trng};
 
 const GATE_ID: GateId = 0;
 
-const TEST_CASES: [(bool, bool); 4] =
-    [(false, false), (false, true), (true, false), (true, true)];
+const TEST_CASES: [(bool, bool); 4] = [(false, false), (false, true), (true, false), (true, true)];
 
 fn garble_consistency(gt: GateType) {
     use rand::rng;

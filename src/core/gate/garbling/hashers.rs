@@ -1,4 +1,4 @@
-use super::super::{GateId};
+use super::super::GateId;
 use crate::{S, core::s::S_SIZE};
 
 pub trait GateHasher: Clone + Send + Sync {

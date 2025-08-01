@@ -6,9 +6,9 @@ use num_bigint::BigUint;
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
+    Circuit, WireId,
     core::wire,
     gadgets::{self, bigint},
-    Circuit, WireId,
 };
 
 /// BN254 base field Fq implementation

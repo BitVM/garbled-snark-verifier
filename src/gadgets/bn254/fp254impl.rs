@@ -6,8 +6,8 @@ use num_traits::{One, Zero};
 
 use super::super::bigint::{self, BigIntWires};
 use crate::{
-    gadgets::bigint::select, math::montgomery::calculate_montgomery_constants, Circuit, Gate,
-    WireId,
+    Circuit, CircuitContext, Gate, WireId, gadgets::bigint::select,
+    math::montgomery::calculate_montgomery_constants,
 };
 
 /// Core trait for BN254 field implementation with 254-bit prime field arithmetic
@@ -81,11 +81,15 @@ pub trait Fp254Impl {
         r_inv_calc == r_inv_expected && m_inv_calc == m_inv_expected
     }
 
-    fn equal_constant(circuit: &mut Circuit, a: &BigIntWires, b: &ark_bn254::Fq) -> WireId {
+    fn equal_constant<C: CircuitContext>(
+        circuit: &mut C,
+        a: &BigIntWires,
+        b: &ark_bn254::Fq,
+    ) -> WireId {
         bigint::equal_constant(circuit, a, &BigUint::from(b.into_bigint()))
     }
 
-    fn add(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+    fn add<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
 
@@ -104,7 +108,11 @@ pub trait Fp254Impl {
         bigint::select(circuit, &wires1, &wires2, s)
     }
 
-    fn add_constant(circuit: &mut Circuit, a: &BigIntWires, b: &ark_bn254::Fq) -> BigIntWires {
+    fn add_constant<C: CircuitContext>(
+        circuit: &mut C,
+        a: &BigIntWires,
+        b: &ark_bn254::Fq,
+    ) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         if b.is_zero() {
             return a.clone();
@@ -126,7 +134,7 @@ pub trait Fp254Impl {
     }
 
     /// Field subtraction: (a - b) mod p
-    fn sub(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+    fn sub<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
 
@@ -135,12 +143,12 @@ pub trait Fp254Impl {
     }
 
     /// Field negation: (-a) mod p
-    fn neg(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn neg<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
         let not_a = BigIntWires::new(circuit, a.len(), false, false);
         not_a.iter().zip(a.iter()).for_each(|(not_a, a_i)| {
-            circuit.add_gate(Gate::xor(*a_i, circuit.get_true_wire_constant(), *not_a));
+            circuit.add_gate(Gate::xor(*a_i, C::TRUE_WIRE, *not_a));
         });
 
         Self::add_constant(
@@ -151,10 +159,10 @@ pub trait Fp254Impl {
     }
 
     /// Field doubling: (2 * a) mod p
-    fn double(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
-        let shift_wire = circuit.get_false_wire_constant();
+        let shift_wire = C::FALSE_WIRE;
 
         let mut shifted_a = a.clone();
         let u = shifted_a.pop().unwrap();
@@ -173,7 +181,7 @@ pub trait Fp254Impl {
     }
 
     /// Field halving: (a / 2) mod p
-    fn half(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn half<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
         let selector = a.get(0).unwrap();
@@ -196,7 +204,11 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Product in Montgomery form
-    fn mul_montgomery(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+    fn mul_montgomery<C: CircuitContext>(
+        circuit: &mut C,
+        a: &BigIntWires,
+        b: &BigIntWires,
+    ) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
 
@@ -228,8 +240,8 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Product in Montgomery form
-    fn mul_by_constant_montgomery(
-        circuit: &mut Circuit,
+    fn mul_by_constant_montgomery<C: CircuitContext>(
+        circuit: &mut C,
         a: &BigIntWires,
         b: &ark_bn254::Fq,
     ) -> BigIntWires {
@@ -260,7 +272,7 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Square in Montgomery form
-    fn square_montgomery(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn square_montgomery<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         Self::mul_montgomery(circuit, a, a)
     }
 
@@ -278,7 +290,7 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Single-width (254-bit) result in Montgomery form
-    fn montgomery_reduce(circuit: &mut Circuit, x: &BigIntWires) -> BigIntWires {
+    fn montgomery_reduce<C: CircuitContext>(circuit: &mut C, x: &BigIntWires) -> BigIntWires {
         assert_eq!(x.len(), 2 * Self::N_BITS);
 
         let (x_low, x_high) = x.clone().split_at(254);
@@ -308,7 +320,7 @@ pub trait Fp254Impl {
     }
 
     /// Modular inverse using extended Euclidean algorithm
-    fn inverse(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn inverse<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
         let (odd_part, mut even_part) = bigint::odd_part(circuit, a);
@@ -486,7 +498,7 @@ pub trait Fp254Impl {
     ///
     /// # Panics
     /// Will panic if the input is zero (no modular inverse exists)
-    fn inverse_montgomery(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn inverse_montgomery<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         let b = Self::inverse(circuit, a);
 
         Self::mul_by_constant_montgomery(
@@ -498,8 +510,8 @@ pub trait Fp254Impl {
     }
 
     /// Exponentiation by constant in Montgomery form
-    fn exp_by_constant_montgomery(
-        circuit: &mut Circuit,
+    fn exp_by_constant_montgomery<C: CircuitContext>(
+        circuit: &mut C,
         a: &BigIntWires,
         exp: &BigUint,
     ) -> BigIntWires {
@@ -531,19 +543,19 @@ pub trait Fp254Impl {
         result
     }
 
-    fn triple(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn triple<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         let a_2 = Self::double(circuit, a);
         Self::add(circuit, &a_2, a)
     }
 
-    fn div6(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+    fn div6<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
         let half = Self::half(circuit, a);
         let mut result = BigIntWires::new(circuit, a.len(), false, false);
-        let mut r1 = circuit.get_false_wire_constant();
-        let mut r2 = circuit.get_false_wire_constant();
+        let mut r1 = C::FALSE_WIRE;
+        let mut r2 = C::FALSE_WIRE;
 
         for i in 0..Self::N_BITS {
             // msb to lsb
@@ -597,8 +609,8 @@ pub trait Fp254Impl {
         bigint::select(circuit, &result_plus_two_third, &result, r1)
     }
 
-    fn multiplexer(
-        circuit: &mut Circuit,
+    fn multiplexer<C: CircuitContext>(
+        circuit: &mut C,
         a: &[&BigIntWires],
         s: &[WireId],
         w: usize,

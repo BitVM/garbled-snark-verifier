@@ -1,91 +1,108 @@
 use std::array;
 
-use crate::{Circuit, Gate, GateType, WireId};
+use crate::{CircuitContext, Gate, GateType, WireId};
 
-impl Circuit {
-    pub fn half_adder(&mut self, a: WireId, b: WireId) -> (WireId, WireId) {
-        let result = self.issue_wire();
-        let carry = self.issue_wire();
+pub fn half_adder<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId) -> (WireId, WireId) {
+    let result = circuit.issue_wire();
+    let carry = circuit.issue_wire();
 
-        self.add_gate(Gate::new(GateType::Xor, a, b, result));
-        self.add_gate(Gate::new(GateType::And, a, b, carry));
+    circuit.add_gate(Gate::new(GateType::Xor, a, b, result));
+    circuit.add_gate(Gate::new(GateType::And, a, b, carry));
 
-        (result, carry)
+    (result, carry)
+}
+
+pub fn full_adder<C: CircuitContext>(
+    circuit: &mut C,
+    a: WireId,
+    b: WireId,
+    c: WireId,
+) -> (WireId, WireId) {
+    let [axc, bxc, result, t, carry] = array::from_fn(|_| circuit.issue_wire());
+
+    circuit.add_gate(Gate::new(GateType::Xor, a, c, axc));
+    circuit.add_gate(Gate::new(GateType::Xor, b, c, bxc));
+    circuit.add_gate(Gate::new(GateType::Xor, a, bxc, result));
+    circuit.add_gate(Gate::new(GateType::And, axc, bxc, t));
+    circuit.add_gate(Gate::new(GateType::Xor, c, t, carry));
+
+    (result, carry)
+}
+
+pub fn half_subtracter<C: CircuitContext>(
+    circuit: &mut C,
+    a: WireId,
+    b: WireId,
+) -> (WireId, WireId) {
+    let result = circuit.issue_wire();
+    let borrow = circuit.issue_wire();
+
+    circuit.add_gate(Gate::new(GateType::Xor, a, b, result));
+    circuit.add_gate(Gate::and_variant(a, b, borrow, [true, false, false]));
+
+    (result, borrow)
+}
+
+pub fn full_subtracter<C: CircuitContext>(
+    circuit: &mut C,
+    a: WireId,
+    b: WireId,
+    c: WireId,
+) -> (WireId, WireId) {
+    let [bxa, bxc, result, t, carry] = array::from_fn(|_| circuit.issue_wire());
+
+    circuit.add_gate(Gate::new(GateType::Xor, a, b, bxa));
+    circuit.add_gate(Gate::new(GateType::Xor, b, c, bxc));
+    circuit.add_gate(Gate::new(GateType::Xor, bxa, c, result));
+    circuit.add_gate(Gate::new(GateType::And, bxa, bxc, t));
+    circuit.add_gate(Gate::new(GateType::Xor, c, t, carry));
+
+    (result, carry)
+}
+
+pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: WireId) -> WireId {
+    let [d, f, g] = array::from_fn(|_| circuit.issue_wire());
+
+    circuit.add_gate(Gate::nand(a, c, d));
+    circuit.add_gate(Gate::and_variant(c, b, f, [true, false, true]));
+    circuit.add_gate(Gate::nand(d, f, g));
+
+    g
+}
+
+pub fn multiplexer<C: CircuitContext>(
+    circuit: &mut C,
+    a: &[WireId],
+    s: &[WireId],
+    w: usize,
+) -> WireId {
+    let n = 2_usize.pow(w.try_into().unwrap());
+    assert_eq!(a.len(), n);
+    assert_eq!(s.len(), w);
+
+    if w == 1 {
+        return selector(circuit, a[1], a[0], s[0]);
     }
 
-    pub fn full_adder(&mut self, a: WireId, b: WireId, c: WireId) -> (WireId, WireId) {
-        let [axc, bxc, result, t, carry] = array::from_fn(|_| self.issue_wire());
+    let a1 = &a[0..(n / 2)];
+    let a2 = &a[(n / 2)..n];
+    let su = &s[0..w - 1];
+    let sv = s[w - 1];
 
-        self.add_gate(Gate::new(GateType::Xor, a, c, axc));
-        self.add_gate(Gate::new(GateType::Xor, b, c, bxc));
-        self.add_gate(Gate::new(GateType::Xor, a, bxc, result));
-        self.add_gate(Gate::new(GateType::And, axc, bxc, t));
-        self.add_gate(Gate::new(GateType::Xor, c, t, carry));
+    let b1 = multiplexer(circuit, a1, su, w - 1);
+    let b2 = multiplexer(circuit, a2, su, w - 1);
 
-        (result, carry)
-    }
-
-    pub fn half_subtracter(&mut self, a: WireId, b: WireId) -> (WireId, WireId) {
-        let result = self.issue_wire();
-        let borrow = self.issue_wire();
-
-        self.add_gate(Gate::new(GateType::Xor, a, b, result));
-        self.add_gate(Gate::and_variant(a, b, borrow, [true, false, false]));
-
-        (result, borrow)
-    }
-
-    pub fn full_subtracter(&mut self, a: WireId, b: WireId, c: WireId) -> (WireId, WireId) {
-        let [bxa, bxc, result, t, carry] = array::from_fn(|_| self.issue_wire());
-
-        self.add_gate(Gate::new(GateType::Xor, a, b, bxa));
-        self.add_gate(Gate::new(GateType::Xor, b, c, bxc));
-        self.add_gate(Gate::new(GateType::Xor, bxa, c, result));
-        self.add_gate(Gate::new(GateType::And, bxa, bxc, t));
-        self.add_gate(Gate::new(GateType::Xor, c, t, carry));
-
-        (result, carry)
-    }
-
-    pub fn selector(&mut self, a: WireId, b: WireId, c: WireId) -> WireId {
-        let [d, f, g] = array::from_fn(|_| self.issue_wire());
-
-        self.add_gate(Gate::nand(a, c, d));
-        self.add_gate(Gate::and_variant(c, b, f, [true, false, true]));
-        self.add_gate(Gate::nand(d, f, g));
-
-        g
-    }
-
-    pub fn multiplexer(&mut self, a: &[WireId], s: &[WireId], w: usize) -> WireId {
-        let n = 2_usize.pow(w.try_into().unwrap());
-        assert_eq!(a.len(), n);
-        assert_eq!(s.len(), w);
-
-        if w == 1 {
-            return self.selector(a[1], a[0], s[0]);
-        }
-
-        let a1 = &a[0..(n / 2)];
-        let a2 = &a[(n / 2)..n];
-        let su = &s[0..w - 1];
-        let sv = s[w - 1];
-
-        let b1 = self.multiplexer(a1, su, w - 1);
-        let b2 = self.multiplexer(a2, su, w - 1);
-
-        self.selector(b2, b1, sv)
-    }
+    selector(circuit, b2, b1, sv)
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use crate::test_utils::trng;
     use test_log::test;
 
     use super::*;
+    use crate::{Circuit, test_utils::trng};
 
     #[test]
     fn not_not() {
@@ -141,7 +158,7 @@ mod tests {
             let a_wire = circuit.issue_input_wire();
             let b_wire = circuit.issue_input_wire();
 
-            let (result_wire, carry_wire) = circuit.half_adder(a_wire, b_wire);
+            let (result_wire, carry_wire) = half_adder(&mut circuit, a_wire, b_wire);
             circuit.make_wire_output(result_wire);
             circuit.make_wire_output(carry_wire);
 
@@ -191,7 +208,7 @@ mod tests {
             let b_wire = circuit.issue_input_wire();
             let c_wire = circuit.issue_input_wire();
 
-            let (result_wire, carry_wire) = circuit.full_adder(a_wire, b_wire, c_wire);
+            let (result_wire, carry_wire) = full_adder(&mut circuit, a_wire, b_wire, c_wire);
             circuit.make_wire_output(result_wire);
             circuit.make_wire_output(carry_wire);
 
@@ -231,7 +248,7 @@ mod tests {
             let a_wire = circuit.issue_input_wire();
             let b_wire = circuit.issue_input_wire();
 
-            let (result_wire, borrow_wire) = circuit.half_subtracter(a_wire, b_wire);
+            let (result_wire, borrow_wire) = half_subtracter(&mut circuit, a_wire, b_wire);
             circuit.make_wire_output(result_wire);
             circuit.make_wire_output(borrow_wire);
 
@@ -273,7 +290,7 @@ mod tests {
             let b_wire = circuit.issue_input_wire();
             let c_wire = circuit.issue_input_wire();
 
-            let (result_wire, carry_wire) = circuit.full_subtracter(a_wire, b_wire, c_wire);
+            let (result_wire, carry_wire) = full_subtracter(&mut circuit, a_wire, b_wire, c_wire);
             circuit.make_wire_output(result_wire);
             circuit.make_wire_output(carry_wire);
 
@@ -318,7 +335,7 @@ mod tests {
             let b_wire = circuit.issue_input_wire();
             let c_wire = circuit.issue_input_wire();
 
-            let result_wire = circuit.selector(a_wire, b_wire, c_wire);
+            let result_wire = selector(&mut circuit, a_wire, b_wire, c_wire);
             circuit.make_wire_output(result_wire);
 
             let input = [(a_wire, a), (b_wire, b), (c_wire, c)]
@@ -362,7 +379,7 @@ mod tests {
             u = u * 2 + if value { 1 } else { 0 };
         }
 
-        let result_wire = circuit.multiplexer(&a, &s, w);
+        let result_wire = multiplexer(&mut circuit, &a, &s, w);
         circuit.make_wire_output(result_wire);
 
         let mut input = HashMap::new();

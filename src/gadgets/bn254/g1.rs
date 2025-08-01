@@ -3,14 +3,14 @@ use std::{cmp::min, collections::HashMap, iter::zip};
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
 use digest::typenum::bit;
 use num_bigint::BigUint;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use crate::{
+    Circuit, WireId,
     gadgets::{
         bigint::{self, BigIntWires},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
     },
-    Circuit, WireId,
 };
 
 #[derive(Clone)]
@@ -453,7 +453,7 @@ mod tests {
     use std::cell::OnceCell;
 
     use ark_ff::BigInt;
-    use rand::{random, SeedableRng};
+    use rand::{SeedableRng, random};
 
     use super::*;
     use crate::test_utils::trng;

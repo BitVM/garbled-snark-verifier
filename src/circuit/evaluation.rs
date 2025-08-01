@@ -1,7 +1,10 @@
 #[cfg(test)]
 use std::iter;
 
-use super::{finalized::FinalizedCircuit, structure::{Circuit, GateSource}};
+use super::{
+    finalized::FinalizedCircuit,
+    structure::{Circuit, CircuitContext, GateSource, VecGate},
+};
 #[cfg(test)]
 use crate::core::gate::CorrectnessError;
 use crate::{EvaluatedWire, Gate, S, WireId};
@@ -17,7 +20,7 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct EvaluatedCircuit<G: GateSource = Vec<Gate>> {
+pub struct EvaluatedCircuit<G: GateSource = VecGate> {
     pub structure: Circuit<G>,
     pub(crate) wires: Vec<EvaluatedWire>,
     pub garbled_table: Vec<S>,
@@ -36,14 +39,11 @@ impl<G: GateSource> EvaluatedCircuit<G> {
     }
 
     pub fn finalize(self) -> FinalizedCircuit<G> {
-        let input_wires = [
-            self.structure.get_false_wire_constant(),
-            self.structure.get_true_wire_constant(),
-        ]
-        .iter()
-        .chain(self.structure.input_wires.iter())
-        .map(|wire_id| (*wire_id, self.get_evaluated_wire(*wire_id).unwrap().clone()))
-        .collect::<Vec<(WireId, EvaluatedWire)>>();
+        let input_wires = [Circuit::<G>::FALSE_WIRE, Circuit::<G>::TRUE_WIRE]
+            .iter()
+            .chain(self.structure.input_wires.iter())
+            .map(|wire_id| (*wire_id, self.get_evaluated_wire(*wire_id).unwrap().clone()))
+            .collect::<Vec<(WireId, EvaluatedWire)>>();
 
         let output_wires = self
             .structure

@@ -1,18 +1,22 @@
 use std::iter;
 
 use super::{select, BigIntWires, BigUint};
-use crate::{Circuit, Gate, WireId};
+use crate::{gadgets::basic, CircuitContext, Gate, WireId};
 
-pub fn add_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+pub fn add_generic<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigIntWires,
+) -> BigIntWires {
     assert_eq!(a.len(), b.len());
 
     let mut bits = Vec::new();
 
-    let (result, mut carry) = circuit.half_adder(a.bits[0], b.bits[0]);
+    let (result, mut carry) = basic::half_adder(circuit, a.bits[0], b.bits[0]);
     bits.push(result);
 
     for i in 1..a.len() {
-        let (result, new_carry) = circuit.full_adder(a.bits[i], b.bits[i], carry);
+        let (result, new_carry) = basic::full_adder(circuit, a.bits[i], b.bits[i], carry);
         bits.push(result);
         carry = new_carry;
     }
@@ -21,13 +25,21 @@ pub fn add_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> B
     BigIntWires { bits }
 }
 
-pub fn add_without_carry(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+pub fn add_without_carry<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigIntWires,
+) -> BigIntWires {
     let mut c = add_generic(circuit, a, b);
     c.pop();
     c
 }
 
-pub fn add_constant(circuit: &mut Circuit, a: &BigIntWires, b: &BigUint) -> BigIntWires {
+pub fn add_constant<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigUint,
+) -> BigIntWires {
     assert_ne!(b, &BigUint::ZERO);
     let b_bits = super::bits_from_biguint_with_len(b, a.len()).unwrap();
 
@@ -67,8 +79,8 @@ pub fn add_constant(circuit: &mut Circuit, a: &BigIntWires, b: &BigUint) -> BigI
     BigIntWires { bits }
 }
 
-pub fn add_constant_without_carry(
-    circuit: &mut Circuit,
+pub fn add_constant_without_carry<C: CircuitContext>(
+    circuit: &mut C,
     a: &BigIntWires,
     b: &BigUint,
 ) -> BigIntWires {
@@ -77,16 +89,20 @@ pub fn add_constant_without_carry(
     c
 }
 
-pub fn sub_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+pub fn sub_generic<C: CircuitContext>(
+    circuit: &mut C,
+    a: &BigIntWires,
+    b: &BigIntWires,
+) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let mut bits = Vec::with_capacity(a.len() + 1);
 
-    let (result, mut borrow) = circuit.half_subtracter(a.bits[0], b.bits[0]);
+    let (result, mut borrow) = basic::half_subtracter(circuit, a.bits[0], b.bits[0]);
 
     bits.push(result);
 
     for i in 1..a.len() {
-        let (result, new_borrow) = circuit.full_subtracter(a.bits[i], b.bits[i], borrow);
+        let (result, new_borrow) = basic::full_subtracter(circuit, a.bits[i], b.bits[i], borrow);
         borrow = new_borrow;
         bits.push(result);
     }
@@ -96,8 +112,8 @@ pub fn sub_generic(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires) -> B
     BigIntWires { bits }
 }
 
-pub fn sub_generic_without_borrow(
-    circuit: &mut Circuit,
+pub fn sub_generic_without_borrow<C: CircuitContext>(
+    circuit: &mut C,
     a: &BigIntWires,
     b: &BigIntWires,
 ) -> BigIntWires {
@@ -106,7 +122,7 @@ pub fn sub_generic_without_borrow(
     BigIntWires { bits }
 }
 
-pub fn double(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     circuit.add_gate(Gate::nimp(a.bits[0], a.bits[0], zero_wire));
 
@@ -128,7 +144,7 @@ pub fn double(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
 //        circuit.add_wires(a[0..N_BITS - 1].to_vec());
 //        circuit
 //    }
-pub fn double_without_overflow(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
+pub fn double_without_overflow<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     circuit.add_gate(Gate::nimp(a.bits[0], a.bits[0], zero_wire));
 
@@ -139,21 +155,19 @@ pub fn double_without_overflow(circuit: &mut Circuit, a: &BigIntWires) -> BigInt
     }
 }
 
-pub fn half(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
-    let false_ = circuit.get_false_wire_constant();
-
+pub fn half<C: CircuitContext>(_circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     BigIntWires {
         bits: a
             .bits
             .iter()
             .skip(1)
             .copied()
-            .chain(iter::once(false_))
+            .chain(iter::once(C::FALSE_WIRE))
             .collect(),
     }
 }
 
-pub fn odd_part(circuit: &mut Circuit, a: &BigIntWires) -> (BigIntWires, BigIntWires) {
+pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntWires, BigIntWires) {
     let mut select_bn = BigIntWires::new(circuit, a.len() - 1, false, false);
     select_bn.insert(0, a.get(0).unwrap());
 
@@ -195,7 +209,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::test_utils::trng;
+    use crate::{test_utils::trng, Circuit};
 
     fn test_two_input_operation(
         n_bits: usize,

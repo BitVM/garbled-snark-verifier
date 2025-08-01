@@ -2,7 +2,7 @@ use super::{GateId, GateType};
 use crate::{Delta, EvaluatedWire, GarbledWire};
 
 pub mod hashers;
-pub use hashers::{GateHasher, Blake3Hasher};
+pub use hashers::{Blake3Hasher, GateHasher};
 
 pub(super) fn garble<H: GateHasher>(
     gate_id: GateId,

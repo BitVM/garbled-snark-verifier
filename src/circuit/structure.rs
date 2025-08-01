@@ -1,98 +1,76 @@
 use bitvec::prelude::*;
 
-use crate::{core::gate_type::GateCount, Gate, WireId};
+use crate::{Gate, WireId, core::gate_type::GateCount};
 
+pub trait CircuitContext {
+    const FALSE_WIRE: WireId = WireId(0);
+    const TRUE_WIRE: WireId = WireId(1);
+
+    fn issue_wire(&mut self) -> WireId;
+    fn issue_input_wire(&mut self) -> WireId;
+
+    fn issue_output_wire(&mut self) -> WireId;
+
+    fn make_wire_input(&mut self, w: WireId);
+    fn make_wire_output(&mut self, w: WireId);
+
+    fn add_gate(&mut self, gate: Gate);
+}
 
 pub trait GateSource: Clone {
-    fn len(&self) -> usize;
     fn iter(&self) -> impl Iterator<Item = &Gate>;
     fn push(&mut self, gate: Gate);
-    fn is_empty(&self) -> bool {
-        self.len() == 0
+    fn gate_count(&mut self) -> &GateCount;
+}
+
+#[derive(Clone, Default)]
+pub struct VecGate {
+    gates: Vec<Gate>,
+    gate_count: GateCount,
+}
+
+#[cfg(test)]
+impl VecGate {
+    pub(crate) fn update(&mut self, index: usize, upd: impl FnOnce(&mut Gate)) {
+        upd(&mut self.gates[index])
     }
 }
 
-impl GateSource for Vec<Gate> {
-    fn len(&self) -> usize {
-        Vec::len(self)
-    }
-    
+impl GateSource for VecGate {
     fn iter(&self) -> impl Iterator<Item = &Gate> {
-        <[Gate]>::iter(self)
+        self.gates.iter()
     }
-    
+
     fn push(&mut self, gate: Gate) {
-        Vec::push(self, gate);
+        self.gate_count.handle(gate.gate_type);
+        self.gates.push(gate)
+    }
+
+    fn gate_count(&mut self) -> &GateCount {
+        &self.gate_count
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct Circuit<G: GateSource = Vec<Gate>> {
+pub struct Circuit<G: GateSource = VecGate> {
     pub num_wire: usize,
     pub input_wires: Vec<WireId>,
     pub output_wires: Vec<WireId>,
     pub gates: G,
-    pub gate_count: GateCount,
 }
 
-impl Default for Circuit<Vec<Gate>> {
+impl Default for Circuit<VecGate> {
     fn default() -> Self {
         Self {
             num_wire: 2,
             input_wires: Default::default(),
             output_wires: Default::default(),
             gates: Default::default(),
-            gate_count: GateCount::default(),
         }
     }
 }
 
 impl<G: GateSource> Circuit<G> {
-    pub fn get_false_wire_constant(&self) -> WireId {
-        WireId(0)
-    }
-
-    pub fn get_true_wire_constant(&self) -> WireId {
-        WireId(1)
-    }
-
-    pub fn issue_wire(&mut self) -> WireId {
-        let new = WireId(self.num_wire);
-        self.num_wire += 1;
-        new
-    }
-
-    pub fn issue_input_wire(&mut self) -> WireId {
-        let wire_id = self.issue_wire();
-        self.make_wire_input(wire_id);
-        wire_id
-    }
-
-    pub fn issue_output_wire(&mut self) -> WireId {
-        let wire_id = self.issue_wire();
-        self.make_wire_output(wire_id);
-        wire_id
-    }
-
-    pub fn make_wire_input(&mut self, w: WireId) {
-        match self.input_wires.binary_search(&w) {
-            Ok(_) => {}
-            Err(pos) => self.input_wires.insert(pos, w),
-        }
-    }
-
-    pub fn make_wire_output(&mut self, w: WireId) {
-        match self.output_wires.binary_search(&w) {
-            Ok(_) => {}
-            Err(pos) => self.output_wires.insert(pos, w),
-        }
-    }
-
-    pub fn add_gate(&mut self, gate: Gate) {
-        self.gate_count.handle(gate.gate_type);
-        self.gates.push(gate);
-    }
-
     pub fn simple_evaluate(
         &self,
         get_input: impl Fn(WireId) -> Option<bool>,
@@ -100,11 +78,11 @@ impl<G: GateSource> Circuit<G> {
         let mut wire_values = bitvec![0; self.num_wire];
         let mut wire_initialized = bitvec![0; self.num_wire];
 
-        wire_values.set(self.get_false_wire_constant().0, false);
-        wire_initialized.set(self.get_false_wire_constant().0, true);
+        wire_values.set(Circuit::<G>::FALSE_WIRE.0, false);
+        wire_initialized.set(Circuit::<G>::FALSE_WIRE.0, true);
 
-        wire_values.set(self.get_true_wire_constant().0, true);
-        wire_initialized.set(self.get_true_wire_constant().0, true);
+        wire_values.set(Circuit::<G>::TRUE_WIRE.0, true);
+        wire_initialized.set(Circuit::<G>::TRUE_WIRE.0, true);
 
         for &wire_id in &self.input_wires {
             let value = get_input(wire_id).ok_or(super::Error::LostInput(wire_id))?;
@@ -137,5 +115,49 @@ impl<G: GateSource> Circuit<G> {
             .output_wires
             .iter()
             .map(move |&wire_id| (wire_id, wire_values[wire_id.0])))
+    }
+
+    pub fn gate_count(&mut self) -> &GateCount {
+        self.gates.gate_count()
+    }
+}
+
+impl<G: GateSource> CircuitContext for Circuit<G> {
+    #[inline]
+    fn issue_wire(&mut self) -> WireId {
+        let new = WireId(self.num_wire);
+        self.num_wire += 1;
+        new
+    }
+
+    fn issue_input_wire(&mut self) -> WireId {
+        let wire_id = self.issue_wire();
+        self.make_wire_input(wire_id);
+        wire_id
+    }
+
+    fn issue_output_wire(&mut self) -> WireId {
+        let wire_id = self.issue_wire();
+        self.make_wire_output(wire_id);
+        wire_id
+    }
+
+    fn make_wire_input(&mut self, w: WireId) {
+        match self.input_wires.binary_search(&w) {
+            Ok(_) => {}
+            Err(pos) => self.input_wires.insert(pos, w),
+        }
+    }
+
+    fn make_wire_output(&mut self, w: WireId) {
+        match self.output_wires.binary_search(&w) {
+            Ok(_) => {}
+            Err(pos) => self.output_wires.insert(pos, w),
+        }
+    }
+
+    #[inline]
+    fn add_gate(&mut self, gate: Gate) {
+        self.gates.push(gate);
     }
 }
