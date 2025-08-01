@@ -1,30 +1,30 @@
 use rand::Rng;
 
 use super::{
-    Error, FinalizedCircuit, errors::CircuitError, evaluation::EvaluatedCircuit, structure::Circuit,
+    Error, FinalizedCircuit, errors::CircuitError, evaluation::EvaluatedCircuit, structure::{Circuit, GateSource},
 };
-use crate::{Delta, GarbledWire, GarbledWires, S, WireId};
+use crate::{Delta, Gate, GarbledWire, GarbledWires, S, WireId};
 use crate::core::gate::garbling::Blake3Hasher;
 
 type DefaultHasher = Blake3Hasher;
 
 #[derive(Debug)]
-pub struct GarbledCircuit {
-    pub structure: Circuit,
+pub struct GarbledCircuit<G: GateSource = Vec<Gate>> {
+    pub structure: Circuit<G>,
     pub wires: GarbledWires,
     pub delta: Delta,
     pub garbled_table: Vec<S>,
 }
 
-impl Circuit {
-    pub fn garble(&self, rng: &mut impl Rng) -> Result<GarbledCircuit, CircuitError> {
+impl<G: GateSource> Circuit<G> {
+    pub fn garble(&self, rng: &mut impl Rng) -> Result<GarbledCircuit<G>, CircuitError> {
         self.garble_with::<DefaultHasher>(rng)
     }
 
     pub fn garble_with<H: crate::core::gate::garbling::GateHasher>(
         &self,
         rng: &mut impl Rng,
-    ) -> Result<GarbledCircuit, CircuitError> {
+    ) -> Result<GarbledCircuit<G>, CircuitError> {
         log::debug!(
             "garble: start wires={} gates={}",
             self.num_wire,
@@ -88,11 +88,11 @@ impl Circuit {
     }
 }
 
-impl GarbledCircuit {
+impl<G: GateSource> GarbledCircuit<G> {
     pub fn evaluate(
         &self,
         get_input: impl Fn(WireId) -> Option<bool>,
-    ) -> Result<EvaluatedCircuit, Error> {
+    ) -> Result<EvaluatedCircuit<G>, Error> {
         log::debug!(
             "evaluate: start wires={} gates={} table_entries={}",
             self.structure.num_wire,
@@ -156,7 +156,7 @@ impl GarbledCircuit {
     pub fn finalize(
         &self,
         get_input: impl Fn(WireId) -> Option<bool>,
-    ) -> Result<FinalizedCircuit, Error> {
+    ) -> Result<FinalizedCircuit<G>, Error> {
         let outputs = self
             .structure
             .simple_evaluate(&get_input)?

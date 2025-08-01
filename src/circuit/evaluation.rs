@@ -1,7 +1,7 @@
 #[cfg(test)]
 use std::iter;
 
-use super::{finalized::FinalizedCircuit, structure::Circuit};
+use super::{finalized::FinalizedCircuit, structure::{Circuit, GateSource}};
 #[cfg(test)]
 use crate::core::gate::CorrectnessError;
 use crate::{EvaluatedWire, Gate, S, WireId};
@@ -17,13 +17,13 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct EvaluatedCircuit {
-    pub structure: Circuit,
+pub struct EvaluatedCircuit<G: GateSource = Vec<Gate>> {
+    pub structure: Circuit<G>,
     pub(crate) wires: Vec<EvaluatedWire>,
     pub garbled_table: Vec<S>,
 }
 
-impl EvaluatedCircuit {
+impl<G: GateSource> EvaluatedCircuit<G> {
     pub fn iter_output<'s>(&'s self) -> impl 's + Iterator<Item = (WireId, bool)> {
         self.structure
             .output_wires
@@ -35,7 +35,7 @@ impl EvaluatedCircuit {
         self.wires.get(wire_id.0)
     }
 
-    pub fn finalize(self) -> FinalizedCircuit {
+    pub fn finalize(self) -> FinalizedCircuit<G> {
         let input_wires = [
             self.structure.get_false_wire_constant(),
             self.structure.get_true_wire_constant(),

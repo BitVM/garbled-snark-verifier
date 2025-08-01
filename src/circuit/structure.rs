@@ -1,17 +1,41 @@
 use bitvec::prelude::*;
 
-use crate::{Gate, WireId, core::gate_type::GateCount};
+use crate::{core::gate_type::GateCount, Gate, WireId};
+
+
+pub trait GateSource: Clone {
+    fn len(&self) -> usize;
+    fn iter(&self) -> impl Iterator<Item = &Gate>;
+    fn push(&mut self, gate: Gate);
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl GateSource for Vec<Gate> {
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+    
+    fn iter(&self) -> impl Iterator<Item = &Gate> {
+        <[Gate]>::iter(self)
+    }
+    
+    fn push(&mut self, gate: Gate) {
+        Vec::push(self, gate);
+    }
+}
 
 #[derive(Clone, Debug)]
-pub struct Circuit {
+pub struct Circuit<G: GateSource = Vec<Gate>> {
     pub num_wire: usize,
     pub input_wires: Vec<WireId>,
     pub output_wires: Vec<WireId>,
-    pub gates: Vec<Gate>,
+    pub gates: G,
     pub gate_count: GateCount,
 }
 
-impl Default for Circuit {
+impl Default for Circuit<Vec<Gate>> {
     fn default() -> Self {
         Self {
             num_wire: 2,
@@ -23,7 +47,7 @@ impl Default for Circuit {
     }
 }
 
-impl Circuit {
+impl<G: GateSource> Circuit<G> {
     pub fn get_false_wire_constant(&self) -> WireId {
         WireId(0)
     }
@@ -78,7 +102,7 @@ impl Circuit {
 
         wire_values.set(self.get_false_wire_constant().0, false);
         wire_initialized.set(self.get_false_wire_constant().0, true);
-        
+
         wire_values.set(self.get_true_wire_constant().0, true);
         wire_initialized.set(self.get_true_wire_constant().0, true);
 
@@ -88,14 +112,20 @@ impl Circuit {
             wire_initialized.set(wire_id.0, true);
         }
 
-        for gate in &self.gates {
+        for gate in self.gates.iter() {
             if !wire_initialized[gate.wire_a.0] {
-                return Err(super::Error::WrongGateOrder { gate: gate.clone(), wire_id: gate.wire_a });
+                return Err(super::Error::WrongGateOrder {
+                    gate: gate.clone(),
+                    wire_id: gate.wire_a,
+                });
             }
             if !wire_initialized[gate.wire_b.0] {
-                return Err(super::Error::WrongGateOrder { gate: gate.clone(), wire_id: gate.wire_b });
+                return Err(super::Error::WrongGateOrder {
+                    gate: gate.clone(),
+                    wire_id: gate.wire_b,
+                });
             }
-            
+
             let a = wire_values[gate.wire_a.0];
             let b = wire_values[gate.wire_b.0];
             let result = gate.gate_type.f()(a, b);

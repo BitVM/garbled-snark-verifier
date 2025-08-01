@@ -1,8 +1,9 @@
 use super::{
     Circuit,
     commitment::{Commit, commit},
+    structure::GateSource,
 };
-use crate::{EvaluatedWire, S, WireId};
+use crate::{EvaluatedWire, Gate, S, WireId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -46,16 +47,16 @@ pub enum Error {
 }
 
 #[derive(Debug)]
-pub struct FinalizedCircuit {
-    pub structure: Circuit,
+pub struct FinalizedCircuit<G: GateSource = Vec<Gate>> {
+    pub structure: Circuit<G>,
     pub input_wires: Vec<(WireId, EvaluatedWire)>,
     pub output_wires_commit: Commit,
     pub garbled_table: Vec<S>,
 }
 
-impl FinalizedCircuit {
+impl<G: GateSource> FinalizedCircuit<G> {
     pub fn new(
-        structure: Circuit,
+        structure: Circuit<G>,
         input_wires: Vec<(WireId, EvaluatedWire)>,
         output_wires: impl Iterator<Item = EvaluatedWire>,
         garbled_table: Vec<S>,

@@ -89,4 +89,4 @@ pub use errors::CircuitError;
 pub use evaluation::{Error, EvaluatedCircuit};
 pub use finalized::FinalizedCircuit;
 pub use garbling::GarbledCircuit;
-pub use structure::Circuit;
+pub use structure::{Circuit, GateSource};
