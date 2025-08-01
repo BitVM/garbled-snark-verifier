@@ -8,7 +8,7 @@ use rand::{rng, Rng};
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     core::wire,
-    gadgets::{self, bigint},
+    gadgets::{self, bigint::{self, Error}},
     Circuit, WireId,
 };
 
@@ -41,6 +41,10 @@ impl Fq {
     pub fn random() -> ark_bn254::Fq {
         let bytes: [u8; 31] = rng().random();
         ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
+    }
+
+    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fq) -> Result<BigIntWires, Error> {
+        Ok(BigIntWires::new_constant(circuit, Self::N_BITS, &BigUint::from(u.into_bigint()))?)
     }
     
     /// Create new field element wires
