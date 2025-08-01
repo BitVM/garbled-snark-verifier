@@ -1,80 +1,11 @@
-use std::sync::{OnceLock, RwLock};
-
-use bitvec::prelude::*;
 use log::debug;
 
 use super::{BigIntWires, BigUint};
 use crate::{Circuit, Gate, GateType, WireId};
 
-/// Cache of algorithm choices for every possible operand length (up to 256).
-///
-/// Each entry indicates whether the Karatsuba multiplication algorithm
-/// outperforms the naive schoolbook version for that bit-length.  `BitVec` is
-/// used to compactly store the information for all 256 entries using a single
-/// bit per value.
-///
-/// The table employs two separate bit-vectors:
-/// * `decisions` stores the actual choice (`1` for Karatsuba, `0` for the
-///   generic algorithm).
-/// * `initialized` tracks which entries have already been computed.  This
-///   mirrors the behaviour of `Option<bool>` but avoids the memory overhead of
-///   an additional byte per entry.
-///
-/// The structure is guarded by a [`RwLock`] to allow concurrent reads once the
-/// decisions have been cached.  Updates are infrequent and happen only on the
-/// first invocation for a particular length.
-///
-/// TODO
-///
-/// Find all references to this table in runtime and make it compile-time computable
-/// Important because it will be reused inside C&C components every time
-#[derive(Default)]
-struct KaratsubaDecisionTable {
-    /// Decision bits, `1` means Karatsuba should be used.
-    decisions: BitVec<u8, Lsb0>,
-    /// Initialization flags for each index.
-    initialized: BitVec<u8, Lsb0>,
-}
-
-impl KaratsubaDecisionTable {
-    fn new() -> Self {
-        Self {
-            decisions: bitvec![u8, Lsb0; 0; 256],
-            initialized: bitvec![u8, Lsb0; 0; 256],
-        }
-    }
-
-    fn set(&mut self, index: usize, value: bool) {
-        self.decisions.set(index, value);
-        self.initialized.set(index, true);
-    }
-
-    fn get(&self, index: usize) -> Option<bool> {
-        if self.initialized[index] {
-            Some(self.decisions[index])
-        } else {
-            None
-        }
-    }
-}
-
-/// Global table with cached Karatsuba decisions for each operand length.
-/// Global decision table used by [`mul_karatsuba_generic`].  It is
-/// initialised on first use and persists for the lifetime of the program.
-static KARATSUBA_DECISIONS: OnceLock<RwLock<KaratsubaDecisionTable>> = OnceLock::new();
-
-fn decision_table() -> &'static RwLock<KaratsubaDecisionTable> {
-    KARATSUBA_DECISIONS.get_or_init(|| RwLock::new(KaratsubaDecisionTable::new()))
-}
-
-fn set_karatsuba_decision_flag(index: usize, value: bool) {
-    let mut table = decision_table().write().unwrap();
-    table.set(index, value);
-}
-
-fn get_karatsuba_decision_flag(index: usize) -> Option<bool> {
-    let table = decision_table().read().unwrap();
-    table.get(index)
+/// Pre-computed Karatsuba vs Generic algorithm decisions
+const fn is_use_karatsuba(len: usize) -> bool {
+    len > 83
 }
 
 fn extend_with_zero(circuit: &mut Circuit, bits: &mut Vec<WireId>) {
@@ -210,42 +141,16 @@ pub fn mul_karatsuba_generic(
         return mul_generic(circuit, a, b);
     }
 
-    if let Some(flag) = get_karatsuba_decision_flag(len) {
-        return if flag {
-            mul_karatsuba_generic_impl(circuit, a, b)
-        } else {
-            mul_generic(circuit, a, b)
-        };
-    }
-
-    let (generic_count, karatsuba_count) = rayon::join(
-        || {
-            let mut tmp = Circuit::default();
-            let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
-            let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-            mul_generic(&mut tmp, &a_tmp, &b_tmp);
-            tmp.gate_count.nonfree_gate_count()
-        },
-        || {
-            let mut tmp = Circuit::default();
-            let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
-            let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-            mul_karatsuba_generic_impl(&mut tmp, &a_tmp, &b_tmp);
-            tmp.gate_count.nonfree_gate_count()
-        },
+    assert!(
+        len <= 4000,
+        "Bit length {len} exceeds maximum supported 4000",
     );
 
-    debug!("karatsuba_count: {karatsuba_count}");
-    debug!("generic_count: {generic_count}");
-
-    let use_karatsuba = karatsuba_count < generic_count;
-    set_karatsuba_decision_flag(len, use_karatsuba);
-
-    if use_karatsuba {
-        debug!("use karatsube");
+    if is_use_karatsuba(len) {
+        debug!("use karatsuba (pre-computed)");
         mul_karatsuba_generic_impl(circuit, a, b)
     } else {
-        debug!("use generic");
+        debug!("use generic (pre-computed)");
         mul_generic(circuit, a, b)
     }
 }
@@ -691,5 +596,40 @@ mod tests {
                 assert_eq!(left, right);
             }
         }
+    }
+
+    #[test]
+    #[ignore = "Run this test when changing multiplication logic to regenerate the decision matrix"]
+    fn test_karatsuba_decision_matrix() {
+        println!("Testing Karatsuba decision matrix for 4000 elements in parallel...");
+
+        let decisions = (0..=4000_usize)
+            .rev()
+            .filter(|len| {
+                let len = *len;
+                let (generic_count, karatsuba_count) = rayon::join(
+                    || {
+                        let mut tmp = Circuit::default();
+                        let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
+                        let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
+                        mul_generic(&mut tmp, &a_tmp, &b_tmp);
+                        tmp.gate_count.nonfree_gate_count()
+                    },
+                    || {
+                        let mut tmp = Circuit::default();
+                        let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
+                        let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
+                        mul_karatsuba_generic_impl(&mut tmp, &a_tmp, &b_tmp);
+                        tmp.gate_count.nonfree_gate_count()
+                    },
+                );
+
+                let use_karatsuba = karatsuba_count < generic_count;
+
+                is_use_karatsuba(len).ne(&use_karatsuba)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(decisions.as_slice(), &[]);
     }
 }
