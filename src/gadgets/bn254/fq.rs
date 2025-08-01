@@ -115,7 +115,7 @@ impl Fq {
     }
 
     // Check if field element is quadratic non-residue in Montgomery form
-    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: BigIntWires) -> WireId {
+    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: &BigIntWires) -> WireId {
         // y = x^((p - 1)/2)
         let y = Fq::exp_by_constant_montgomery(
             circuit,
