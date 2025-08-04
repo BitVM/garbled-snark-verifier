@@ -1,25 +1,56 @@
+use std::{cmp::min, collections::HashMap, iter::zip};
+
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
 use digest::typenum::bit;
 use num_bigint::BigUint;
-use rand::{Rng, rng};
-use std::{cmp::min, collections::HashMap, iter::zip};
+use rand::{rng, Rng};
 
 use crate::{
-    Circuit, WireId,
     gadgets::{
         bigint::{self, BigIntWires, Error},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
     },
+    Circuit, WireId,
 };
 
+
 #[derive(Clone)]
-pub struct Point<T> {
-    x: T,
-    y: T,
-    z: T,
+pub struct G1Projective {
+    pub x: Fq,
+    pub y: Fq,
+    pub z: Fq,
 }
 
-impl Point<Fq> {
+impl G1Projective {
+    pub const N_BITS: usize = 3 * Fq::N_BITS;
+
+    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Self {
+        Self {
+            x: Fq::new(circuit, is_input, is_output),
+            y: Fq::new(circuit, is_input, is_output),
+            z: Fq::new(circuit, is_input, is_output),
+        }
+    }
+
+    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::G1Projective) -> Result<Self, Error> {
+        Ok(Self {
+            x: Fq::new_constant(circuit, &u.x).unwrap(),
+            y: Fq::new_constant(circuit, &u.y).unwrap(),
+            z: Fq::new_constant(circuit, &u.z).unwrap(),
+        })
+    }
+
+    pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G1Projective {
+        let bits1 = &bits[0..Fq::N_BITS].to_vec();
+        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
+        let bits3 = &bits[Fq::N_BITS * 2..Fq::N_BITS * 3].to_vec();
+        ark_bn254::G1Projective {
+            x: Fq::from_bits(bits1.clone()),
+            y: Fq::from_bits(bits2.clone()),
+            z: Fq::from_bits(bits3.clone()),
+        }
+    }
+
     pub fn mark_as_output(&self, circuit: &mut Circuit) {
         self.x.mark_as_output(circuit);
         self.y.mark_as_output(circuit);
@@ -49,42 +80,6 @@ impl Point<Fq> {
         v
     }
 
-    pub fn from_bits(bits: Vec<bool>) -> ark_bn254::G1Projective {
-        let bits1 = &bits[0..Fq::N_BITS].to_vec();
-        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
-        let bits3 = &bits[Fq::N_BITS * 2..Fq::N_BITS * 3].to_vec();
-        ark_bn254::G1Projective::new(
-            Fq::from_bits(bits1.clone()),
-            Fq::from_bits(bits2.clone()),
-            Fq::from_bits(bits3.clone()),
-        )
-    }
-
-    pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G1Projective {
-        let bits1 = &bits[0..Fq::N_BITS].to_vec();
-        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
-        let bits3 = &bits[Fq::N_BITS * 2..Fq::N_BITS * 3].to_vec();
-        ark_bn254::G1Projective {
-            x: Fq::from_bits(bits1.clone()),
-            y: Fq::from_bits(bits2.clone()),
-            z: Fq::from_bits(bits3.clone()),
-        }
-    }
-
-    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::G1Projective) -> Result<Self, Error> {
-        Ok(Point {
-            x: Fq::new_constant(circuit, &u.x).unwrap(),
-            y: Fq::new_constant(circuit, &u.y).unwrap(),
-            z: Fq::new_constant(circuit, &u.z).unwrap(),
-        })
-    }
-}
-
-pub struct G1Projective(pub [BigIntWires; 3]);
-
-impl G1Projective {
-    pub const N_BITS: usize = 3 * Fq::N_BITS;
-
     pub fn as_montgomery(p: ark_bn254::G1Projective) -> ark_bn254::G1Projective {
         ark_bn254::G1Projective {
             x: Fq::as_montgomery(p.x),
@@ -101,42 +96,20 @@ impl G1Projective {
         }
     }
 
-    pub fn to_bits(u: ark_bn254::G1Projective) -> Point<Vec<bool>> {
-        Point {
-            x: Fq::to_bits(u.x),
-            y: Fq::to_bits(u.y),
-            z: Fq::to_bits(u.z),
-        }
-    }
 
-    pub fn from_bits(bits: &Point<Vec<bool>>) -> ark_bn254::G1Projective {
-        let bits = bits.clone();
-
-        ark_bn254::G1Projective::new(
-            Fq::from_bits(bits.x),
-            Fq::from_bits(bits.y),
-            Fq::from_bits(bits.z),
-        )
-    }
-
-    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Point<Fq> {
-        Point {
-            x: Fq::new(circuit, is_input, is_output),
-            y: Fq::new(circuit, is_input, is_output),
-            z: Fq::new(circuit, is_input, is_output),
-        }
-    }
 
     pub fn get_wire_bits_fn(
-        wires: &Point<Fq>,
+        wires: &G1Projective,
         value: &ark_bn254::G1Projective,
     ) -> Result<impl Fn(WireId) -> Option<bool> + use<>, crate::gadgets::bigint::Error> {
-        let Point {
+        let G1Projective {
             x: wires_x,
             y: wirex_y,
             z: wires_z,
         } = wires;
-        let Point { x, y, z } = Self::to_bits(*value);
+        let x = Fq::to_bits(value.x);
+        let y = Fq::to_bits(value.y);
+        let z = Fq::to_bits(value.z);
 
         let bits = wires_x
             .iter()
@@ -156,7 +129,7 @@ impl G1Projective {
 
 impl G1Projective {
     // http://koclab.cs.ucsb.edu/teaching/ccs130h/2018/09projective.pdf
-    pub fn add_montgomery(circuit: &mut Circuit, p: &Point<Fq>, q: &Point<Fq>) -> Point<Fq> {
+    pub fn add_montgomery(circuit: &mut Circuit, p: &G1Projective, q: &G1Projective) -> G1Projective {
         assert_eq!(p.x.len(), Fq::N_BITS);
         assert_eq!(p.y.len(), Fq::N_BITS);
         assert_eq!(p.z.len(), Fq::N_BITS);
@@ -165,12 +138,12 @@ impl G1Projective {
         assert_eq!(q.y.len(), Fq::N_BITS);
         assert_eq!(q.z.len(), Fq::N_BITS);
 
-        let Point {
+        let G1Projective {
             x: x1,
             y: y1,
             z: z1,
         } = p;
-        let Point {
+        let G1Projective {
             x: x2,
             y: y2,
             z: z2,
@@ -226,7 +199,7 @@ impl G1Projective {
             2,
         );
 
-        Point { x, y, z }
+        G1Projective { x, y, z }
     }
 
     /*
@@ -240,12 +213,12 @@ impl G1Projective {
     }
     */
 
-    pub fn double_montgomery(circuit: &mut Circuit, p: &Point<Fq>) -> Point<Fq> {
+    pub fn double_montgomery(circuit: &mut Circuit, p: &G1Projective) -> G1Projective {
         assert_eq!(p.x.len(), Fq::N_BITS);
         assert_eq!(p.y.len(), Fq::N_BITS);
         assert_eq!(p.z.len(), Fq::N_BITS);
 
-        let Point {
+        let G1Projective {
             x: x1,
             y: y1,
             z: z1,
@@ -273,22 +246,22 @@ impl G1Projective {
         let z_0 = Fq::equal_constant(circuit, z1, &ark_bn254::Fq::zero()); //equal _zero _function ?
         let zero = Fq::new_constant(circuit, &ark_bn254::Fq::zero()).unwrap();
         // let z = Fq::multiplexer(circuit, &[&x3, x2, x1, &zero], &s, 1);
-        let z = Fq::multiplexer(circuit, &[zr.clone(), zero.clone()], &vec![z_0], 1);
+        let z = Fq::multiplexer(circuit, &[zr.clone(), zero.clone()], &[z_0], 1);
 
-        Point { x: xr, y: yr, z }
+        G1Projective { x: xr, y: yr, z }
     }
 
     pub fn multiplexer(
         circuit: &mut Circuit,
-        a: &Vec<Point<Fq>>,
+        a: &[G1Projective],
         s: Vec<WireId>,
         w: usize,
-    ) -> Point<Fq> {
+    ) -> G1Projective {
         let n = 2_usize.pow(w.try_into().unwrap());
         assert_eq!(a.len(), n);
         assert_eq!(s.len(), w);
 
-        Point {
+        G1Projective {
             x: Fq::multiplexer(
                 circuit,
                 &a.iter().map(|p| p.x.clone()).collect::<Vec<_>>(),
@@ -380,7 +353,7 @@ impl G1Projective {
         circuit: &mut Circuit,
         s: &Fr,
         base: &ark_bn254::G1Projective,
-    ) -> Point<Fq> {
+    ) -> G1Projective {
         assert_eq!(s.len(), Fr::N_BITS);
         let n = 2_usize.pow(W as u32);
 
@@ -394,7 +367,7 @@ impl G1Projective {
 
         let mut bases_wires = bases
             .iter()
-            .map(|p| Point::<Fq>::new_constant(circuit, p).unwrap())
+            .map(|p| G1Projective::new_constant(circuit, p).unwrap())
             .collect::<Vec<_>>();
 
         let mut to_be_added = Vec::new();
@@ -404,7 +377,7 @@ impl G1Projective {
             let w = min(W, Fr::N_BITS - index);
             let m = 2_usize.pow(w as u32);
             let selector = s.iter().skip(index).take(w).copied().collect();
-            let result = Self::multiplexer(circuit, &bases_wires[0..m].to_vec(), selector, w);
+            let result = Self::multiplexer(circuit, &bases_wires[0..m], selector, w);
             to_be_added.push(result);
             index += W;
             let mut new_bases = Vec::new();
@@ -418,7 +391,7 @@ impl G1Projective {
             bases = new_bases;
             bases_wires = bases
                 .iter()
-                .map(|p| Point::<Fq>::new_constant(circuit, p).unwrap())
+                .map(|p| G1Projective::new_constant(circuit, p).unwrap())
                 .collect::<Vec<_>>();
         }
 
@@ -459,17 +432,17 @@ impl G1Projective {
         circuit: &mut Circuit,
         scalars: &Vec<Fr>,
         bases: &Vec<ark_bn254::G1Projective>,
-    ) -> Point<Fq> {
+    ) -> G1Projective {
         assert_eq!(scalars.len(), bases.len());
         let mut to_be_added = Vec::new();
         for (s, base) in zip(scalars, bases) {
-            let result = Self::scalar_mul_by_constant_base_montgomery::<W>(circuit, &s, &base);
+            let result = Self::scalar_mul_by_constant_base_montgomery::<W>(circuit, s, base);
             to_be_added.push(result);
         }
 
         let mut acc = to_be_added[0].clone();
         for add in to_be_added.iter().skip(1) {
-            let new_acc = Self::add_montgomery(circuit, &acc, &add);
+            let new_acc = Self::add_montgomery(circuit, &acc, add);
             acc = new_acc;
         }
         acc
@@ -586,10 +559,10 @@ mod tests {
 
     use ark_ec::{CurveGroup, VariableBaseMSM};
     use ark_ff::BigInt;
-    use rand::{SeedableRng, random};
+    use rand::{random, SeedableRng};
 
     use super::*;
-    use crate::{CircuitContext, circuit, test_utils::trng};
+    use crate::{circuit, test_utils::trng, CircuitContext};
 
     fn rnd() -> ark_bn254::G1Projective {
         use ark_ec::PrimeGroup;
@@ -632,7 +605,7 @@ mod tests {
             .unwrap()
             .collect::<HashMap<WireId, bool>>();
 
-        let actual_result = Point::<Fq>::from_bits_unchecked(
+        let actual_result = G1Projective::from_bits_unchecked(
             result_wires.to_bitvec(|wire_id| *output.get(&wire_id).unwrap()),
         );
         assert_eq!(actual_result, c_mont);
@@ -761,11 +734,11 @@ mod tests {
         let s_input = Fr::get_wire_bits_fn(&s_wires, &s).unwrap();
 
         let output = circuit
-            .simple_evaluate(|wire_id| s_input(wire_id))
+            .simple_evaluate(s_input)
             .unwrap()
             .collect::<HashMap<WireId, bool>>();
 
-        let actual_result = Point::<Fq>::from_bits_unchecked(
+        let actual_result = G1Projective::from_bits_unchecked(
             result_wires.to_bitvec(|wire_id| *output.get(&wire_id).unwrap()),
         );
         assert_eq!(actual_result, G1Projective::as_montgomery(result));
@@ -805,11 +778,11 @@ mod tests {
         };
 
         let output = circuit
-            .simple_evaluate(|wire_id| scalars_input(wire_id))
+            .simple_evaluate(scalars_input)
             .unwrap()
             .collect::<HashMap<WireId, bool>>();
 
-        let actual_result = Point::<Fq>::from_bits_unchecked(
+        let actual_result = G1Projective::from_bits_unchecked(
             result_wires.to_bitvec(|wire_id| *output.get(&wire_id).unwrap()),
         );
         assert_eq!(actual_result, G1Projective::as_montgomery(result));
