@@ -611,7 +611,7 @@ pub trait Fp254Impl {
 
     fn multiplexer<C: CircuitContext>(
         circuit: &mut C,
-        a: &[&BigIntWires],
+        a: &[BigIntWires],
         s: &[WireId],
         w: usize,
     ) -> BigIntWires {

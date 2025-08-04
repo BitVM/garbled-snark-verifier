@@ -158,7 +158,7 @@ pub fn select<C: CircuitContext>(
 
 pub fn multiplexer<C: CircuitContext>(
     circuit: &mut C,
-    a: &[&BigIntWires],
+    a: &[BigIntWires],
     s: &[WireId],
     w: usize,
 ) -> BigIntWires {

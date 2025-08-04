@@ -4,14 +4,14 @@ use rand::{Rng, rng};
 
 use super::fq2::Pair;
 use crate::{
-    Circuit, WireId,
+    Circuit, CircuitContext, Gate, WireId,
     gadgets::{
         bigint::{self, BigIntWires, select},
         bn254::{fq::Fq, fq2::Fq2},
     },
 };
 
-type Fq6Components<T> = [Pair<T>; 3];
+pub type Fq6Components<T> = [Pair<T>; 3];
 
 pub struct Fq6;
 
@@ -89,19 +89,30 @@ impl Fq6 {
         format!("c0: ({c0_mask}), c1: ({c1_mask}), c2: ({c2_mask})")
     }
 
+    pub fn equal_constant(circuit: &mut Circuit, a: &Fq6Components<BigIntWires>, b: &ark_bn254::Fq6) -> WireId {
+        let u = Fq2::equal_constant(circuit, &a[0], &b.c0);
+        let v = Fq2::equal_constant(circuit, &a[1], &b.c1);
+        let w = Fq2::equal_constant(circuit, &a[2], &b.c2);
+        let x = circuit.issue_wire();
+        let y = circuit.issue_wire();
+        circuit.add_gate(Gate::and(u, v, x));
+        circuit.add_gate(Gate::and(x, w, y));
+        y
+    }
+
     pub fn add(
         circuit: &mut Circuit,
-        a: Fq6Components<BigIntWires>,
-        b: Fq6Components<BigIntWires>,
+        a: &Fq6Components<BigIntWires>,
+        b: &Fq6Components<BigIntWires>,
     ) -> Fq6Components<BigIntWires> {
         [
-            Fq2::add(circuit, a[0].clone(), b[0].clone()),
-            Fq2::add(circuit, a[1].clone(), b[1].clone()),
-            Fq2::add(circuit, a[2].clone(), b[2].clone()),
+            Fq2::add(circuit, &a[0], &b[0]),
+            Fq2::add(circuit, &a[1], &b[1]),
+            Fq2::add(circuit, &a[2], &b[2]),
         ]
     }
 
-    pub fn neg(circuit: &mut Circuit, a: Fq6Components<BigIntWires>) -> Fq6Components<BigIntWires> {
+    pub fn neg(circuit: &mut Circuit, a: &Fq6Components<BigIntWires>) -> Fq6Components<BigIntWires> {
         [
             Fq2::neg(circuit, a[0].clone()),
             Fq2::neg(circuit, a[1].clone()),
@@ -157,23 +168,23 @@ impl Fq6 {
 
         let v0 = Fq2::mul_montgomery(circuit, a_c0, b_c0);
 
-        let wires_2 = Fq2::add(circuit, a_c0.clone(), a_c2.clone());
-        let wires_3 = Fq2::add(circuit, wires_2.clone(), a_c1.clone());
+        let wires_2 = Fq2::add(circuit, &a_c0, &a_c2);
+        let wires_3 = Fq2::add(circuit, &wires_2, &a_c1);
         let wires_4 = Fq2::sub(circuit, &wires_2, a_c1);
         let wires_5 = Fq2::double(circuit, a_c1);
         let wires_6 = Fq2::double(circuit, a_c2);
         let wires_7 = Fq2::double(circuit, &wires_6);
-        let wires_8 = Fq2::add(circuit, a_c0.clone(), wires_5.clone());
-        let wires_9 = Fq2::add(circuit, wires_8.clone(), wires_7.clone());
+        let wires_8 = Fq2::add(circuit, &a_c0, &wires_5);
+        let wires_9 = Fq2::add(circuit, &wires_8, &wires_7);
 
-        let wires_10 = Fq2::add(circuit, b_c0.clone(), b_c2.clone());
-        let wires_11 = Fq2::add(circuit, wires_10.clone(), b_c1.clone());
+        let wires_10 = Fq2::add(circuit, &b_c0, &b_c2);
+        let wires_11 = Fq2::add(circuit, &wires_10, &b_c1);
         let wires_12 = Fq2::sub(circuit, &wires_10, b_c1);
         let wires_13 = Fq2::double(circuit, b_c1);
         let wires_14 = Fq2::double(circuit, b_c2);
         let wires_15 = Fq2::double(circuit, &wires_14);
-        let wires_16 = Fq2::add(circuit, b_c0.clone(), wires_13.clone());
-        let wires_17 = Fq2::add(circuit, wires_16.clone(), wires_15.clone());
+        let wires_16 = Fq2::add(circuit, &b_c0, &wires_13);
+        let wires_17 = Fq2::add(circuit, &wires_16, &wires_15);
 
         let v1 = Fq2::mul_montgomery(circuit, &wires_3, &wires_11);
         let v2 = Fq2::mul_montgomery(circuit, &wires_4, &wires_12);
@@ -195,20 +206,20 @@ impl Fq6 {
 
         let wires_18 = Fq2::sub(circuit, &v0_3, &v1_3);
         let wires_19 = Fq2::sub(circuit, &wires_18, &v2);
-        let wires_20 = Fq2::add(circuit, wires_19.clone(), v3.clone());
+        let wires_20 = Fq2::add(circuit, &wires_19, &v3);
         let wires_21 = Fq2::sub(circuit, &wires_20, &v4_12);
         let wires_22 = Fq2::mul_by_nonresidue(circuit, &wires_21);
-        let c0 = Fq2::add(circuit, wires_22.clone(), v0_6.clone());
+        let c0 = Fq2::add(circuit, &wires_22, &v0_6);
 
         let wires_23 = Fq2::sub(circuit, &v1_6, &v0_3);
         let wires_24 = Fq2::sub(circuit, &wires_23, &v2_2);
         let wires_25 = Fq2::sub(circuit, &wires_24, &v3);
-        let wires_26 = Fq2::add(circuit, wires_25.clone(), v4_12.clone());
+        let wires_26 = Fq2::add(circuit, &wires_25, &v4_12);
         let wires_27 = Fq2::mul_by_nonresidue(circuit, &v4_6);
-        let c1 = Fq2::add(circuit, wires_26, wires_27);
+        let c1 = Fq2::add(circuit, &wires_26, &wires_27);
 
         let wires_28 = Fq2::sub(circuit, &v1_3, &v0_6);
-        let wires_29 = Fq2::add(circuit, wires_28.clone(), v2_3.clone());
+        let wires_29 = Fq2::add(circuit, &wires_28, &v2_3);
         let c2 = Fq2::sub(circuit, &wires_29, &v4_6);
 
         let mut result = [c0, c1, c2];
@@ -228,14 +239,14 @@ impl Fq6 {
 
         let v0 = Fq2::mul_by_constant_montgomery(circuit, a_c0, &b.c0);
 
-        let wires_2 = Fq2::add(circuit, a_c0.clone(), a_c2.clone());
-        let wires_3 = Fq2::add(circuit, wires_2.clone(), a_c1.clone());
+        let wires_2 = Fq2::add(circuit, &a_c0, &a_c2);
+        let wires_3 = Fq2::add(circuit, &wires_2, &a_c1);
         let wires_4 = Fq2::sub(circuit, &wires_2, a_c1);
         let wires_5 = Fq2::double(circuit, a_c1);
         let wires_6 = Fq2::double(circuit, a_c2);
         let wires_7 = Fq2::double(circuit, &wires_6);
-        let wires_8 = Fq2::add(circuit, a_c0.clone(), wires_5.clone());
-        let wires_9 = Fq2::add(circuit, wires_8.clone(), wires_7.clone());
+        let wires_8 = Fq2::add(circuit, &a_c0, &wires_5);
+        let wires_9 = Fq2::add(circuit, &wires_8, &wires_7);
 
         let v1 = Fq2::mul_by_constant_montgomery(circuit, &wires_3, &(b.c0 + b.c1 + b.c2));
         let v2 = Fq2::mul_by_constant_montgomery(circuit, &wires_4, &(b.c0 - b.c1 + b.c2));
@@ -261,20 +272,20 @@ impl Fq6 {
 
         let wires_18 = Fq2::sub(circuit, &v0_3, &v1_3);
         let wires_19 = Fq2::sub(circuit, &wires_18, &v2);
-        let wires_20 = Fq2::add(circuit, wires_19.clone(), v3.clone());
+        let wires_20 = Fq2::add(circuit, &wires_19, &v3);
         let wires_21 = Fq2::sub(circuit, &wires_20, &v4_12);
         let wires_22 = Fq2::mul_by_nonresidue(circuit, &wires_21);
-        let c0 = Fq2::add(circuit, wires_22.clone(), v0_6.clone());
+        let c0 = Fq2::add(circuit, &wires_22, &v0_6);
 
         let wires_23 = Fq2::sub(circuit, &v1_6, &v0_3);
         let wires_24 = Fq2::sub(circuit, &wires_23, &v2_2);
         let wires_25 = Fq2::sub(circuit, &wires_24, &v3);
-        let wires_26 = Fq2::add(circuit, wires_25.clone(), v4_12.clone());
+        let wires_26 = Fq2::add(circuit, &wires_25, &v4_12);
         let wires_27 = Fq2::mul_by_nonresidue(circuit, &v4_6);
-        let c1 = Fq2::add(circuit, wires_26, wires_27);
+        let c1 = Fq2::add(circuit, &wires_26, &wires_27);
 
         let wires_28 = Fq2::sub(circuit, &v1_3, &v0_6);
-        let wires_29 = Fq2::add(circuit, wires_28.clone(), v2_3.clone());
+        let wires_29 = Fq2::add(circuit, &wires_28, &v2_3);
         let c2 = Fq2::sub(circuit, &wires_29, &v4_6);
 
         let mut result = [c0, c1, c2];
@@ -327,20 +338,20 @@ impl Fq6 {
 
         let wires_1 = Fq2::mul_montgomery(circuit, a_c0, c0);
         let wires_2 = Fq2::mul_montgomery(circuit, a_c1, c1);
-        let wires_3 = Fq2::add(circuit, a_c1.clone(), a_c2.clone());
+        let wires_3 = Fq2::add(circuit, &a_c1, &a_c2);
         let wires_4 = Fq2::mul_montgomery(circuit, &wires_3, c1);
         let wires_5 = Fq2::sub(circuit, &wires_4, &wires_2);
         let wires_6 = Fq2::mul_by_nonresidue(circuit, &wires_5);
-        let wires_7 = Fq2::add(circuit, wires_6.clone(), wires_1.clone());
-        let wires_8 = Fq2::add(circuit, a_c0.clone(), a_c1.clone());
-        let wires_9 = Fq2::add(circuit, c0.clone(), c1.clone());
+        let wires_7 = Fq2::add(circuit, &wires_6, &wires_1);
+        let wires_8 = Fq2::add(circuit, &a_c0, &a_c1);
+        let wires_9 = Fq2::add(circuit, &c0, &c1);
         let wires_10 = Fq2::mul_montgomery(circuit, &wires_8, &wires_9);
         let wires_11 = Fq2::sub(circuit, &wires_10, &wires_1);
         let wires_12 = Fq2::sub(circuit, &wires_11, &wires_2);
-        let wires_13 = Fq2::add(circuit, a_c0.clone(), a_c2.clone());
+        let wires_13 = Fq2::add(circuit, &a_c0, &a_c2);
         let wires_14 = Fq2::mul_montgomery(circuit, &wires_13, c0);
         let wires_15 = Fq2::sub(circuit, &wires_14, &wires_1);
-        let wires_16 = Fq2::add(circuit, wires_15.clone(), wires_2.clone());
+        let wires_16 = Fq2::add(circuit, &wires_15, &wires_2);
 
         [wires_7, wires_12, wires_16]
     }
@@ -357,20 +368,20 @@ impl Fq6 {
 
         let wires_1 = Fq2::mul_montgomery(circuit, a_c0, c0);
         let wires_2 = Fq2::mul_by_constant_montgomery(circuit, a_c1, c1);
-        let wires_3 = Fq2::add(circuit, a_c1.clone(), a_c2.clone());
+        let wires_3 = Fq2::add(circuit, &a_c1, &a_c2);
         let wires_4 = Fq2::mul_by_constant_montgomery(circuit, &wires_3, c1);
         let wires_5 = Fq2::sub(circuit, &wires_4, &wires_2);
         let wires_6 = Fq2::mul_by_nonresidue(circuit, &wires_5);
-        let wires_7 = Fq2::add(circuit, wires_6.clone(), wires_1.clone());
-        let wires_8 = Fq2::add(circuit, a_c0.clone(), a_c1.clone());
+        let wires_7 = Fq2::add(circuit, &wires_6, &wires_1);
+        let wires_8 = Fq2::add(circuit, &a_c0, &a_c1);
         let wires_9 = Fq2::add_constant(circuit, c0, c1);
         let wires_10 = Fq2::mul_montgomery(circuit, &wires_8, &wires_9);
         let wires_11 = Fq2::sub(circuit, &wires_10, &wires_1);
         let wires_12 = Fq2::sub(circuit, &wires_11, &wires_2);
-        let wires_13 = Fq2::add(circuit, a_c0.clone(), a_c2.clone());
+        let wires_13 = Fq2::add(circuit, &a_c0, &a_c2);
         let wires_14 = Fq2::mul_montgomery(circuit, &wires_13, c0);
         let wires_15 = Fq2::sub(circuit, &wires_14, &wires_1);
-        let wires_16 = Fq2::add(circuit, wires_15.clone(), wires_2.clone());
+        let wires_16 = Fq2::add(circuit, &wires_15, &wires_2);
 
         [wires_7, wires_12, wires_16]
     }
@@ -396,23 +407,23 @@ impl Fq6 {
         let a_c2 = &a[2];
 
         let s_0 = Fq2::square_montgomery(circuit, a_c0);
-        let wires_1 = Fq2::add(circuit, a_c0.clone(), a_c2.clone());
-        let wires_2 = Fq2::add(circuit, wires_1.clone(), a_c1.clone());
+        let wires_1 = Fq2::add(circuit, &a_c0, &a_c2);
+        let wires_2 = Fq2::add(circuit, &wires_1, &a_c1);
         let wires_3 = Fq2::sub(circuit, &wires_1, a_c1);
         let s_1 = Fq2::square_montgomery(circuit, &wires_2);
         let s_2 = Fq2::square_montgomery(circuit, &wires_3);
         let wires_4 = Fq2::mul_montgomery(circuit, a_c1, a_c2);
         let s_3 = Fq2::double(circuit, &wires_4);
         let s_4 = Fq2::square_montgomery(circuit, a_c2);
-        let wires_5 = Fq2::add(circuit, s_1.clone(), s_2.clone());
+        let wires_5 = Fq2::add(circuit, &s_1, &s_2);
         let t_1 = Fq2::half(circuit, &wires_5);
 
         let wires_6 = Fq2::mul_by_nonresidue(circuit, &s_3);
-        let res_c0 = Fq2::add(circuit, s_0.clone(), wires_6.clone());
+        let res_c0 = Fq2::add(circuit, &s_0, &wires_6);
         let wires_7 = Fq2::mul_by_nonresidue(circuit, &s_4);
         let wires_8 = Fq2::sub(circuit, &s_1, &s_3);
         let wires_9 = Fq2::sub(circuit, &wires_8, &t_1);
-        let res_c1 = Fq2::add(circuit, wires_9, wires_7.clone());
+        let res_c1 = Fq2::add(circuit, &wires_9, &wires_7);
         let wires_10 = Fq2::sub(circuit, &t_1, &s_0);
         let res_c2 = Fq2::sub(circuit, &wires_10, &s_4);
 
@@ -447,11 +458,11 @@ impl Fq6 {
 
         let wires_2 = Fq2::mul_montgomery(circuit, &b_square_minus_ac, b);
 
-        let wires_1_plus_wires_2 = Fq2::add(circuit, wires_1.clone(), wires_2.clone());
+        let wires_1_plus_wires_2 = Fq2::add(circuit, &wires_1, &wires_2);
         let wires_3 = Fq2::mul_by_nonresidue(circuit, &wires_1_plus_wires_2);
 
         let wires_4 = Fq2::mul_montgomery(circuit, a, &a_square_minus_bc_beta);
-        let norm = Fq2::add(circuit, wires_4, wires_3);
+        let norm = Fq2::add(circuit, &wires_4, &wires_3);
 
         let inverse_norm = Fq2::inverse_montgomery(circuit, &norm);
         let res_c0 = Fq2::mul_montgomery(circuit, &a_square_minus_bc_beta, &inverse_norm);
@@ -517,7 +528,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq6::new_bn(&mut circuit, true, false);
         let b_wires = Fq6::new_bn(&mut circuit, true, false);
-        let c_wires = Fq6::add(&mut circuit, a_wires.clone(), b_wires.clone());
+        let c_wires = Fq6::add(&mut circuit, &a_wires, &b_wires);
 
         // Mark outputs
         for ci in c_wires.iter() {
@@ -545,7 +556,7 @@ mod tests {
     fn test_fq6_neg() {
         let mut circuit = Circuit::default();
         let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let c_wires = Fq6::neg(&mut circuit, a_wires.clone());
+        let c_wires = Fq6::neg(&mut circuit, &a_wires);
 
         // Mark outputs
         for c_wire in &c_wires {
@@ -822,7 +833,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Ignore due to broken Fq inverse implementation
     fn test_fq6_inverse_montgomery() {
         let mut circuit = Circuit::default();
         let a_wires = Fq6::new_bn(&mut circuit, true, false);

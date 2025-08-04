@@ -3,12 +3,13 @@ use std::str::FromStr;
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
+use rand::{rng, Rng};
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     Circuit, WireId,
     core::wire,
-    gadgets::{self, bigint},
+    gadgets::{self, bigint::{self, Error}},
 };
 
 /// BN254 base field Fq implementation
@@ -37,6 +38,15 @@ impl Fp254Impl for Fq {
 }
 
 impl Fq {
+    pub fn random() -> ark_bn254::Fq {
+        let bytes: [u8; 31] = rng().random();
+        ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
+    }
+
+    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fq) -> Result<BigIntWires, Error> {
+        Ok(BigIntWires::new_constant(circuit, Self::N_BITS, &BigUint::from(u.into_bigint()))?)
+    }
+    
     /// Create new field element wires
     pub fn new_bn(circuit: &mut Circuit, is_input: bool, is_output: bool) -> BigIntWires {
         BigIntWires::new(circuit, Self::N_BITS, is_input, is_output)
@@ -105,7 +115,7 @@ impl Fq {
     }
 
     // Check if field element is quadratic non-residue in Montgomery form
-    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: BigIntWires) -> WireId {
+    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: &BigIntWires) -> WireId {
         // y = x^((p - 1)/2)
         let y = Fq::exp_by_constant_montgomery(
             circuit,
@@ -141,7 +151,7 @@ pub(super) mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::test_utils::trng;
+    use crate::{test_utils::trng, CircuitContext};
 
     pub fn rnd() -> ark_bn254::Fq {
         loop {
@@ -463,6 +473,55 @@ pub(super) mod tests {
 
         circuit
             .simple_evaluate(aa_input)
+            .unwrap()
+            .for_each(|(wire_id, value)| {
+                assert_eq!((c_output)(wire_id), Some(value));
+            });
+    }
+
+    #[test]
+    fn test_fq_multiplexer() {
+        let mut circuit = Circuit::default();
+
+        let w = 1;
+        let n = 2_usize.pow(w as u32);
+        let a = (0..n).map(|_| Fq::new_bn(&mut circuit, true, false)).collect::<Vec<_>>();
+        let s = (0..w).map(|_| circuit.issue_input_wire()).collect::<Vec<_>>();
+        let c = Fq::multiplexer(&mut circuit, &a, &s.clone(), w);
+
+        c.mark_as_output(&mut circuit);
+
+        let a_val = (0..n).map(|_| Fq::random()).collect::<Vec<_>>();
+        let s_val = (0..w).map(|_| rng().random()).collect::<Vec<_>>();
+
+        let mut u = 0;
+        for i in s_val.iter().rev(){
+            u = u + u + if *i { 1 } else { 0 };
+        }
+        let expected = a_val[u];
+
+        let a_input = {
+            let mut map = HashMap::new();
+            for (w, v) in a.iter().zip(a_val.iter()) {
+                let f = Fq::get_wire_bits_fn(w, v).unwrap();
+                for id in w.bits.clone() {
+                    if let Some(b) = f(id) {
+                        map.insert(*id, b);
+                    }
+                }
+            }
+            move |wire_id: WireId| map.get(&wire_id).copied()
+        };
+
+        let s_input = {
+            let map: HashMap<WireId, bool> = s.iter().copied().zip(s_val.iter().copied()).collect();
+            move |wire_id: WireId| map.get(&wire_id).copied()
+        };
+        
+        let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+
+        circuit
+            .simple_evaluate(move |wire_id: WireId| a_input(wire_id).or(s_input(wire_id)))
             .unwrap()
             .for_each(|(wire_id, value)| {
                 assert_eq!((c_output)(wire_id), Some(value));
