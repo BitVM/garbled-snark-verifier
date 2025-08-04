@@ -46,7 +46,7 @@ pub fn bits_from_biguint_with_len(u: &BigUint, bit_count: usize) -> Result<BitVe
 
 #[derive(Debug, Clone)]
 pub struct BigIntWires {
-    pub(crate) bits: Vec<WireId>,
+    bits: Vec<WireId>,
 }
 
 impl BigIntWires {
@@ -137,6 +137,29 @@ impl BigIntWires {
             *entry = w;
             old
         })
+    }
+
+    /// Get a range of wires as a new BigIntWires
+    pub fn get_range(&self, range: impl std::ops::RangeBounds<usize>) -> BigIntWires {
+        use std::ops::Bound;
+        let start = match range.start_bound() {
+            Bound::Included(&start) => start,
+            Bound::Excluded(&start) => start + 1,
+            Bound::Unbounded => 0,
+        };
+        let end = match range.end_bound() {
+            Bound::Included(&end) => end + 1,
+            Bound::Excluded(&end) => end,
+            Bound::Unbounded => self.bits.len(),
+        };
+        BigIntWires {
+            bits: self.bits[start..end].to_vec(),
+        }
+    }
+
+    /// Get the first wire ID
+    pub fn first(&self) -> Option<WireId> {
+        self.bits.first().copied()
     }
 
     pub fn split_at(mut self, index: usize) -> (BigIntWires, BigIntWires) {

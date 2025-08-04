@@ -1,7 +1,7 @@
 use std::iter;
 
-use super::{select, BigIntWires, BigUint};
-use crate::{gadgets::basic, CircuitContext, Gate, WireId};
+use super::{BigIntWires, BigUint, select};
+use crate::{CircuitContext, Gate, WireId, gadgets::basic};
 
 pub fn add_generic<C: CircuitContext>(
     circuit: &mut C,
@@ -12,11 +12,12 @@ pub fn add_generic<C: CircuitContext>(
 
     let mut bits = Vec::new();
 
-    let (result, mut carry) = basic::half_adder(circuit, a.bits[0], b.bits[0]);
+    let (result, mut carry) = basic::half_adder(circuit, a.get(0).unwrap(), b.get(0).unwrap());
     bits.push(result);
 
     for i in 1..a.len() {
-        let (result, new_carry) = basic::full_adder(circuit, a.bits[i], b.bits[i], carry);
+        let (result, new_carry) =
+            basic::full_adder(circuit, a.get(i).unwrap(), b.get(i).unwrap(), carry);
         bits.push(result);
         carry = new_carry;
     }
@@ -51,25 +52,26 @@ pub fn add_constant<C: CircuitContext>(
     let mut bits = Vec::new();
     let mut carry: Option<WireId> = None;
     for i in 0..a.len() {
+        let a_i = a.get(i).unwrap();
         if i < first_one {
-            bits.push(a.bits[i]);
+            bits.push(a_i);
         } else if i == first_one {
             let wire = circuit.issue_wire();
-            circuit.add_gate(Gate::nand(a.bits[i], a.bits[i], wire));
+            circuit.add_gate(Gate::nand(a_i, a_i, wire));
             bits.push(wire);
-            carry = Some(a.bits[i]);
+            carry = Some(a_i);
         } else if b_bits[i] {
             let wire_1 = circuit.issue_wire();
             let wire_2 = circuit.issue_wire();
-            circuit.add_gate(Gate::xnor(a.bits[i], carry.unwrap(), wire_1));
-            circuit.add_gate(Gate::or(a.bits[i], carry.unwrap(), wire_2));
+            circuit.add_gate(Gate::xnor(a_i, carry.unwrap(), wire_1));
+            circuit.add_gate(Gate::or(a_i, carry.unwrap(), wire_2));
             bits.push(wire_1);
             carry = Some(wire_2);
         } else {
             let wire_1 = circuit.issue_wire();
             let wire_2 = circuit.issue_wire();
-            circuit.add_gate(Gate::xor(a.bits[i], carry.unwrap(), wire_1));
-            circuit.add_gate(Gate::and(a.bits[i], carry.unwrap(), wire_2));
+            circuit.add_gate(Gate::xor(a_i, carry.unwrap(), wire_1));
+            circuit.add_gate(Gate::and(a_i, carry.unwrap(), wire_2));
             bits.push(wire_1);
             carry = Some(wire_2);
         }
@@ -97,12 +99,14 @@ pub fn sub_generic<C: CircuitContext>(
     assert_eq!(a.len(), b.len());
     let mut bits = Vec::with_capacity(a.len() + 1);
 
-    let (result, mut borrow) = basic::half_subtracter(circuit, a.bits[0], b.bits[0]);
+    let (result, mut borrow) =
+        basic::half_subtracter(circuit, a.get(0).unwrap(), b.get(0).unwrap());
 
     bits.push(result);
 
     for i in 1..a.len() {
-        let (result, new_borrow) = basic::full_subtracter(circuit, a.bits[i], b.bits[i], borrow);
+        let (result, new_borrow) =
+            basic::full_subtracter(circuit, a.get(i).unwrap(), b.get(i).unwrap(), borrow);
         borrow = new_borrow;
         bits.push(result);
     }
@@ -124,12 +128,11 @@ pub fn sub_generic_without_borrow<C: CircuitContext>(
 
 pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
-    circuit.add_gate(Gate::nimp(a.bits[0], a.bits[0], zero_wire));
+    let a_0 = a.get(0).unwrap();
+    circuit.add_gate(Gate::nimp(a_0, a_0, zero_wire));
 
     BigIntWires {
-        bits: iter::once(zero_wire)
-            .chain(a.bits.iter().copied())
-            .collect(),
+        bits: iter::once(zero_wire).chain(a.iter().copied()).collect(),
     }
 }
 
@@ -146,11 +149,12 @@ pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWire
 //    }
 pub fn double_without_overflow<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
-    circuit.add_gate(Gate::nimp(a.bits[0], a.bits[0], zero_wire));
+    let a_0 = a.get(0).unwrap();
+    circuit.add_gate(Gate::nimp(a_0, a_0, zero_wire));
 
     BigIntWires {
         bits: iter::once(zero_wire)
-            .chain(a.bits.iter().take(a.bits.len() - 1).copied())
+            .chain(a.iter().take(a.len() - 1).copied())
             .collect(),
     }
 }
@@ -209,7 +213,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::{test_utils::trng, Circuit};
+    use crate::{Circuit, test_utils::trng};
 
     fn test_two_input_operation(
         n_bits: usize,

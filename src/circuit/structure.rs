@@ -4,7 +4,7 @@ pub use super::{
     circuit_context::CircuitContext,
     gate_source::{GateSource, VecGate},
 };
-use crate::{core::gate_type::GateCount, Gate, WireId};
+use crate::{Gate, WireId, core::gate_type::GateCount};
 
 #[derive(Clone, Debug)]
 pub struct Circuit<G: GateSource = VecGate> {

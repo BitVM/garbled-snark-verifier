@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 
 use super::BigIntWires;
-use crate::{gadgets::bigint::bits_from_biguint_with_len, CircuitContext, Gate, WireId};
+use crate::{CircuitContext, Gate, WireId, gadgets::bigint::bits_from_biguint_with_len};
 
 pub fn self_or_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, s: WireId) -> BigIntWires {
     BigIntWires {
@@ -58,7 +58,7 @@ pub fn equal_constant<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &B
     let b_bits = bits_from_biguint_with_len(b, a.len()).unwrap();
     let one_ind = b_bits.first_one().unwrap();
 
-    let mut res = a.bits[one_ind];
+    let mut res = a.get(one_ind).unwrap();
     a.iter().enumerate().for_each(|(i, a_i)| {
         if i == one_ind {
             return;
@@ -81,13 +81,17 @@ pub fn equal_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> WireId
         let is_bit_zero = circuit.issue_wire();
 
         // Can't use `Gate::not` to input argument
-        circuit.add_gate(Gate::nand(a.bits[0], a.bits[0], is_bit_zero));
+        circuit.add_gate(Gate::nand(
+            a.get(0).unwrap(),
+            a.get(0).unwrap(),
+            is_bit_zero,
+        ));
 
         return is_bit_zero;
     }
 
     let mut res = circuit.issue_wire();
-    circuit.add_gate(Gate::xnor(a.bits[0], a.bits[1], res));
+    circuit.add_gate(Gate::xnor(a.get(0).unwrap(), a.get(1).unwrap(), res));
 
     a.iter().skip(1).for_each(|a_i| {
         let next_res = circuit.issue_wire();
@@ -173,7 +177,7 @@ pub fn multiplexer<C: CircuitContext>(
     BigIntWires {
         bits: (0..n_bits)
             .map(|i| {
-                let ith_wires = a.iter().map(|a_i| a_i.bits[i]).collect::<Vec<_>>();
+                let ith_wires = a.iter().map(|a_i| a_i.get(i).unwrap()).collect::<Vec<_>>();
                 crate::gadgets::basic::multiplexer(circuit, &ith_wires, s, w)
             })
             .collect(),
@@ -186,7 +190,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::{test_utils::trng, Circuit};
+    use crate::{Circuit, test_utils::trng};
 
     fn test_comparison_operation(
         n_bits: usize,

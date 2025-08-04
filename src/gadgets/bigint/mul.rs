@@ -178,7 +178,12 @@ pub fn mul_by_constant<C: CircuitContext>(
     let mut result_bits = Vec::with_capacity(len * 2);
     for _ in 0..(len * 2) {
         let wire = circuit.issue_wire();
-        circuit.add_gate(Gate::new(GateType::Nimp, a.bits[0], a.bits[0], wire));
+        circuit.add_gate(Gate::new(
+            GateType::Nimp,
+            a.get(0).unwrap(),
+            a.get(0).unwrap(),
+            wire,
+        ));
         result_bits.push(wire);
     }
 
@@ -208,7 +213,12 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     let mut result_bits = Vec::with_capacity(power);
     for _ in 0..power {
         let wire = circuit.issue_wire();
-        circuit.add_gate(Gate::new(GateType::Nimp, a.bits[0], a.bits[0], wire));
+        circuit.add_gate(Gate::new(
+            GateType::Nimp,
+            a.get(0).unwrap(),
+            a.get(0).unwrap(),
+            wire,
+        ));
         result_bits.push(wire);
     }
 
@@ -243,7 +253,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::{test_utils::trng, Circuit};
+    use crate::{Circuit, test_utils::trng};
 
     fn test_mul_operation(
         n_bits: usize,

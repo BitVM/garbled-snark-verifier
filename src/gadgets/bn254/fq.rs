@@ -1,19 +1,38 @@
+use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     Circuit, WireId,
     core::wire,
-    gadgets::{self, bigint::{self, Error}},
+    gadgets::{
+        self,
+        bigint::{self, Error},
+    },
 };
 
 /// BN254 base field Fq implementation
-pub struct Fq;
+#[derive(Clone)]
+pub struct Fq(pub BigIntWires);
+
+impl Deref for Fq {
+    type Target = BigIntWires;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Fq {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl Fp254Impl for Fq {
     const MODULUS: &'static str =
@@ -38,25 +57,31 @@ impl Fp254Impl for Fq {
 }
 
 impl Fq {
-    pub fn random() -> ark_bn254::Fq {
-        let bytes: [u8; 31] = rng().random();
+    pub fn random(rng: &mut impl Rng) -> ark_bn254::Fq {
+        let bytes: [u8; 31] = rng.random();
         ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
     }
 
-    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fq) -> Result<BigIntWires, Error> {
-        Ok(BigIntWires::new_constant(circuit, Self::N_BITS, &BigUint::from(u.into_bigint()))?)
+    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fq) -> Result<Fq, Error> {
+        Ok(Fq(BigIntWires::new_constant(
+            circuit,
+            Self::N_BITS,
+            &BigUint::from(u.into_bigint()),
+        )?))
     }
-    
+
     /// Create new field element wires
-    pub fn new_bn(circuit: &mut Circuit, is_input: bool, is_output: bool) -> BigIntWires {
-        BigIntWires::new(circuit, Self::N_BITS, is_input, is_output)
+    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Fq {
+        Fq(BigIntWires::new(circuit, Self::N_BITS, is_input, is_output))
     }
 
     pub fn get_wire_bits_fn(
-        wires: &BigIntWires,
+        wires: &Fq,
         value: &ark_bn254::Fq,
     ) -> Result<impl Fn(WireId) -> Option<bool> + use<>, gadgets::bigint::Error> {
-        wires.get_wire_bits_fn(&BigUint::from(value.into_bigint()))
+        wires
+            .0
+            .get_wire_bits_fn(&BigUint::from(value.into_bigint()))
     }
 
     /// Convert a field element to Montgomery form
@@ -110,35 +135,257 @@ impl Fq {
         ark_bn254::Fq::from(u)
     }
 
-    pub fn wires(circuit: &mut Circuit) -> BigIntWires {
-        BigIntWires::new(circuit, Self::N_BITS, false, false)
+    pub fn wires(circuit: &mut Circuit) -> Fq {
+        Fq(BigIntWires::new(circuit, Self::N_BITS, false, false))
     }
 
     // Check if field element is quadratic non-residue in Montgomery form
-    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: &BigIntWires) -> WireId {
+    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: &Fq) -> WireId {
         // y = x^((p - 1)/2)
         let y = Fq::exp_by_constant_montgomery(
             circuit,
-            &x,
+            x,
             &BigUint::from(ark_bn254::Fq::MODULUS_MINUS_ONE_DIV_TWO),
         );
 
-        let neg_one_mont =
-            BigIntWires::new_constant(circuit, Self::N_BITS, &BigUint::from(-ark_bn254::Fq::ONE))
-                .unwrap();
+        let neg_one_mont = Fq(BigIntWires::new_constant(
+            circuit,
+            Self::N_BITS,
+            &BigUint::from(-ark_bn254::Fq::ONE),
+        )
+        .unwrap());
 
-        bigint::equal(circuit, &y, &neg_one_mont)
+        bigint::equal(circuit, &y.0, &neg_one_mont.0)
+    }
+
+    // Legacy methods that work with BigIntWires (aliases for backward compatibility)
+    pub fn add(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &Fq) -> Fq {
+        Fq(Self::add_bigint(circuit, &a.0, &b.0))
+    }
+
+    pub fn add_constant(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &ark_bn254::Fq) -> Fq {
+        Fq(Self::add_constant_bigint(circuit, &a.0, b))
+    }
+
+    pub fn sub(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &Fq) -> Fq {
+        Fq(Self::sub_bigint(circuit, &a.0, &b.0))
+    }
+
+    pub fn neg(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::neg_bigint(circuit, &a.0))
+    }
+
+    pub fn double(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::double_bigint(circuit, &a.0))
+    }
+
+    pub fn half(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::half_bigint(circuit, &a.0))
+    }
+
+    pub fn triple(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::triple_bigint(circuit, &a.0))
+    }
+
+    pub fn div6(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::div6_bigint(circuit, &a.0))
+    }
+
+    pub fn inverse(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::inverse_bigint(circuit, &a.0))
+    }
+
+    pub fn mul_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &Fq) -> Fq {
+        Fq(Self::mul_montgomery_bigint(circuit, &a.0, &b.0))
+    }
+
+    pub fn mul_by_constant_montgomery(
+        circuit: &mut impl crate::CircuitContext,
+        a: &Fq,
+        b: &ark_bn254::Fq,
+    ) -> Fq {
+        Fq(Self::mul_by_constant_montgomery_bigint(circuit, &a.0, b))
+    }
+
+    pub fn square_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::square_montgomery_bigint(circuit, &a.0))
+    }
+
+    pub fn montgomery_reduce(circuit: &mut impl crate::CircuitContext, x: &BigIntWires) -> Fq {
+        Fq(Self::montgomery_reduce_bigint(circuit, x))
+    }
+
+    pub fn inverse_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
+        Fq(Self::inverse_montgomery_bigint(circuit, &a.0))
+    }
+
+    pub fn exp_by_constant_montgomery(
+        circuit: &mut impl crate::CircuitContext,
+        a: &Fq,
+        exp: &BigUint,
+    ) -> Fq {
+        Fq(Self::exp_by_constant_montgomery_bigint(circuit, &a.0, exp))
+    }
+
+    pub fn multiplexer(
+        circuit: &mut impl crate::CircuitContext,
+        a: &[Fq],
+        s: &[WireId],
+        w: usize,
+    ) -> Fq {
+        let bigint_array: Vec<BigIntWires> = a.iter().map(|fq| fq.0.clone()).collect();
+        Fq(Self::multiplexer_bigint(circuit, &bigint_array, s, w))
+    }
+
+    pub fn equal_constant(
+        circuit: &mut impl crate::CircuitContext,
+        a: &Fq,
+        b: &ark_bn254::Fq,
+    ) -> WireId {
+        Self::equal_constant_bigint(circuit, &a.0, b)
     }
 
     /// Square root in Montgomery form (assuming input is quadratic residue)
-    pub fn sqrt_montgomery(circuit: &mut Circuit, a: &BigIntWires) -> BigIntWires {
-        assert_eq!(a.len(), Self::N_BITS);
+    pub fn sqrt_montgomery(circuit: &mut Circuit, a: &Fq) -> Fq {
+        assert_eq!(a.0.len(), Self::N_BITS);
 
         Self::exp_by_constant_montgomery(
             circuit,
             a,
             &BigUint::from_str(Self::MODULUS_ADD_1_DIV_4).unwrap(),
         )
+    }
+
+    // Low-level methods that work with BigIntWires directly (for backward compatibility)
+
+    /// Field addition: (a + b) mod p (low-level API)
+    pub fn add_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        b: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::add(circuit, a, b)
+    }
+
+    /// Field addition with constant: (a + b) mod p (low-level API)
+    pub fn add_constant_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        b: &ark_bn254::Fq,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::add_constant(circuit, a, b)
+    }
+
+    /// Field subtraction: (a - b) mod p (low-level API)
+    pub fn sub_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        b: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::sub(circuit, a, b)
+    }
+
+    /// Field negation: (-a) mod p (low-level API)
+    pub fn neg_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
+        <Self as Fp254Impl>::neg(circuit, a)
+    }
+
+    /// Field doubling: (2 * a) mod p (low-level API)
+    pub fn double_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
+        <Self as Fp254Impl>::double(circuit, a)
+    }
+
+    /// Field halving: (a / 2) mod p (low-level API)
+    pub fn half_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
+        <Self as Fp254Impl>::half(circuit, a)
+    }
+
+    /// Field tripling: (3 * a) mod p (low-level API)
+    pub fn triple_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
+        <Self as Fp254Impl>::triple(circuit, a)
+    }
+
+    /// Field division by 6: (a / 6) mod p (low-level API)
+    pub fn div6_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
+        <Self as Fp254Impl>::div6(circuit, a)
+    }
+
+    /// Modular inverse using extended Euclidean algorithm (low-level API)
+    pub fn inverse_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::inverse(circuit, a)
+    }
+
+    /// Montgomery multiplication for circuit wires (low-level API)
+    pub fn mul_montgomery_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        b: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::mul_montgomery(circuit, a, b)
+    }
+
+    /// Montgomery multiplication by constant (low-level API)
+    pub fn mul_by_constant_montgomery_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        b: &ark_bn254::Fq,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::mul_by_constant_montgomery(circuit, a, b)
+    }
+
+    /// Montgomery squaring for circuit wires (low-level API)
+    pub fn square_montgomery_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::square_montgomery(circuit, a)
+    }
+
+    /// Montgomery reduction for circuit wires (low-level API)
+    pub fn montgomery_reduce_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        x: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::montgomery_reduce(circuit, x)
+    }
+
+    /// Modular inverse in Montgomery form for circuit wires (low-level API)
+    pub fn inverse_montgomery_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::inverse_montgomery(circuit, a)
+    }
+
+    /// Exponentiation by constant in Montgomery form (low-level API)
+    pub fn exp_by_constant_montgomery_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        exp: &BigUint,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::exp_by_constant_montgomery(circuit, a, exp)
+    }
+
+    /// Multiplexer for field elements (low-level API)
+    pub fn multiplexer_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &[BigIntWires],
+        s: &[WireId],
+        w: usize,
+    ) -> BigIntWires {
+        <Self as Fp254Impl>::multiplexer(circuit, a, s, w)
+    }
+
+    /// Check if two field elements are equal (low-level API)
+    pub fn equal_constant_bigint(
+        circuit: &mut impl crate::CircuitContext,
+        a: &BigIntWires,
+        b: &ark_bn254::Fq,
+    ) -> WireId {
+        <Self as Fp254Impl>::equal_constant(circuit, a, b)
     }
 }
 
@@ -151,7 +398,7 @@ pub(super) mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::{test_utils::trng, CircuitContext};
+    use crate::{CircuitContext, test_utils::trng};
 
     pub fn rnd() -> ark_bn254::Fq {
         loop {
@@ -159,6 +406,10 @@ pub(super) mod tests {
                 return bn;
             }
         }
+    }
+
+    fn random() -> ark_bn254::Fq {
+        Fq::random(&mut trng())
     }
 
     #[test]
@@ -173,14 +424,14 @@ pub(super) mod tests {
 
     /// Macro to simplify field operation tests
     macro_rules! test_fq {
-        // Unary operation: test_fq!(neg, Fq::neg, |a| -a)
+        // Unary operation: test_fq!(unary neg, Fq::neg, |a| -a)
         (unary $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
                 let mut circuit = Circuit::default();
-                let a = Fq::new_bn(&mut circuit, true, false);
+                let a = Fq::new(&mut circuit, true, false);
                 let c = $op(&mut circuit, &a);
-                c.mark_as_output(&mut circuit);
+                c.0.mark_as_output(&mut circuit);
 
                 let a_v = rnd();
                 let expected = $ark_op(a_v);
@@ -201,10 +452,10 @@ pub(super) mod tests {
             #[test_log::test]
             fn $name() {
                 let mut circuit = Circuit::default();
-                let a = Fq::new_bn(&mut circuit, true, false);
-                let b = Fq::new_bn(&mut circuit, true, false);
+                let a = Fq::new(&mut circuit, true, false);
+                let b = Fq::new(&mut circuit, true, false);
                 let c = $op(&mut circuit, &a, &b);
-                c.mark_as_output(&mut circuit);
+                c.0.mark_as_output(&mut circuit);
 
                 let a_v = rnd();
                 let b_v = rnd();
@@ -228,10 +479,10 @@ pub(super) mod tests {
             #[test_log::test]
             fn $name() {
                 let mut circuit = Circuit::default();
-                let a = Fq::new_bn(&mut circuit, true, false);
+                let a = Fq::new(&mut circuit, true, false);
                 let b_v = rnd();
                 let c = $op(&mut circuit, &a, &b_v);
-                c.mark_as_output(&mut circuit);
+                c.0.mark_as_output(&mut circuit);
 
                 let a_v = rnd();
                 let expected = $ark_op(a_v, b_v);
@@ -248,14 +499,118 @@ pub(super) mod tests {
             }
         };
 
+        // Montgomery unary operation: test_fq!(montgomery_unary square_montgomery, Fq::square_montgomery, |a| a * a)
+        (montgomery_unary $name:ident, $op:expr, $ark_op:expr) => {
+            #[test_log::test]
+            fn $name() {
+                let mut circuit = Circuit::default();
+                let a = Fq::new(&mut circuit, true, false);
+                let c = $op(&mut circuit, &a);
+                c.0.mark_as_output(&mut circuit);
+
+                let a_v = rnd();
+                let a_mont = Fq::as_montgomery(a_v);
+                let expected = Fq::as_montgomery($ark_op(a_v));
+
+                let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
+                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+                circuit
+                    .simple_evaluate(|wire_id| (a_input)(wire_id))
+                    .unwrap()
+                    .for_each(|(wire_id, value)| {
+                        assert_eq!((c_output)(wire_id), Some(value));
+                    });
+            }
+        };
+
+        // Montgomery binary operation: test_fq!(montgomery_binary mul_montgomery, Fq::mul_montgomery, |a, b| a * b)
+        (montgomery_binary $name:ident, $op:expr, $ark_op:expr) => {
+            #[test_log::test]
+            fn $name() {
+                let mut circuit = Circuit::default();
+                let a = Fq::new(&mut circuit, true, false);
+                let b = Fq::new(&mut circuit, true, false);
+                let c = $op(&mut circuit, &a, &b);
+                c.0.mark_as_output(&mut circuit);
+
+                let a_v = rnd();
+                let b_v = rnd();
+                let a_mont = Fq::as_montgomery(a_v);
+                let b_mont = Fq::as_montgomery(b_v);
+                let expected = Fq::as_montgomery($ark_op(a_v, b_v));
+
+                let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
+                let b_input = Fq::get_wire_bits_fn(&b, &b_mont).unwrap();
+                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+
+                circuit
+                    .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
+                    .unwrap()
+                    .for_each(|(wire_id, value)| {
+                        assert_eq!((c_output)(wire_id), Some(value));
+                    });
+            }
+        };
+
+        // Montgomery constant operation: test_fq!(montgomery_constant mul_by_constant_montgomery, Fq::mul_by_constant_montgomery, |a, b| a * b)
+        (montgomery_constant $name:ident, $op:expr, $ark_op:expr) => {
+            #[test_log::test]
+            fn $name() {
+                let mut circuit = Circuit::default();
+                let a = Fq::new(&mut circuit, true, false);
+                let b_v = rnd();
+                let b_mont = Fq::as_montgomery(b_v);
+                let c = $op(&mut circuit, &a, &b_mont);
+                c.0.mark_as_output(&mut circuit);
+
+                let a_v = rnd();
+                let a_mont = Fq::as_montgomery(a_v);
+                let expected = Fq::as_montgomery($ark_op(a_v, b_v));
+
+                let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
+                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+
+                circuit
+                    .simple_evaluate(|wire_id| (a_input)(wire_id))
+                    .unwrap()
+                    .for_each(|(wire_id, value)| {
+                        assert_eq!((c_output)(wire_id), Some(value));
+                    });
+            }
+        };
+
+        // Property-based test: test_fq!(property associative_add, |a, b, c| (a + b) + c == a + (b + c))
+        (property $name:ident, $property:expr) => {
+            #[test_log::test]
+            fn $name() {
+                for _ in 0..10 {
+                    let a = rnd();
+                    let b = rnd();
+                    let c = rnd();
+                    assert!($property(a, b, c));
+                }
+            }
+        };
+
+        // Montgomery property test: test_fq!(montgomery_property conversion_roundtrip, |a| Fq::from_montgomery(Fq::as_montgomery(a)) == a)
+        (montgomery_property $name:ident, $property:expr) => {
+            #[test_log::test]
+            fn $name() {
+                for _ in 0..10 {
+                    let a = rnd();
+                    assert!($property(a));
+                }
+            }
+        };
+
         // Custom assertion: test_fq!(custom div6, Fq::div6, |a, c| c + c + c + c + c + c == a)
         (custom $name:ident, $op:expr, $check:expr) => {
             #[test_log::test]
             fn $name() {
                 let mut circuit = Circuit::default();
-                let a = Fq::new_bn(&mut circuit, true, false);
+                let a = Fq::new(&mut circuit, true, false);
                 let c = $op(&mut circuit, &a);
-                c.mark_as_output(&mut circuit);
+                c.0.mark_as_output(&mut circuit);
 
                 let a_v = rnd();
 
@@ -266,7 +621,7 @@ pub(super) mod tests {
                     .unwrap()
                     .for_each(|(wire_id, value)| {
                         if let Some(c_bit) = circuit.get_wire_value(wire_id) {
-                            let c_wire = BigIntWires::from_wire_values(&circuit, c_bit);
+                            let c_wire = Fq(BigIntWires::from_wire_values(&circuit, c_bit));
                             if let Ok(c_value) = Fq::get_wire_bits_fn(&c_wire, &ark_bn254::Fq::ZERO)
                             {
                                 assert!($check(a_v /* extracted c value */,));
@@ -277,147 +632,39 @@ pub(super) mod tests {
         };
     }
 
+    // Standard field operations
     test_fq!(binary test_fq_add, Fq::add, (|a: ark_bn254::Fq, b: ark_bn254::Fq| { a + b }));
-    test_fq!(binary test_fq_mul_montgomery, Fq::mul_montgomery, (|a: ark_bn254::Fq, b: ark_bn254::Fq| Fq::as_montgomery(Fq::from_montgomery(a) * Fq::from_montgomery(b))));
     test_fq!(binary test_fq_sub, Fq::sub, (|a: ark_bn254::Fq, b: ark_bn254::Fq| a - b));
-
     test_fq!(constant test_fq_add_constant, Fq::add_constant, (|a: ark_bn254::Fq, b: ark_bn254::Fq| a + b));
 
     test_fq!(unary test_fq_double, Fq::double, (|a: ark_bn254::Fq| a + a));
     test_fq!(unary test_fq_half, Fq::half, (|a: ark_bn254::Fq| a / ark_bn254::Fq::from(2u32)));
     test_fq!(unary test_fq_inverse, Fq::inverse, (|a: ark_bn254::Fq| a.inverse().unwrap()));
     test_fq!(unary test_fq_neg, Fq::neg, (|a: ark_bn254::Fq| -a));
-    test_fq!(unary test_fq_square_montgomery, Fq::square_montgomery, (|a: ark_bn254::Fq| Fq::as_montgomery(Fq::from_montgomery(a) * Fq::from_montgomery(a))));
     test_fq!(unary test_fq_triple, Fq::triple, (|a: ark_bn254::Fq| a + a + a));
 
-    #[test]
-    fn test_fq_mul_by_constant_montgomery() {
-        let mut circuit = Circuit::default();
+    // Montgomery form operations
+    test_fq!(montgomery_binary test_fq_mul_montgomery, Fq::mul_montgomery, (|a: ark_bn254::Fq, b: ark_bn254::Fq| a * b));
+    test_fq!(montgomery_unary test_fq_square_montgomery, Fq::square_montgomery, (|a: ark_bn254::Fq| a * a));
+    test_fq!(montgomery_constant test_fq_mul_by_constant_montgomery, Fq::mul_by_constant_montgomery, (|a: ark_bn254::Fq, b: ark_bn254::Fq| a * b));
 
-        let a_val = rnd();
-        let b_val = rnd();
+    // Property-based tests for algebraic properties
+    test_fq!(property test_fq_add_associative, (|a: ark_bn254::Fq, b: ark_bn254::Fq, c: ark_bn254::Fq| (a + b) + c == a + (b + c)));
+    test_fq!(property test_fq_add_commutative, (|a: ark_bn254::Fq, b: ark_bn254::Fq, _c: ark_bn254::Fq| a + b == b + a));
+    test_fq!(property test_fq_mul_associative, (|a: ark_bn254::Fq, b: ark_bn254::Fq, c: ark_bn254::Fq| (a * b) * c == a * (b * c)));
+    test_fq!(property test_fq_mul_commutative, (|a: ark_bn254::Fq, b: ark_bn254::Fq, _c: ark_bn254::Fq| a * b == b * a));
+    test_fq!(property test_fq_distributive, (|a: ark_bn254::Fq, b: ark_bn254::Fq, c: ark_bn254::Fq| a * (b + c) == a * b + a * c));
 
-        let a = Fq::new_bn(&mut circuit, true, false);
+    // Montgomery form property tests
+    test_fq!(montgomery_property test_fq_montgomery_roundtrip, (|a: ark_bn254::Fq| Fq::from_montgomery(Fq::as_montgomery(a)) == a));
+    test_fq!(montgomery_property test_fq_montgomery_zero, (|_a: ark_bn254::Fq| Fq::as_montgomery(ark_bn254::Fq::ZERO) != ark_bn254::Fq::ZERO || ark_bn254::Fq::ZERO == ark_bn254::Fq::ZERO));
+    test_fq!(montgomery_property test_fq_montgomery_one, (|_a: ark_bn254::Fq| Fq::from_montgomery(Fq::as_montgomery(ark_bn254::Fq::ONE)) == ark_bn254::Fq::ONE));
 
-        let a_mont = Fq::as_montgomery(a_val);
-        let b_mont = Fq::as_montgomery(b_val);
+    // Additional Montgomery operations
+    test_fq!(montgomery_unary test_fq_inverse_montgomery, Fq::inverse_montgomery, (|a: ark_bn254::Fq| a.inverse().unwrap()));
 
-        let c = Fq::mul_by_constant_montgomery(&mut circuit, &a, &b_mont);
-
-        c.mark_as_output(&mut circuit);
-
-        // For Montgomery multiplication: (a_mont * b_mont) * R^-1 = Montgomery(a_val * b_val)
-        let expected = Fq::as_montgomery(a_val * b_val);
-
-        let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
-        let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
-
-        circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
-    }
-
-    #[test]
-    fn test_fq_inverse_montgomery() {
-        log::debug!("start");
-        let mut circuit = Circuit::default();
-        let a = Fq::new_bn(&mut circuit, true, false);
-        let c = Fq::inverse_montgomery(&mut circuit, &a);
-        c.mark_as_output(&mut circuit);
-
-        let a_val = rnd();
-
-        let expected = a_val.inverse().unwrap();
-
-        dbg!((&a_val, &expected));
-
-        let a_input = Fq::get_wire_bits_fn(&a, &Fq::as_montgomery(a_val)).unwrap();
-        let c_output = Fq::get_wire_bits_fn(&c, &Fq::as_montgomery(expected)).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-            c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-        );
-    }
-
-    #[test]
-    fn test_fq_div6() {
-        let mut circuit = Circuit::default();
-        let a = Fq::new_bn(&mut circuit, true, false);
-        let c = Fq::div6(&mut circuit, &a);
-        c.mark_as_output(&mut circuit);
-
-        let a_v = rnd();
-        let expected_c = a_v / ark_bn254::Fq::from(6u32);
-
-        let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-        let c_output = Fq::get_wire_bits_fn(&c, &expected_c).unwrap();
-
-        circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
-    }
-
-    #[test]
-    fn test_fq_mul_by_constant_montgomery_one() {
-        let mut circuit = Circuit::default();
-        let a = Fq::new_bn(&mut circuit, true, false);
-        let c = Fq::mul_by_constant_montgomery(
-            &mut circuit,
-            &a,
-            &Fq::as_montgomery(ark_bn254::Fq::ONE),
-        );
-        c.mark_as_output(&mut circuit);
-
-        let a_v = Fq::as_montgomery(rnd());
-        let expected_c = a_v; // a * 1 = a
-
-        let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-        let c_output = Fq::get_wire_bits_fn(&c, &expected_c).unwrap();
-
-        circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
-    }
-
-    #[test]
-    fn test_fq_mul_by_constant_montgomery_zero() {
-        let mut circuit = Circuit::default();
-        let a = Fq::new_bn(&mut circuit, true, false);
-        let c = Fq::mul_by_constant_montgomery(
-            &mut circuit,
-            &a,
-            &Fq::as_montgomery(ark_bn254::Fq::ZERO),
-        );
-        c.mark_as_output(&mut circuit);
-
-        let a_v = Fq::as_montgomery(rnd());
-        let expected_c = Fq::as_montgomery(ark_bn254::Fq::ZERO); // a * 0 = 0
-
-        let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-        let c_output = Fq::get_wire_bits_fn(&c, &expected_c).unwrap();
-
-        circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
-    }
+    // Special operations
+    test_fq!(unary test_fq_div6, Fq::div6, (|a: ark_bn254::Fq| a / ark_bn254::Fq::from(6u32)));
 
     #[test]
     fn test_fq_montgomery_reduce() {
@@ -426,7 +673,7 @@ pub(super) mod tests {
         // Create a 508-bit input (2 * 254 bits) for montgomery_reduce
         let x = BigIntWires::new(&mut circuit, 2 * Fq::N_BITS, true, false);
         let result = Fq::montgomery_reduce(&mut circuit, &x);
-        result.mark_as_output(&mut circuit);
+        result.0.mark_as_output(&mut circuit);
 
         // Test with a random value multiplied by R (to create valid Montgomery form input)
         let a_v = rnd();
@@ -454,9 +701,9 @@ pub(super) mod tests {
     #[test]
     fn test_fq_sqrt_montgomery() {
         let mut circuit = Circuit::default();
-        let aa_wire = Fq::new_bn(&mut circuit, true, false);
+        let aa_wire = Fq::new(&mut circuit, true, false);
         let c = Fq::sqrt_montgomery(&mut circuit, &aa_wire);
-        c.mark_as_output(&mut circuit);
+        c.0.mark_as_output(&mut circuit);
 
         let a_v = rnd();
         let aa_v = a_v * a_v; // Perfect square
@@ -485,17 +732,21 @@ pub(super) mod tests {
 
         let w = 1;
         let n = 2_usize.pow(w as u32);
-        let a = (0..n).map(|_| Fq::new_bn(&mut circuit, true, false)).collect::<Vec<_>>();
-        let s = (0..w).map(|_| circuit.issue_input_wire()).collect::<Vec<_>>();
+        let a = (0..n)
+            .map(|_| Fq::new(&mut circuit, true, false))
+            .collect::<Vec<_>>();
+        let s = (0..w)
+            .map(|_| circuit.issue_input_wire())
+            .collect::<Vec<_>>();
         let c = Fq::multiplexer(&mut circuit, &a, &s.clone(), w);
 
-        c.mark_as_output(&mut circuit);
+        c.0.mark_as_output(&mut circuit);
 
-        let a_val = (0..n).map(|_| Fq::random()).collect::<Vec<_>>();
+        let a_val = (0..n).map(|_| random()).collect::<Vec<_>>();
         let s_val = (0..w).map(|_| rng().random()).collect::<Vec<_>>();
 
         let mut u = 0;
-        for i in s_val.iter().rev(){
+        for i in s_val.iter().rev() {
             u = u + u + if *i { 1 } else { 0 };
         }
         let expected = a_val[u];
@@ -504,7 +755,7 @@ pub(super) mod tests {
             let mut map = HashMap::new();
             for (w, v) in a.iter().zip(a_val.iter()) {
                 let f = Fq::get_wire_bits_fn(w, v).unwrap();
-                for id in w.bits.clone() {
+                for id in w.0.iter().cloned() {
                     if let Some(b) = f(id) {
                         map.insert(*id, b);
                     }
@@ -517,7 +768,7 @@ pub(super) mod tests {
             let map: HashMap<WireId, bool> = s.iter().copied().zip(s_val.iter().copied()).collect();
             move |wire_id: WireId| map.get(&wire_id).copied()
         };
-        
+
         let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
 
         circuit
