@@ -175,45 +175,45 @@ impl Fq {
         bigint::equal(circuit, &y.0, &neg_one_mont.0)
     }
 
-    // Legacy methods that work with BigIntWires (aliases for backward compatibility)
+    // Field arithmetic methods (directly using Fp254Impl trait methods)
     pub fn add(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &Fq) -> Fq {
-        Fq(Self::add_bigint(circuit, &a.0, &b.0))
+        Fq(<Self as Fp254Impl>::add(circuit, &a.0, &b.0))
     }
 
     pub fn add_constant(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &ark_bn254::Fq) -> Fq {
-        Fq(Self::add_constant_bigint(circuit, &a.0, b))
+        Fq(<Self as Fp254Impl>::add_constant(circuit, &a.0, b))
     }
 
     pub fn sub(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &Fq) -> Fq {
-        Fq(Self::sub_bigint(circuit, &a.0, &b.0))
+        Fq(<Self as Fp254Impl>::sub(circuit, &a.0, &b.0))
     }
 
     pub fn neg(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::neg_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::neg(circuit, &a.0))
     }
 
     pub fn double(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::double_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::double(circuit, &a.0))
     }
 
     pub fn half(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::half_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::half(circuit, &a.0))
     }
 
     pub fn triple(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::triple_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::triple(circuit, &a.0))
     }
 
     pub fn div6(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::div6_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::div6(circuit, &a.0))
     }
 
     pub fn inverse(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::inverse_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::inverse(circuit, &a.0))
     }
 
     pub fn mul_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq, b: &Fq) -> Fq {
-        Fq(Self::mul_montgomery_bigint(circuit, &a.0, &b.0))
+        Fq(<Self as Fp254Impl>::mul_montgomery(circuit, &a.0, &b.0))
     }
 
     pub fn mul_by_constant_montgomery(
@@ -221,19 +221,19 @@ impl Fq {
         a: &Fq,
         b: &ark_bn254::Fq,
     ) -> Fq {
-        Fq(Self::mul_by_constant_montgomery_bigint(circuit, &a.0, b))
+        Fq(<Self as Fp254Impl>::mul_by_constant_montgomery(circuit, &a.0, b))
     }
 
     pub fn square_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::square_montgomery_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::square_montgomery(circuit, &a.0))
     }
 
     pub fn montgomery_reduce(circuit: &mut impl crate::CircuitContext, x: &BigIntWires) -> Fq {
-        Fq(Self::montgomery_reduce_bigint(circuit, x))
+        Fq(<Self as Fp254Impl>::montgomery_reduce(circuit, x))
     }
 
     pub fn inverse_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
-        Fq(Self::inverse_montgomery_bigint(circuit, &a.0))
+        Fq(<Self as Fp254Impl>::inverse_montgomery(circuit, &a.0))
     }
 
     pub fn exp_by_constant_montgomery(
@@ -241,7 +241,7 @@ impl Fq {
         a: &Fq,
         exp: &BigUint,
     ) -> Fq {
-        Fq(Self::exp_by_constant_montgomery_bigint(circuit, &a.0, exp))
+        Fq(<Self as Fp254Impl>::exp_by_constant_montgomery(circuit, &a.0, exp))
     }
 
     pub fn multiplexer(
@@ -251,7 +251,7 @@ impl Fq {
         w: usize,
     ) -> Fq {
         let bigint_array: Vec<BigIntWires> = a.iter().map(|fq| fq.0.clone()).collect();
-        Fq(Self::multiplexer_bigint(circuit, &bigint_array, s, w))
+        Fq(<Self as Fp254Impl>::multiplexer(circuit, &bigint_array, s, w))
     }
 
     pub fn equal_constant(
@@ -259,7 +259,7 @@ impl Fq {
         a: &Fq,
         b: &ark_bn254::Fq,
     ) -> WireId {
-        Self::equal_constant_bigint(circuit, &a.0, b)
+        <Self as Fp254Impl>::equal_constant(circuit, &a.0, b)
     }
 
     /// Square root in Montgomery form (assuming input is quadratic residue)
@@ -273,137 +273,6 @@ impl Fq {
         )
     }
 
-    // Low-level methods that work with BigIntWires directly (for backward compatibility)
-
-    /// Field addition: (a + b) mod p (low-level API)
-    pub fn add_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        b: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::add(circuit, a, b)
-    }
-
-    /// Field addition with constant: (a + b) mod p (low-level API)
-    pub fn add_constant_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        b: &ark_bn254::Fq,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::add_constant(circuit, a, b)
-    }
-
-    /// Field subtraction: (a - b) mod p (low-level API)
-    pub fn sub_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        b: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::sub(circuit, a, b)
-    }
-
-    /// Field negation: (-a) mod p (low-level API)
-    pub fn neg_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
-        <Self as Fp254Impl>::neg(circuit, a)
-    }
-
-    /// Field doubling: (2 * a) mod p (low-level API)
-    pub fn double_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
-        <Self as Fp254Impl>::double(circuit, a)
-    }
-
-    /// Field halving: (a / 2) mod p (low-level API)
-    pub fn half_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
-        <Self as Fp254Impl>::half(circuit, a)
-    }
-
-    /// Field tripling: (3 * a) mod p (low-level API)
-    pub fn triple_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
-        <Self as Fp254Impl>::triple(circuit, a)
-    }
-
-    /// Field division by 6: (a / 6) mod p (low-level API)
-    pub fn div6_bigint(circuit: &mut impl crate::CircuitContext, a: &BigIntWires) -> BigIntWires {
-        <Self as Fp254Impl>::div6(circuit, a)
-    }
-
-    /// Modular inverse using extended Euclidean algorithm (low-level API)
-    pub fn inverse_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::inverse(circuit, a)
-    }
-
-    /// Montgomery multiplication for circuit wires (low-level API)
-    pub fn mul_montgomery_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        b: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::mul_montgomery(circuit, a, b)
-    }
-
-    /// Montgomery multiplication by constant (low-level API)
-    pub fn mul_by_constant_montgomery_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        b: &ark_bn254::Fq,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::mul_by_constant_montgomery(circuit, a, b)
-    }
-
-    /// Montgomery squaring for circuit wires (low-level API)
-    pub fn square_montgomery_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::square_montgomery(circuit, a)
-    }
-
-    /// Montgomery reduction for circuit wires (low-level API)
-    pub fn montgomery_reduce_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        x: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::montgomery_reduce(circuit, x)
-    }
-
-    /// Modular inverse in Montgomery form for circuit wires (low-level API)
-    pub fn inverse_montgomery_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::inverse_montgomery(circuit, a)
-    }
-
-    /// Exponentiation by constant in Montgomery form (low-level API)
-    pub fn exp_by_constant_montgomery_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        exp: &BigUint,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::exp_by_constant_montgomery(circuit, a, exp)
-    }
-
-    /// Multiplexer for field elements (low-level API)
-    pub fn multiplexer_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &[BigIntWires],
-        s: &[WireId],
-        w: usize,
-    ) -> BigIntWires {
-        <Self as Fp254Impl>::multiplexer(circuit, a, s, w)
-    }
-
-    /// Check if two field elements are equal (low-level API)
-    pub fn equal_constant_bigint(
-        circuit: &mut impl crate::CircuitContext,
-        a: &BigIntWires,
-        b: &ark_bn254::Fq,
-    ) -> WireId {
-        <Self as Fp254Impl>::equal_constant(circuit, a, b)
-    }
 }
 
 #[cfg(test)]
