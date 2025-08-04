@@ -867,7 +867,9 @@ mod tests {
 
         assert_eq!(
             Fq6::to_bitmask(&result_wires, |wire_id| result_output(wire_id).unwrap()),
-            Fq6::to_bitmask(&result_wires, |wire_id| *actual_result.get(&wire_id).unwrap())
+            Fq6::to_bitmask(&result_wires, |wire_id| *actual_result
+                .get(&wire_id)
+                .unwrap())
         );
     }
 
@@ -906,7 +908,9 @@ mod tests {
 
         assert_eq!(
             Fq6::to_bitmask(&result_wires, |wire_id| result_output(wire_id).unwrap()),
-            Fq6::to_bitmask(&result_wires, |wire_id| *actual_result.get(&wire_id).unwrap())
+            Fq6::to_bitmask(&result_wires, |wire_id| *actual_result
+                .get(&wire_id)
+                .unwrap())
         );
     }
 

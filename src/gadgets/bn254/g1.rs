@@ -452,8 +452,7 @@ impl G1Projective {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::OnceCell;
-    use std::collections::HashMap;
+    use std::{cell::OnceCell, collections::HashMap};
 
     use ark_ec::{CurveGroup, VariableBaseMSM};
     use ark_ff::BigInt;
