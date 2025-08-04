@@ -75,6 +75,11 @@ impl Fq {
         Fq(BigIntWires::new(circuit, Self::N_BITS, is_input, is_output))
     }
 
+    /// Mark this field element as output
+    pub fn mark_as_output(&self, circuit: &mut Circuit) {
+        self.0.mark_as_output(circuit);
+    }
+
     pub fn get_wire_bits_fn(
         wires: &Fq,
         value: &ark_bn254::Fq,
@@ -82,6 +87,18 @@ impl Fq {
         wires
             .0
             .get_wire_bits_fn(&BigUint::from(value.into_bigint()))
+    }
+
+    /// Convert field element wires to a bitmask string for debugging
+    ///
+    /// # Arguments
+    /// * `wires` - The field element wires
+    /// * `get_val` - Function to get the boolean value of a wire
+    ///
+    /// # Returns
+    /// String representation of the field element as bits
+    pub fn to_bitmask(wires: &Fq, get_val: impl Fn(WireId) -> bool) -> String {
+        wires.0.to_bitmask(&get_val)
     }
 
     /// Convert a field element to Montgomery form

@@ -35,7 +35,7 @@ impl Fq6 {
     }
 
     /// Create new Fq6 from components
-    pub fn new(c0: Fq2, c1: Fq2, c2: Fq2) -> Self {
+    pub fn from_components(c0: Fq2, c1: Fq2, c2: Fq2) -> Self {
         Fq6([c0, c1, c2])
     }
 
@@ -78,11 +78,11 @@ impl Fq6 {
         )
     }
 
-    pub fn new_bn(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Fq6 {
+    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Fq6 {
         Fq6([
-            Fq2::new_bn(circuit, is_input, is_output),
-            Fq2::new_bn(circuit, is_input, is_output),
-            Fq2::new_bn(circuit, is_input, is_output),
+            Fq2::new(circuit, is_input, is_output),
+            Fq2::new(circuit, is_input, is_output),
+            Fq2::new(circuit, is_input, is_output),
         ])
     }
 
@@ -122,43 +122,43 @@ impl Fq6 {
     }
 
     pub fn add(circuit: &mut Circuit, a: &Fq6, b: &Fq6) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::add(circuit, a.c0(), b.c0()),
             Fq2::add(circuit, a.c1(), b.c1()),
             Fq2::add(circuit, a.c2(), b.c2()),
-        ])
+        )
     }
 
     pub fn neg(circuit: &mut Circuit, a: Fq6) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::neg(circuit, a.0[0].clone()),
             Fq2::neg(circuit, a.0[1].clone()),
             Fq2::neg(circuit, a.0[2].clone()),
-        ])
+        )
     }
 
     pub fn sub(circuit: &mut Circuit, a: &Fq6, b: &Fq6) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::sub(circuit, a.c0(), b.c0()),
             Fq2::sub(circuit, a.c1(), b.c1()),
             Fq2::sub(circuit, a.c2(), b.c2()),
-        ])
+        )
     }
 
     pub fn double(circuit: &mut Circuit, a: &Fq6) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::double(circuit, a.c0()),
             Fq2::double(circuit, a.c1()),
             Fq2::double(circuit, a.c2()),
-        ])
+        )
     }
 
     pub fn div6(circuit: &mut Circuit, a: &Fq6) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::div6(circuit, a.c0()),
             Fq2::div6(circuit, a.c1()),
             Fq2::div6(circuit, a.c2()),
-        ])
+        )
     }
 
     pub fn mul_montgomery(circuit: &mut Circuit, a: &Fq6, b: &Fq6) -> Fq6 {
@@ -171,22 +171,22 @@ impl Fq6 {
 
         let v0 = Fq2::mul_montgomery(circuit, a_c0, b_c0);
 
-        let wires_2 = Fq2::add(circuit, &a_c0, &a_c2);
-        let wires_3 = Fq2::add(circuit, &wires_2, &a_c1);
+        let wires_2 = Fq2::add(circuit, a_c0, a_c2);
+        let wires_3 = Fq2::add(circuit, &wires_2, a_c1);
         let wires_4 = Fq2::sub(circuit, &wires_2, a_c1);
         let wires_5 = Fq2::double(circuit, a_c1);
         let wires_6 = Fq2::double(circuit, a_c2);
         let wires_7 = Fq2::double(circuit, &wires_6);
-        let wires_8 = Fq2::add(circuit, &a_c0, &wires_5);
+        let wires_8 = Fq2::add(circuit, a_c0, &wires_5);
         let wires_9 = Fq2::add(circuit, &wires_8, &wires_7);
 
-        let wires_10 = Fq2::add(circuit, &b_c0, &b_c2);
-        let wires_11 = Fq2::add(circuit, &wires_10, &b_c1);
+        let wires_10 = Fq2::add(circuit, b_c0, b_c2);
+        let wires_11 = Fq2::add(circuit, &wires_10, b_c1);
         let wires_12 = Fq2::sub(circuit, &wires_10, b_c1);
         let wires_13 = Fq2::double(circuit, b_c1);
         let wires_14 = Fq2::double(circuit, b_c2);
         let wires_15 = Fq2::double(circuit, &wires_14);
-        let wires_16 = Fq2::add(circuit, &b_c0, &wires_13);
+        let wires_16 = Fq2::add(circuit, b_c0, &wires_13);
         let wires_17 = Fq2::add(circuit, &wires_16, &wires_15);
 
         let v1 = Fq2::mul_montgomery(circuit, &wires_3, &wires_11);
@@ -225,7 +225,7 @@ impl Fq6 {
         let wires_29 = Fq2::add(circuit, &wires_28, &v2_3);
         let c2 = Fq2::sub(circuit, &wires_29, &v4_6);
 
-        let result = Fq6([c0, c1, c2]);
+        let result = Fq6::from_components(c0, c1, c2);
         Self::div6(circuit, &result)
     }
 
@@ -236,13 +236,13 @@ impl Fq6 {
 
         let v0 = Fq2::mul_by_constant_montgomery(circuit, a_c0, &b.c0);
 
-        let wires_2 = Fq2::add(circuit, &a_c0, &a_c2);
-        let wires_3 = Fq2::add(circuit, &wires_2, &a_c1);
+        let wires_2 = Fq2::add(circuit, a_c0, a_c2);
+        let wires_3 = Fq2::add(circuit, &wires_2, a_c1);
         let wires_4 = Fq2::sub(circuit, &wires_2, a_c1);
         let wires_5 = Fq2::double(circuit, a_c1);
         let wires_6 = Fq2::double(circuit, a_c2);
         let wires_7 = Fq2::double(circuit, &wires_6);
-        let wires_8 = Fq2::add(circuit, &a_c0, &wires_5);
+        let wires_8 = Fq2::add(circuit, a_c0, &wires_5);
         let wires_9 = Fq2::add(circuit, &wires_8, &wires_7);
 
         let v1 = Fq2::mul_by_constant_montgomery(circuit, &wires_3, &(b.c0 + b.c1 + b.c2));
@@ -285,16 +285,16 @@ impl Fq6 {
         let wires_29 = Fq2::add(circuit, &wires_28, &v2_3);
         let c2 = Fq2::sub(circuit, &wires_29, &v4_6);
 
-        let result = Fq6([c0, c1, c2]);
+        let result = Fq6::from_components(c0, c1, c2);
         Self::div6(circuit, &result)
     }
 
     pub fn mul_by_fq2_montgomery(circuit: &mut Circuit, a: &Fq6, b: &Fq2) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::mul_montgomery(circuit, a.c0(), b),
             Fq2::mul_montgomery(circuit, a.c1(), b),
             Fq2::mul_montgomery(circuit, a.c2(), b),
-        ])
+        )
     }
 
     pub fn mul_by_constant_fq2_montgomery(
@@ -302,16 +302,16 @@ impl Fq6 {
         a: &Fq6,
         b: &ark_bn254::Fq2,
     ) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::mul_by_constant_montgomery(circuit, a.c0(), b),
             Fq2::mul_by_constant_montgomery(circuit, a.c1(), b),
             Fq2::mul_by_constant_montgomery(circuit, a.c2(), b),
-        ])
+        )
     }
 
     pub fn mul_by_nonresidue(circuit: &mut Circuit, a: &Fq6) -> Fq6 {
         let u = Fq2::mul_by_nonresidue(circuit, a.c2());
-        Fq6([u, a.c0().clone(), a.c1().clone()])
+        Fq6::from_components(u, a.c0().clone(), a.c1().clone())
     }
 
     pub fn mul_by_01_montgomery(circuit: &mut Circuit, a: &Fq6, c0: &Fq2, c1: &Fq2) -> Fq6 {
@@ -321,22 +321,22 @@ impl Fq6 {
 
         let wires_1 = Fq2::mul_montgomery(circuit, a_c0, c0);
         let wires_2 = Fq2::mul_montgomery(circuit, a_c1, c1);
-        let wires_3 = Fq2::add(circuit, &a_c1, &a_c2);
+        let wires_3 = Fq2::add(circuit, a_c1, a_c2);
         let wires_4 = Fq2::mul_montgomery(circuit, &wires_3, c1);
         let wires_5 = Fq2::sub(circuit, &wires_4, &wires_2);
         let wires_6 = Fq2::mul_by_nonresidue(circuit, &wires_5);
         let wires_7 = Fq2::add(circuit, &wires_6, &wires_1);
-        let wires_8 = Fq2::add(circuit, &a_c0, &a_c1);
-        let wires_9 = Fq2::add(circuit, &c0, &c1);
+        let wires_8 = Fq2::add(circuit, a_c0, a_c1);
+        let wires_9 = Fq2::add(circuit, c0, c1);
         let wires_10 = Fq2::mul_montgomery(circuit, &wires_8, &wires_9);
         let wires_11 = Fq2::sub(circuit, &wires_10, &wires_1);
         let wires_12 = Fq2::sub(circuit, &wires_11, &wires_2);
-        let wires_13 = Fq2::add(circuit, &a_c0, &a_c2);
+        let wires_13 = Fq2::add(circuit, a_c0, a_c2);
         let wires_14 = Fq2::mul_montgomery(circuit, &wires_13, c0);
         let wires_15 = Fq2::sub(circuit, &wires_14, &wires_1);
         let wires_16 = Fq2::add(circuit, &wires_15, &wires_2);
 
-        Fq6([wires_7, wires_12, wires_16])
+        Fq6::from_components(wires_7, wires_12, wires_16)
     }
 
     pub fn mul_by_01_constant1_montgomery(
@@ -351,30 +351,30 @@ impl Fq6 {
 
         let wires_1 = Fq2::mul_montgomery(circuit, a_c0, c0);
         let wires_2 = Fq2::mul_by_constant_montgomery(circuit, a_c1, c1);
-        let wires_3 = Fq2::add(circuit, &a_c1, &a_c2);
+        let wires_3 = Fq2::add(circuit, a_c1, a_c2);
         let wires_4 = Fq2::mul_by_constant_montgomery(circuit, &wires_3, c1);
         let wires_5 = Fq2::sub(circuit, &wires_4, &wires_2);
         let wires_6 = Fq2::mul_by_nonresidue(circuit, &wires_5);
         let wires_7 = Fq2::add(circuit, &wires_6, &wires_1);
-        let wires_8 = Fq2::add(circuit, &a_c0, &a_c1);
+        let wires_8 = Fq2::add(circuit, a_c0, a_c1);
         let wires_9 = Fq2::add_constant(circuit, c0, c1);
         let wires_10 = Fq2::mul_montgomery(circuit, &wires_8, &wires_9);
         let wires_11 = Fq2::sub(circuit, &wires_10, &wires_1);
         let wires_12 = Fq2::sub(circuit, &wires_11, &wires_2);
-        let wires_13 = Fq2::add(circuit, &a_c0, &a_c2);
+        let wires_13 = Fq2::add(circuit, a_c0, a_c2);
         let wires_14 = Fq2::mul_montgomery(circuit, &wires_13, c0);
         let wires_15 = Fq2::sub(circuit, &wires_14, &wires_1);
         let wires_16 = Fq2::add(circuit, &wires_15, &wires_2);
 
-        Fq6([wires_7, wires_12, wires_16])
+        Fq6::from_components(wires_7, wires_12, wires_16)
     }
 
     pub fn triple(circuit: &mut Circuit, a: &Fq6) -> Fq6 {
-        Fq6([
+        Fq6::from_components(
             Fq2::triple(circuit, a.c0()),
             Fq2::triple(circuit, a.c1()),
             Fq2::triple(circuit, a.c2()),
-        ])
+        )
     }
 
     // https://eprint.iacr.org/2006/471.pdf
@@ -384,8 +384,8 @@ impl Fq6 {
         let a_c2 = a.c2();
 
         let s_0 = Fq2::square_montgomery(circuit, a_c0);
-        let wires_1 = Fq2::add(circuit, &a_c0, &a_c2);
-        let wires_2 = Fq2::add(circuit, &wires_1, &a_c1);
+        let wires_1 = Fq2::add(circuit, a_c0, a_c2);
+        let wires_2 = Fq2::add(circuit, &wires_1, a_c1);
         let wires_3 = Fq2::sub(circuit, &wires_1, a_c1);
         let s_1 = Fq2::square_montgomery(circuit, &wires_2);
         let s_2 = Fq2::square_montgomery(circuit, &wires_3);
@@ -404,7 +404,7 @@ impl Fq6 {
         let wires_10 = Fq2::sub(circuit, &t_1, &s_0);
         let res_c2 = Fq2::sub(circuit, &wires_10, &s_4);
 
-        Fq6([res_c0, res_c1, res_c2])
+        Fq6::from_components(res_c0, res_c1, res_c2)
     }
 
     pub fn inverse_montgomery(circuit: &mut Circuit, r: &Fq6) -> Fq6 {
@@ -443,7 +443,7 @@ impl Fq6 {
         let res_c1 = Fq2::mul_montgomery(circuit, &c_square_beta_minus_ab, &inverse_norm);
         let res_c2 = Fq2::mul_montgomery(circuit, &b_square_minus_ac, &inverse_norm);
 
-        Fq6([res_c0, res_c1, res_c2])
+        Fq6::from_components(res_c0, res_c1, res_c2)
     }
 
     pub fn frobenius_montgomery(circuit: &mut Circuit, a: &Fq6, i: usize) -> Fq6 {
@@ -467,11 +467,11 @@ impl Fq6 {
             ),
         );
 
-        Fq6([
+        Fq6::from_components(
             frobenius_a_c0,
             frobenius_a_c1_updated,
             frobenius_a_c2_updated,
-        ])
+        )
     }
 }
 
@@ -501,8 +501,8 @@ mod tests {
     #[test]
     fn test_fq6_add() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let b_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
+        let b_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::add(&mut circuit, &a_wires, &b_wires);
 
         // Mark outputs
@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn test_fq6_neg() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::neg(&mut circuit, a_wires.clone());
 
         // Mark outputs
@@ -550,8 +550,8 @@ mod tests {
     #[test]
     fn test_fq6_sub() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let b_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
+        let b_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::sub(&mut circuit, &a_wires, &b_wires);
 
         // Mark outputs
@@ -576,7 +576,7 @@ mod tests {
     #[test]
     fn test_fq6_double() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::double(&mut circuit, &a_wires);
 
         // Mark outputs
@@ -599,7 +599,7 @@ mod tests {
     #[test]
     fn test_fq6_div6() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::div6(&mut circuit, &a_wires);
 
         // Mark outputs
@@ -622,8 +622,8 @@ mod tests {
     #[test]
     fn test_fq6_mul_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let b_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
+        let b_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::mul_montgomery(&mut circuit, &a_wires, &b_wires);
 
         // Mark outputs
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn test_fq6_mul_by_constant_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
 
         let a_val = random();
         let b_val = random();
@@ -674,8 +674,8 @@ mod tests {
     #[test]
     fn test_fq6_mul_by_fq2_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let b_wires = Fq2::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
+        let b_wires = Fq2::new(&mut circuit, true, false);
         let c_wires = Fq6::mul_by_fq2_montgomery(&mut circuit, &a_wires, &b_wires);
 
         // Mark outputs
@@ -702,7 +702,7 @@ mod tests {
     #[test]
     fn test_fq6_mul_by_constant_fq2_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
 
         let a_val = random();
         let b_val = Fq2::random(&mut trng());
@@ -730,7 +730,7 @@ mod tests {
     #[test]
     fn test_fq6_mul_by_nonresidue() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::mul_by_nonresidue(&mut circuit, &a_wires);
 
         // Mark outputs
@@ -754,7 +754,7 @@ mod tests {
     #[test]
     fn test_fq6_square_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::square_montgomery(&mut circuit, &a_wires);
 
         // Mark outputs
@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn test_fq6_inverse_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::inverse_montgomery(&mut circuit, &a_wires);
 
         // Mark outputs
@@ -803,9 +803,9 @@ mod tests {
     #[test]
     fn test_fq6_mul_by_01_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let c0_wires = Fq2::new_bn(&mut circuit, true, false);
-        let c1_wires = Fq2::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
+        let c0_wires = Fq2::new(&mut circuit, true, false);
+        let c1_wires = Fq2::new(&mut circuit, true, false);
         let result_wires = Fq6::mul_by_01_montgomery(&mut circuit, &a_wires, &c0_wires, &c1_wires);
 
         // Mark outputs
@@ -838,8 +838,8 @@ mod tests {
     #[test]
     fn test_fq6_mul_by_01_constant1_montgomery() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
-        let c0_wires = Fq2::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
+        let c0_wires = Fq2::new(&mut circuit, true, false);
 
         let a_val = random();
         let c0_val = Fq2::random(&mut trng());
@@ -874,7 +874,7 @@ mod tests {
     #[test]
     fn test_fq6_triple() {
         let mut circuit = Circuit::default();
-        let a_wires = Fq6::new_bn(&mut circuit, true, false);
+        let a_wires = Fq6::new(&mut circuit, true, false);
         let c_wires = Fq6::triple(&mut circuit, &a_wires);
 
         // Mark outputs
@@ -901,7 +901,7 @@ mod tests {
         // Test frobenius_map(0)
         {
             let mut circuit = Circuit::default();
-            let a_wires = Fq6::new_bn(&mut circuit, true, false);
+            let a_wires = Fq6::new(&mut circuit, true, false);
             let c_wires = Fq6::frobenius_montgomery(&mut circuit, &a_wires, 0);
 
             // Mark outputs
@@ -923,7 +923,7 @@ mod tests {
         // Test frobenius_map(1)
         {
             let mut circuit = Circuit::default();
-            let a_wires = Fq6::new_bn(&mut circuit, true, false);
+            let a_wires = Fq6::new(&mut circuit, true, false);
             let c_wires = Fq6::frobenius_montgomery(&mut circuit, &a_wires, 1);
 
             // Mark outputs

@@ -1,3 +1,12 @@
+//! BN254 Scalar Field Fr Implementation
+//!
+//! This module provides circuit-based operations on the BN254 scalar field Fr.
+//! The scalar field Fr is used for exponents in elliptic curve operations and
+//! has the modulus: 21888242871839275222246405745257275088548364400416034343698204186575808495617
+//!
+//! The Fr type wraps BigIntWires to provide field-specific operations in Montgomery form
+//! for efficient modular arithmetic within garbled circuits.
+
 use std::ops::{Deref, DerefMut};
 use std::str::FromStr;
 
@@ -18,6 +27,9 @@ use crate::{
 };
 
 /// BN254 scalar field Fr implementation
+///
+/// Represents elements in the scalar field Fr of the BN254 elliptic curve.
+/// This is the field used for private keys and exponents in BN254 operations.
 #[derive(Clone)]
 pub struct Fr(pub BigIntWires);
 
@@ -57,11 +69,26 @@ impl Fp254Impl for Fr {
 }
 
 impl Fr {
+    /// Generate a random scalar field element
+    ///
+    /// # Arguments
+    /// * `rng` - Random number generator
+    ///
+    /// # Returns
+    /// Random field element in the BN254 scalar field
     pub fn random(rng: &mut impl Rng) -> ark_bn254::Fr {
         let mut prng = ChaCha20Rng::seed_from_u64(rng.random());
         ark_bn254::Fr::rand(&mut prng)
     }
 
+    /// Create constant field element wires from a known value
+    ///
+    /// # Arguments
+    /// * `circuit` - Circuit to add wires to
+    /// * `u` - Field element value to encode as constant
+    ///
+    /// # Returns
+    /// Field element wires representing the constant value
     pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fr) -> Result<Fr, Error> {
         Ok(Fr(BigIntWires::new_constant(
             circuit,
@@ -75,6 +102,11 @@ impl Fr {
         Fr(BigIntWires::new(circuit, Self::N_BITS, is_input, is_output))
     }
 
+    /// Mark this field element as output
+    pub fn mark_as_output(&self, circuit: &mut Circuit) {
+        self.0.mark_as_output(circuit);
+    }
+
     pub fn get_wire_bits_fn(
         wires: &Fr,
         value: &ark_bn254::Fr,
@@ -84,10 +116,39 @@ impl Fr {
             .get_wire_bits_fn(&BigUint::from(value.into_bigint()))
     }
 
+    /// Convert field element wires to a bitmask string for debugging
+    ///
+    /// # Arguments
+    /// * `wires` - The field element wires
+    /// * `get_val` - Function to get the boolean value of a wire
+    ///
+    /// # Returns
+    /// String representation of the field element as bits
+    pub fn to_bitmask(wires: &Fr, get_val: impl Fn(WireId) -> bool) -> String {
+        wires.0.to_bitmask(&get_val)
+    }
+
+    /// Convert a field element to Montgomery form
+    ///
+    /// Montgomery form represents a field element `a` as `a * R mod p` where R = 2^254.
+    /// This form enables efficient modular multiplication using Montgomery reduction.
+    ///
+    /// # Arguments
+    /// * `a` - Field element in standard form
+    ///
+    /// # Returns
+    /// Field element in Montgomery form (a * R mod p)
     pub fn as_montgomery(a: ark_bn254::Fr) -> ark_bn254::Fr {
         a * ark_bn254::Fr::from(Self::montgomery_r_as_biguint())
     }
 
+    /// Convert a field element from Montgomery form back to standard form
+    ///
+    /// # Arguments
+    /// * `a` - Field element in Montgomery form
+    ///
+    /// # Returns
+    /// Field element in standard form (a / R mod p)
     pub fn from_montgomery(a: ark_bn254::Fr) -> ark_bn254::Fr {
         a / ark_bn254::Fr::from(Self::montgomery_r_as_biguint())
     }

@@ -11,9 +11,9 @@ macro_rules! test_field {
         #[test_log::test]
         fn $name() {
             let mut circuit = Circuit::default();
-            let a = $field_type::new_bn(&mut circuit, true, false);
+            let a = $field_type::new(&mut circuit, true, false);
             let c = $op(&mut circuit, &a);
-            $field_type::mark_as_output(&c, &mut circuit);
+            c.mark_as_output(&mut circuit);
 
             let a_v = $random_fn();
             let expected = $ark_op(a_v);
@@ -34,10 +34,10 @@ macro_rules! test_field {
         #[test_log::test]
         fn $name() {
             let mut circuit = Circuit::default();
-            let a = $field_type::new_bn(&mut circuit, true, false);
-            let b = $field_type::new_bn(&mut circuit, true, false);
+            let a = $field_type::new(&mut circuit, true, false);
+            let b = $field_type::new(&mut circuit, true, false);
             let c = $op(&mut circuit, &a, &b);
-            $field_type::mark_as_output(&c, &mut circuit);
+            c.mark_as_output(&mut circuit);
 
             let a_v = $random_fn();
             let b_v = $random_fn();
@@ -61,10 +61,10 @@ macro_rules! test_field {
         #[test_log::test]
         fn $name() {
             let mut circuit = Circuit::default();
-            let a = $field_type::new_bn(&mut circuit, true, false);
+            let a = $field_type::new(&mut circuit, true, false);
             let b_v = $random_fn();
             let c = $op(&mut circuit, &a, &b_v);
-            $field_type::mark_as_output(&c, &mut circuit);
+            c.mark_as_output(&mut circuit);
 
             let a_v = $random_fn();
             let expected = $ark_op(a_v, b_v);
@@ -86,9 +86,9 @@ macro_rules! test_field {
         #[test_log::test]
         fn $name() {
             let mut circuit = Circuit::default();
-            let a = $field_type::new_bn(&mut circuit, true, false);
+            let a = $field_type::new(&mut circuit, true, false);
             let c = $op(&mut circuit, &a);
-            $field_type::mark_as_output(&c, &mut circuit);
+            c.mark_as_output(&mut circuit);
 
             let a_v = $random_fn();
             let a_mont = $as_montgomery(a_v);
@@ -110,10 +110,10 @@ macro_rules! test_field {
         #[test_log::test]
         fn $name() {
             let mut circuit = Circuit::default();
-            let a = $field_type::new_bn(&mut circuit, true, false);
-            let b = $field_type::new_bn(&mut circuit, true, false);
+            let a = $field_type::new(&mut circuit, true, false);
+            let b = $field_type::new(&mut circuit, true, false);
             let c = $op(&mut circuit, &a, &b);
-            $field_type::mark_as_output(&c, &mut circuit);
+            c.mark_as_output(&mut circuit);
 
             let a_v = $random_fn();
             let b_v = $random_fn();

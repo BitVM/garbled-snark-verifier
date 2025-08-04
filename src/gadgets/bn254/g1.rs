@@ -3,16 +3,15 @@ use std::{cmp::min, collections::HashMap, iter::zip};
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
 use digest::typenum::bit;
 use num_bigint::BigUint;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 
 use crate::{
+    Circuit, WireId,
     gadgets::{
         bigint::{self, BigIntWires, Error},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
     },
-    Circuit, WireId,
 };
-
 
 #[derive(Clone)]
 pub struct G1Projective {
@@ -96,8 +95,6 @@ impl G1Projective {
         }
     }
 
-
-
     pub fn get_wire_bits_fn(
         wires: &G1Projective,
         value: &ark_bn254::G1Projective,
@@ -129,7 +126,11 @@ impl G1Projective {
 
 impl G1Projective {
     // http://koclab.cs.ucsb.edu/teaching/ccs130h/2018/09projective.pdf
-    pub fn add_montgomery(circuit: &mut Circuit, p: &G1Projective, q: &G1Projective) -> G1Projective {
+    pub fn add_montgomery(
+        circuit: &mut Circuit,
+        p: &G1Projective,
+        q: &G1Projective,
+    ) -> G1Projective {
         assert_eq!(p.x.len(), Fq::N_BITS);
         assert_eq!(p.y.len(), Fq::N_BITS);
         assert_eq!(p.z.len(), Fq::N_BITS);
@@ -449,120 +450,16 @@ impl G1Projective {
     }
 }
 
-/*
-pub struct G1Affine(pub [BigIntWires; 2]);
-
-impl G1Affine {
-    pub const N_BITS: usize = 2 * Fq::N_BITS;
-
-    pub fn as_montgomery(p: ark_bn254::G1Affine) -> ark_bn254::G1Affine {
-        ark_bn254::G1Affine {
-            x: Fq::as_montgomery(p.x),
-            y: Fq::as_montgomery(p.y),
-            infinity: false,
-        }
-    }
-
-    pub fn from_montgomery(p: ark_bn254::G1Affine) -> ark_bn254::G1Affine {
-        ark_bn254::G1Affine {
-            x: Fq::from_montgomery(p.x),
-            y: Fq::from_montgomery(p.y),
-            infinity: false,
-        }
-    }
-
-    pub fn random(rng: &mut impl Rng) -> ark_bn254::G1Affine {
-        let mut prng = ChaCha20Rng::seed_from_u64(rng.random());
-        ark_bn254::G1Affine::rand(&mut prng)
-    }
-
-    pub fn to_bits(u: ark_bn254::G1Affine) -> Vec<bool> {
-        let mut bits = Vec::new();
-        bits.extend(Fq::to_bits(u.x));
-        bits.extend(Fq::to_bits(u.y));
-        bits
-    }
-
-    pub fn from_bits(bits: Vec<bool>) -> ark_bn254::G1Affine {
-        let bits1 = &bits[0..Fq::N_BITS].to_vec();
-        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
-        ark_bn254::G1Affine::new(Fq::from_bits(bits1.clone()), Fq::from_bits(bits2.clone()))
-    }
-
-    pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G1Affine {
-        let bits1 = &bits[0..Fq::N_BITS].to_vec();
-        let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();
-        ark_bn254::G1Affine {
-            x: Fq::from_bits(bits1.clone()),
-            y: Fq::from_bits(bits2.clone()),
-            infinity: false,
-        }
-    }
-
-    pub fn wires() -> Wires {
-        (0..Self::N_BITS).map(|_| new_wirex()).collect()
-    }
-
-    pub fn wires_set(u: ark_bn254::G1Affine) -> Wires {
-        Self::to_bits(u)[0..Self::N_BITS]
-            .iter()
-            .map(|bit| {
-                let wire = new_wirex();
-                wire.borrow_mut().set(*bit);
-                wire
-            })
-            .collect()
-    }
-
-    pub fn wires_set_montgomery(u: ark_bn254::G1Affine) -> Wires {
-        Self::wires_set(Self::as_montgomery(u))
-    }
-
-    pub fn from_wires(wires: Wires) -> ark_bn254::G1Affine {
-        Self::from_bits(wires.iter().map(|wire| wire.borrow().get_value()).collect())
-    }
-
-    pub fn from_wires_unchecked(wires: Wires) -> ark_bn254::G1Affine {
-        Self::from_bits_unchecked(wires.iter().map(|wire| wire.borrow().get_value()).collect())
-    }
-
-    pub fn from_montgomery_wires_unchecked(wires: Wires) -> ark_bn254::G1Affine {
-        Self::from_montgomery(Self::from_wires_unchecked(wires))
-    }
-}
-
-pub fn projective_to_affine_montgomery(p: Wires) -> Circuit {
-    assert_eq!(p.len(), G1Projective::N_BITS);
-    let mut circuit = Circuit::empty();
-
-    let x = p[0..Fq::N_BITS].to_vec();
-    let y = p[Fq::N_BITS..2 * Fq::N_BITS].to_vec();
-    let z = p[2 * Fq::N_BITS..3 * Fq::N_BITS].to_vec();
-
-    let z_inverse = Fq::inverse_montgomery(z));
-    let z_inverse_square = Fq::square_montgomery(z_inverse.clone()));
-    let z_inverse_cube =
-        Fq::mul_montgomery(z_inverse, z_inverse_square.clone()));
-    let new_x = Fq::mul_montgomery(x, z_inverse_square.clone()));
-    let new_y = Fq::mul_montgomery(y, z_inverse_cube.clone()));
-
-    circuit.add_wires(new_x);
-    circuit.add_wires(new_y);
-
-    circuit
-}
-*/
-
 #[cfg(test)]
 mod tests {
     use std::cell::OnceCell;
 
     use ark_ec::{CurveGroup, VariableBaseMSM};
     use ark_ff::BigInt;
-    use rand::{random, SeedableRng};
+    use rand::{SeedableRng, random};
 
     use super::*;
-    use crate::{circuit, test_utils::trng, CircuitContext};
+    use crate::{CircuitContext, circuit, test_utils::trng};
 
     fn rnd() -> ark_bn254::G1Projective {
         use ark_ec::PrimeGroup;
