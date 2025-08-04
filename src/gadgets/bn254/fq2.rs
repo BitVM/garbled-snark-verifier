@@ -6,8 +6,7 @@ use crate::{
     gadgets::{
         bigint::{self, select, BigIntWires},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
-    },
-    Circuit, WireId,
+    }, Circuit, Gate, WireId
 };
 
 pub type Pair<T> = (T, T);
@@ -16,6 +15,10 @@ pub struct Fq2;
 
 impl Fq2 {
     pub const N_BITS: usize = 2 * Fq::N_BITS;
+
+    pub fn random() -> ark_bn254::Fq2 {
+        ark_bn254::Fq2::new(Fq::random(), Fq::random())
+    }
 
     pub fn as_montgomery(a: ark_bn254::Fq2) -> ark_bn254::Fq2 {
         ark_bn254::Fq2::new(Fq::as_montgomery(a.c0), Fq::as_montgomery(a.c1))
@@ -27,48 +30,6 @@ impl Fq2 {
 
     pub fn to_bits(u: ark_bn254::Fq2) -> Pair<Vec<bool>> {
         (Fq::to_bits(u.c0), Fq::to_bits(u.c1))
-    }
-
-    pub fn add(
-        circuit: &mut Circuit,
-        a: Pair<BigIntWires>,
-        b: Pair<BigIntWires>,
-    ) -> Pair<BigIntWires> {
-        assert_eq!(a.0.len(), Self::N_BITS / 2);
-        assert_eq!(b.0.len(), Self::N_BITS / 2);
-
-        let c0 = Fq::add(circuit, &a.0, &b.0);
-        let c1 = Fq::add(circuit, &a.1, &b.1);
-
-        (c0, c1)
-    }
-
-    pub fn add_constant(
-        circuit: &mut Circuit,
-        a: &Pair<BigIntWires>,
-        b: &ark_bn254::Fq2,
-    ) -> Pair<BigIntWires> {
-        assert_eq!(a.0.len(), Self::N_BITS / 2);
-        assert_eq!(a.1.len(), Self::N_BITS / 2);
-
-        (
-            Fq::add_constant(circuit, &a.0, &b.c0),
-            Fq::add_constant(circuit, &a.1, &b.c1),
-        )
-    }
-
-    pub fn random() -> ark_bn254::Fq2 {
-        loop {
-            let c0_bytes: [u8; 32] = rng().random();
-            let c1_bytes: [u8; 32] = rng().random();
-
-            if let (Some(c0), Some(c1)) = (
-                ark_bn254::Fq::from_random_bytes(&c0_bytes),
-                ark_bn254::Fq::from_random_bytes(&c1_bytes),
-            ) {
-                return ark_bn254::Fq2::new(c0, c1);
-            }
-        }
     }
 
     pub fn from_bits(bits: Pair<Vec<bool>>) -> ark_bn254::Fq2 {
@@ -124,6 +85,42 @@ impl Fq2 {
         format!("c0: {c0_mask}, c1: {c1_mask}")
     }
 
+    pub fn equal_constant(circuit: &mut Circuit, a: &Pair<BigIntWires>, b: &ark_bn254::Fq2) -> WireId {
+        let u = Fq::equal_constant(circuit, &a.0, &b.c0);
+        let v = Fq::equal_constant(circuit, &a.1, &b.c1);
+        let w = circuit.issue_wire();
+        circuit.add_gate(Gate::and(u, v, w));
+        w
+    }
+
+    pub fn add(
+        circuit: &mut Circuit,
+        a: &Pair<BigIntWires>,
+        b: &Pair<BigIntWires>,
+    ) -> Pair<BigIntWires> {
+        assert_eq!(a.0.len(), Self::N_BITS / 2);
+        assert_eq!(b.0.len(), Self::N_BITS / 2);
+
+        let c0 = Fq::add(circuit, &a.0, &b.0);
+        let c1 = Fq::add(circuit, &a.1, &b.1);
+
+        (c0, c1)
+    }
+
+    pub fn add_constant(
+        circuit: &mut Circuit,
+        a: &Pair<BigIntWires>,
+        b: &ark_bn254::Fq2,
+    ) -> Pair<BigIntWires> {
+        assert_eq!(a.0.len(), Self::N_BITS / 2);
+        assert_eq!(a.1.len(), Self::N_BITS / 2);
+
+        (
+            Fq::add_constant(circuit, &a.0, &b.c0),
+            Fq::add_constant(circuit, &a.1, &b.c1),
+        )
+    }
+
     pub fn neg(circuit: &mut Circuit, a: Pair<BigIntWires>) -> Pair<BigIntWires> {
         assert_eq!(a.0.len(), Self::N_BITS / 2);
         assert_eq!(a.1.len(), Self::N_BITS / 2);
@@ -173,7 +170,7 @@ impl Fq2 {
 
         let a_2 = Self::double(circuit, a);
 
-        Self::add(circuit, (a.0.clone(), a.1.clone()), a_2)
+        Self::add(circuit, &(a.0.clone(), a.1.clone()), &a_2)
     }
 
     pub fn mul_montgomery(
@@ -385,8 +382,6 @@ impl Fq2 {
     }
 
     // General case: c1 != 0
-    // TODO: Update this method to use new API - currently commented out due to missing types
-    /*
     pub fn sqrt_general_montgomery(circuit: &mut Circuit, a: &Pair<BigIntWires>) -> Pair<BigIntWires> {
         let alpha = Self::norm_montgomery(circuit, &a.0, &a.1); // c0² + c1²
         let alpha_sqrt = Fq::sqrt_montgomery(circuit, &alpha); // sqrt(norm)
@@ -407,7 +402,6 @@ impl Fq2 {
 
         (c0_final, c1_final)
     }
-    */
 }
 
 #[cfg(test)]
@@ -434,7 +428,7 @@ mod tests {
         let mut circuit = Circuit::default();
         let a_wires = Fq2::new_bn(&mut circuit, true, false);
         let b_wires = Fq2::new_bn(&mut circuit, true, false);
-        let c_wires = Fq2::add(&mut circuit, a_wires.clone(), b_wires.clone());
+        let c_wires = Fq2::add(&mut circuit, &a_wires, &b_wires);
 
         c_wires.0.mark_as_output(&mut circuit);
         c_wires.1.mark_as_output(&mut circuit);
@@ -822,99 +816,55 @@ mod tests {
             });
     }
 
-    // #[test]
-    // #[serial]
-    // fn test_fq2_sqrt_c1_is_zero_montgomery() {
-    //     let mut r = Fq2::random();
-    //     r.c1 = ark_bn254::Fq::ZERO; // Ensure c1 is zero to simplify the test
+    #[test]
+    fn test_fq2_sqrt_c1_is_zero_montgomery() {
+        let mut circuit = Circuit::default();
+        let a_wires = Fq2::new_bn(&mut circuit, true, false);
+        let is_qr_wires = circuit.issue_input_wire();
+        let c_wires = Fq2::sqrt_c1_zero_montgomery(&mut circuit, &a_wires, is_qr_wires);
 
-    //     let bits = Fq2::wires_set_montgomery(r);
+        c_wires.0.mark_as_output(&mut circuit);
+        c_wires.1.mark_as_output(&mut circuit);
 
-    //     let is_qr = {
-    //         let wire = new_wirex();
-    //         wire.borrow_mut().set(r.c0.legendre().is_qr());
-    //         wire
-    //     };
-    //     println!("is qr: {:?}", is_qr.borrow().get_value());
-    //     let circuit = Fq2::sqrt_c1_zero_montgomery(bits, is_qr);
-    //     circuit.gate_counts().print();
-    //     for mut gate in circuit.1 {
-    //         gate.evaluate();
-    //     }
-    //     let c = Fq2::from_montgomery_wires(circuit.0);
-    //     let rq = r.sqrt().unwrap();
-    //     assert_eq!(c, rq);
-    // }
+        let mut r_val = Fq2::random();
+        r_val.c1 = ark_bn254::Fq::ZERO;
+        let expected = Fq2::as_montgomery(ark_bn254::Fq2::from(r_val.sqrt().unwrap()));
 
-    // #[test]
-    // //#[serial]
-    // fn test_fq2_sqrt_c1_is_zero_montgomery_evaluate() {
-    //     let mut circuit = Circuit::default();
-    //     let a_wires = Fq2::new_bn(&mut circuit, true, false);
-    //     let is_qr_wire = circuit.new_wire(true, false);
-    //
-    //     let mut r = Fq2::random();
-    //     r.c1 = ark_bn254::Fq::ZERO; // Ensure c1 is zero to simplify the test
-    //
-    //     let (c, _gate_count) = Fq2::sqrt_c1_zero_montgomery_evaluate(a_wires.clone(), is_qr_wire);
-    //
-    //     c.0.mark_as_output(&mut circuit);
-    //     c.1.mark_as_output(&mut circuit);
-    //
-    //     let rq = r.sqrt().unwrap();
-    //
-    //     let a_input = Fq2::get_wire_bits_fn(&a_wires, &Fq2::as_montgomery(r)).unwrap();
-    //     let is_qr_input = |wire_id: WireId| if wire_id == is_qr_wire { Some(r.c0.legendre().is_qr()) } else { None };
-    //     let c_output = Fq2::get_wire_bits_fn(&c, &Fq2::as_montgomery(rq)).unwrap();
-    //
-    //     circuit
-    //         .simple_evaluate(|wire_id| (a_input)(wire_id).or((is_qr_input)(wire_id)))
-    //         .unwrap()
-    //         .for_each(|(wire_id, value)| {
-    //             assert_eq!((c_output)(wire_id), Some(value));
-    //         });
-    // }
+        let a_input = Fq2::get_wire_bits_fn(&a_wires, &Fq2::as_montgomery(r_val)).unwrap();
+        let is_qr_input = move |_wire_id| { Some(r_val.c0.legendre().is_qr()) };
+        let c_output = Fq2::get_wire_bits_fn(&c_wires, &expected).unwrap();
 
-    // #[test]
-    // #[serial]
-    // fn test_fq2_sqrt_general_montgomery() {
-    //     let r = Fq2::random();
-    //     let rr = r * r;
-    //     let bits = Fq2::wires_set_montgomery(rr);
+        circuit
+            .simple_evaluate(|wire_id| (a_input)(wire_id).or((is_qr_input)(wire_id)))
+            .unwrap()
+            .for_each(|(wire_id, value)| {
+                assert_eq!((c_output)(wire_id), Some(value));
+            });
+    }
 
-    //     let circuit = Fq2::sqrt_general_montgomery(bits);
-    //     circuit.gate_counts().print();
-    //     for mut gate in circuit.1 {
-    //         gate.evaluate();
-    //     }
-    //     let c = Fq2::from_montgomery_wires(circuit.0);
-    //     assert_eq!(c, rr.sqrt().unwrap());
-    // }
-
-    // #[test]
-    // //#[serial]
-    // fn test_fq2_sqrt_general_montgomery_evaluate() {
-    //     let mut circuit = Circuit::default();
-    //     let a_wires = Fq2::new_bn(&mut circuit, true, false);
-    //
-    //     let r = Fq2::random();
-    //     let rr = r * r;
-    //
-    //     let (c, _gate_count) = Fq2::sqrt_general_montgomery_evaluate(a_wires.clone());
-    //
-    //     c.0.mark_as_output(&mut circuit);
-    //     c.1.mark_as_output(&mut circuit);
-    //
-    //     let expected = rr.sqrt().unwrap();
-    //
-    //     let a_input = Fq2::get_wire_bits_fn(&a_wires, &Fq2::as_montgomery(rr)).unwrap();
-    //     let c_output = Fq2::get_wire_bits_fn(&c, &Fq2::as_montgomery(expected)).unwrap();
-    //
-    //     circuit
-    //         .simple_evaluate(|wire_id| (a_input)(wire_id))
-    //         .unwrap()
-    //         .for_each(|(wire_id, value)| {
-    //             assert_eq!((c_output)(wire_id), Some(value));
-    //         });
-    // }
+    #[test]
+    fn test_fq2_sqrt_general_montgomery() {
+        let mut circuit = Circuit::default();
+        let a_wires = Fq2::new_bn(&mut circuit, true, false);
+    
+        let r = Fq2::random();
+        let rr = r * r;
+    
+        let c_wires = Fq2::sqrt_general_montgomery(&mut circuit, &a_wires);
+    
+        c_wires.0.mark_as_output(&mut circuit);
+        c_wires.1.mark_as_output(&mut circuit);
+    
+        let expected = rr.sqrt().unwrap();
+    
+        let a_input = Fq2::get_wire_bits_fn(&a_wires, &Fq2::as_montgomery(rr)).unwrap();
+        let c_output = Fq2::get_wire_bits_fn(&c_wires, &Fq2::as_montgomery(expected)).unwrap();
+    
+        circuit
+            .simple_evaluate(|wire_id| (a_input)(wire_id))
+            .unwrap()
+            .for_each(|(wire_id, value)| {
+                assert_eq!((c_output)(wire_id), Some(value));
+            });
+    }
 }

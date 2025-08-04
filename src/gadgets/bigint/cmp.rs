@@ -141,7 +141,7 @@ pub fn select(circuit: &mut Circuit, a: &BigIntWires, b: &BigIntWires, s: WireId
 
 pub fn multiplexer(
     circuit: &mut Circuit,
-    a: &[&BigIntWires],
+    a: &[BigIntWires],
     s: &[WireId],
     w: usize,
 ) -> BigIntWires {

@@ -46,7 +46,7 @@ pub fn bits_from_biguint_with_len(u: &BigUint, bit_count: usize) -> Result<BitVe
 
 #[derive(Debug, Clone)]
 pub struct BigIntWires {
-    bits: Vec<WireId>,
+    pub(crate) bits: Vec<WireId>,
 }
 
 impl BigIntWires {

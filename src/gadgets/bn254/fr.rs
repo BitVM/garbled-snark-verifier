@@ -1,9 +1,10 @@
-use ark_ff::UniformRand;
+use ark_ff::{Field, PrimeField, UniformRand};
 use num_bigint::BigUint;
 use rand::{Rng, rng};
+use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
 
 use super::Fp254Impl;
-use crate::gadgets::bigint::BigIntWires;
+use crate::{gadgets::{self, bigint::BigIntWires}, Circuit, WireId};
 
 pub struct Fr;
 
@@ -29,6 +30,23 @@ impl Fp254Impl for Fr {
 }
 
 impl Fr {
+    pub fn random() -> ark_bn254::Fr {
+        let mut prng = ChaCha20Rng::seed_from_u64(rng().random());
+        ark_bn254::Fr::rand(&mut prng)
+    }
+
+    /// Create new field element wires
+    pub fn new_bn(circuit: &mut Circuit, is_input: bool, is_output: bool) -> BigIntWires {
+        BigIntWires::new(circuit, Self::N_BITS, is_input, is_output)
+    }
+
+    pub fn get_wire_bits_fn(
+        wires: &BigIntWires,
+        value: &ark_bn254::Fr,
+    ) -> Result<impl Fn(WireId) -> Option<bool> + use<>, gadgets::bigint::Error> {
+        wires.get_wire_bits_fn(&BigUint::from(value.into_bigint()))
+    }
+
     pub fn as_montgomery(a: ark_bn254::Fr) -> ark_bn254::Fr {
         a * ark_bn254::Fr::from(Self::montgomery_r_as_biguint())
     }
