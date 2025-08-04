@@ -453,6 +453,7 @@ impl G1Projective {
 #[cfg(test)]
 mod tests {
     use std::cell::OnceCell;
+    use std::collections::HashMap;
 
     use ark_ec::{CurveGroup, VariableBaseMSM};
     use ark_ff::BigInt;
@@ -608,12 +609,15 @@ mod tests {
         };
 
         let c_output = G1Projective::get_wire_bits_fn(&c, &expected).unwrap();
-        circuit
+        let actual_c = circuit
             .simple_evaluate(move |wire_id: WireId| a_input(wire_id).or(s_input(wire_id)))
             .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
+            .collect::<HashMap<WireId, bool>>();
+
+        assert_eq!(
+            G1Projective::to_bitmask(&c, |wire_id| c_output(wire_id).unwrap()),
+            G1Projective::to_bitmask(&c, |wire_id| *actual_c.get(&wire_id).unwrap())
+        );
     }
 
     #[test]

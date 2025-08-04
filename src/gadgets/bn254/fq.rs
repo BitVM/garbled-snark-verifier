@@ -455,12 +455,15 @@ pub(super) mod tests {
 
                 let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
                 let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
-                circuit
+                let actual_c = circuit
                     .simple_evaluate(|wire_id| (a_input)(wire_id))
                     .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        assert_eq!((c_output)(wire_id), Some(value));
-                    });
+                    .collect::<HashMap<WireId, bool>>();
+
+                assert_eq!(
+                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+                );
             }
         };
 
@@ -482,12 +485,15 @@ pub(super) mod tests {
                 let b_input = Fq::get_wire_bits_fn(&b, &b_v).unwrap();
                 let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
 
-                circuit
+                let actual_c = circuit
                     .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
                     .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        assert_eq!((c_output)(wire_id), Some(value));
-                    });
+                    .collect::<HashMap<WireId, bool>>();
+
+                assert_eq!(
+                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+                );
             }
         };
 
@@ -507,12 +513,15 @@ pub(super) mod tests {
                 let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
                 let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
 
-                circuit
+                let actual_c = circuit
                     .simple_evaluate(|wire_id| (a_input)(wire_id))
                     .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        assert_eq!((c_output)(wire_id), Some(value));
-                    });
+                    .collect::<HashMap<WireId, bool>>();
+
+                assert_eq!(
+                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+                );
             }
         };
 
@@ -531,12 +540,15 @@ pub(super) mod tests {
 
                 let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
                 let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
-                circuit
+                let actual_c = circuit
                     .simple_evaluate(|wire_id| (a_input)(wire_id))
                     .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        assert_eq!((c_output)(wire_id), Some(value));
-                    });
+                    .collect::<HashMap<WireId, bool>>();
+
+                assert_eq!(
+                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+                );
             }
         };
 
@@ -560,12 +572,15 @@ pub(super) mod tests {
                 let b_input = Fq::get_wire_bits_fn(&b, &b_mont).unwrap();
                 let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
 
-                circuit
+                let actual_c = circuit
                     .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
                     .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        assert_eq!((c_output)(wire_id), Some(value));
-                    });
+                    .collect::<HashMap<WireId, bool>>();
+
+                assert_eq!(
+                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+                );
             }
         };
 
@@ -587,12 +602,15 @@ pub(super) mod tests {
                 let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
                 let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
 
-                circuit
+                let actual_c = circuit
                     .simple_evaluate(|wire_id| (a_input)(wire_id))
                     .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        assert_eq!((c_output)(wire_id), Some(value));
-                    });
+                    .collect::<HashMap<WireId, bool>>();
+
+                assert_eq!(
+                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+                );
             }
         };
 
@@ -707,12 +725,15 @@ pub(super) mod tests {
         let x_input = x.get_wire_bits_fn(&input_value).unwrap();
         let result_output = Fq::get_wire_bits_fn(&result, &expected).unwrap();
 
-        circuit
+        let actual_result = circuit
             .simple_evaluate(x_input)
             .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((result_output)(wire_id), Some(value));
-            });
+            .collect::<HashMap<WireId, bool>>();
+
+        assert_eq!(
+            result.to_bitmask(|wire_id| result_output(wire_id).unwrap()),
+            result.to_bitmask(|wire_id| *actual_result.get(&wire_id).unwrap())
+        );
     }
 
     #[test]
@@ -735,12 +756,15 @@ pub(super) mod tests {
         let aa_input = Fq::get_wire_bits_fn(&aa_wire, &aa_montgomery).unwrap();
         let c_output = Fq::get_wire_bits_fn(&c, &expected_c).unwrap();
 
-        circuit
+        let actual_c = circuit
             .simple_evaluate(aa_input)
             .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
+            .collect::<HashMap<WireId, bool>>();
+
+        assert_eq!(
+            c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+            c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+        );
     }
 
     #[test]
@@ -788,11 +812,14 @@ pub(super) mod tests {
 
         let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
 
-        circuit
+        let actual_c = circuit
             .simple_evaluate(move |wire_id: WireId| a_input(wire_id).or(s_input(wire_id)))
             .unwrap()
-            .for_each(|(wire_id, value)| {
-                assert_eq!((c_output)(wire_id), Some(value));
-            });
+            .collect::<HashMap<WireId, bool>>();
+
+        assert_eq!(
+            c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
+            c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
+        );
     }
 }
