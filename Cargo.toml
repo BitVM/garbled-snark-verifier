@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2024"
 
 [dependencies]
+circuit_component_macro = { path = "circuit_component_macro" }
 ark-bn254 = "0.5.0"
 ark-ff = "0.5.0"
 bitvec = "1.0.1"
@@ -22,3 +23,4 @@ thiserror = "2.0.12"
 ark-ec = "0.5.0"
 sha2 = "0.10"
 test-log = "0.2.8"
+trybuild = "1.0"

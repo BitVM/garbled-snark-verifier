@@ -1,0 +1,15 @@
+[package]
+name = "circuit_component_macro"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "visit-mut"] }
+
+[dev-dependencies]
+trybuild = "1.0"

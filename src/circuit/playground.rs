@@ -2,21 +2,21 @@
 
 use std::collections::HashMap;
 
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{SlotMap, new_key_type};
 
 use crate::{Gate, WireId};
 
+mod into_wire_list;
+pub use into_wire_list::IntoWireList;
+
+// Compatibility alias for existing code
 pub trait IntoWires {
     fn get_wires_vec(&self) -> Vec<WireId>;
 }
-impl IntoWires for WireId {
+
+impl<T: IntoWireList + Clone> IntoWires for T {
     fn get_wires_vec(&self) -> Vec<WireId> {
-        vec![*self]
-    }
-}
-impl IntoWires for Vec<WireId> {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        self.clone()
+        self.clone().into_wire_list()
     }
 }
 
@@ -31,7 +31,7 @@ pub trait CircuitContext {
 
     fn with_child<O: IntoWires>(
         &mut self,
-        input_wires: &[WireId],
+        input_wires: Vec<WireId>,
         f: impl FnOnce(&mut ComponentHandle) -> O,
     ) -> O;
 }
@@ -226,12 +226,12 @@ impl<'a> CircuitContext for ComponentHandle<'a> {
     /// Returns the output wires produced by the child
     fn with_child<O: IntoWires>(
         &mut self,
-        input_wires: &[WireId],
+        input_wires: Vec<WireId>,
         f: impl FnOnce(&mut ComponentHandle) -> O,
     ) -> O {
         // Create child component
         let mut child = Component::empty_root();
-        child.input_wires = input_wires.to_vec();
+        child.input_wires = input_wires.clone();
         // Set internal wire tracking for streaming garbling
         child.internal_wire_offset = self.builder.next_wire_id;
 
@@ -247,6 +247,7 @@ impl<'a> CircuitContext for ComponentHandle<'a> {
         };
 
         // Execute closure to build child and get output wires
+        // Pass input wires as slice to the closure
         let output_wires = f(&mut child_handle);
 
         // Update child's output wires and wire count for truncation
@@ -401,6 +402,9 @@ impl CircuitBuilder {
 }
 
 #[cfg(test)]
+mod test_macro;
+
+#[cfg(test)]
 mod eval_test {
     use super::*;
 
@@ -410,7 +414,7 @@ mod eval_test {
             let a = root.issue_wire();
             let b = root.issue_wire();
 
-            let c = root.with_child(&[a, b], |component| {
+            let c = root.with_child(vec![a, b], |component| {
                 let c = component.issue_wire();
 
                 component.add_gate(Gate::and(a, b, c));
@@ -418,7 +422,7 @@ mod eval_test {
                 c
             });
 
-            let d = root.with_child(&[a, b], |component| {
+            let d = root.with_child(vec![a, b], |component| {
                 let c = component.issue_wire();
 
                 component.add_gate(Gate::and(a, b, c));

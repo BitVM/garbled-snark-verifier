@@ -14,8 +14,8 @@ use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
 use rand::Rng;
-use rand_chacha::ChaCha20Rng;
 use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
@@ -188,7 +188,11 @@ impl Fr {
     }
 
     pub fn add_constant(circuit: &mut impl crate::CircuitContext, a: &Fr, b: &ark_bn254::Fr) -> Fr {
-        Fr(bigint::add_constant(circuit, &a.0, &BigUint::from(b.into_bigint())))
+        Fr(bigint::add_constant(
+            circuit,
+            &a.0,
+            &BigUint::from(b.into_bigint()),
+        ))
     }
 
     pub fn sub(circuit: &mut impl crate::CircuitContext, a: &Fr, b: &Fr) -> Fr {
@@ -252,7 +256,9 @@ impl Fr {
         a: &Fr,
         exp: &BigUint,
     ) -> Fr {
-        Fr(<Self as Fp254Impl>::exp_by_constant_montgomery(circuit, &a.0, exp))
+        Fr(<Self as Fp254Impl>::exp_by_constant_montgomery(
+            circuit, &a.0, exp,
+        ))
     }
 
     pub fn multiplexer(
@@ -262,7 +268,12 @@ impl Fr {
         w: usize,
     ) -> Fr {
         let bigint_array: Vec<BigIntWires> = a.iter().map(|fr| fr.0.clone()).collect();
-        Fr(<Self as Fp254Impl>::multiplexer(circuit, &bigint_array, s, w))
+        Fr(<Self as Fp254Impl>::multiplexer(
+            circuit,
+            &bigint_array,
+            s,
+            w,
+        ))
     }
 
     pub fn equal_constant(
@@ -272,7 +283,6 @@ impl Fr {
     ) -> WireId {
         bigint::equal_constant(circuit, &a.0, &BigUint::from(b.into_bigint()))
     }
-
 }
 
 #[cfg(test)]

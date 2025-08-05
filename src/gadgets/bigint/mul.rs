@@ -642,8 +642,8 @@ mod tests {
 
                 is_use_karatsuba(len).ne(&use_karatsuba)
             })
-            .collect::<Vec<_>>();
+            .collect::<Vec<usize>>();
 
-        assert_eq!(decisions.as_slice(), &[]);
+        assert!(decisions.is_empty(), "{decisions:?}");
     }
 }

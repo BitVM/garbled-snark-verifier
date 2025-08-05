@@ -1,7 +1,10 @@
-mod circuit;
+pub mod circuit;
 mod core;
 mod gadgets;
 mod math;
+
+// Re-export the procedural macro
+pub use circuit_component_macro::component;
 
 pub use core::{
     delta::Delta,
@@ -18,8 +21,8 @@ pub use math::*;
 
 #[cfg(test)]
 pub mod test_utils {
-    use rand_chacha::{ChaCha20Rng};
-    use rand::{SeedableRng};
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
 
     pub fn trng() -> ChaCha20Rng {
         ChaCha20Rng::seed_from_u64(0)

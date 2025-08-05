@@ -221,7 +221,9 @@ impl Fq {
         a: &Fq,
         b: &ark_bn254::Fq,
     ) -> Fq {
-        Fq(<Self as Fp254Impl>::mul_by_constant_montgomery(circuit, &a.0, b))
+        Fq(<Self as Fp254Impl>::mul_by_constant_montgomery(
+            circuit, &a.0, b,
+        ))
     }
 
     pub fn square_montgomery(circuit: &mut impl crate::CircuitContext, a: &Fq) -> Fq {
@@ -241,7 +243,9 @@ impl Fq {
         a: &Fq,
         exp: &BigUint,
     ) -> Fq {
-        Fq(<Self as Fp254Impl>::exp_by_constant_montgomery(circuit, &a.0, exp))
+        Fq(<Self as Fp254Impl>::exp_by_constant_montgomery(
+            circuit, &a.0, exp,
+        ))
     }
 
     pub fn multiplexer(
@@ -251,7 +255,12 @@ impl Fq {
         w: usize,
     ) -> Fq {
         let bigint_array: Vec<BigIntWires> = a.iter().map(|fq| fq.0.clone()).collect();
-        Fq(<Self as Fp254Impl>::multiplexer(circuit, &bigint_array, s, w))
+        Fq(<Self as Fp254Impl>::multiplexer(
+            circuit,
+            &bigint_array,
+            s,
+            w,
+        ))
     }
 
     pub fn equal_constant(
@@ -272,7 +281,6 @@ impl Fq {
             &BigUint::from_str(Self::MODULUS_ADD_1_DIV_4).unwrap(),
         )
     }
-
 }
 
 #[cfg(test)]
