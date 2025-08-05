@@ -4,7 +4,7 @@ use std::str::FromStr;
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
-use rand::{Rng, rng};
+use rand::Rng;
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
@@ -58,7 +58,7 @@ impl Fp254Impl for Fq {
 
 impl Fq {
     pub fn random(rng: &mut impl Rng) -> ark_bn254::Fq {
-        let bytes: [u8; 31] = rng.random();
+        let bytes: [u8; 31] = rng.r#gen();
         ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
     }
 
@@ -288,7 +288,7 @@ pub(super) mod tests {
 
     pub fn rnd() -> ark_bn254::Fq {
         loop {
-            if let Some(bn) = ark_bn254::Fq::from_random_bytes(&trng().random::<[u8; 32]>()) {
+            if let Some(bn) = ark_bn254::Fq::from_random_bytes(&trng().r#gen::<[u8; 32]>()) {
                 return bn;
             }
         }
@@ -653,7 +653,7 @@ pub(super) mod tests {
         c.0.mark_as_output(&mut circuit);
 
         let a_val = (0..n).map(|_| random()).collect::<Vec<_>>();
-        let s_val = (0..w).map(|_| rng().random()).collect::<Vec<_>>();
+        let s_val = (0..w).map(|_| trng().r#gen()).collect::<Vec<_>>();
 
         let mut u = 0;
         for i in s_val.iter().rev() {

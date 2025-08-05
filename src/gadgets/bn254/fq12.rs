@@ -1,6 +1,6 @@
 use ark_ff::{AdditiveGroup, Field, Fp6Config, Fp12Config, PrimeField, UniformRand};
 use num_traits::Zero;
-use rand::{Rng, rng};
+use rand::Rng;
 
 use super::fq6::Fq6Components;
 use crate::{

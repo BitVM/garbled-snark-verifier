@@ -13,8 +13,9 @@ use std::str::FromStr;
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
-use rand::{Rng, rng};
-use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
+use rand::Rng;
+use rand_chacha::ChaCha20Rng;
+use rand::SeedableRng;
 
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
@@ -77,7 +78,7 @@ impl Fr {
     /// # Returns
     /// Random field element in the BN254 scalar field
     pub fn random(rng: &mut impl Rng) -> ark_bn254::Fr {
-        let mut prng = ChaCha20Rng::seed_from_u64(rng.random());
+        let mut prng = ChaCha20Rng::seed_from_u64(rng.r#gen());
         ark_bn254::Fr::rand(&mut prng)
     }
 
@@ -283,7 +284,7 @@ mod tests {
 
     fn rnd() -> ark_bn254::Fr {
         loop {
-            if let Some(bn) = ark_bn254::Fr::from_random_bytes(&trng().random::<[u8; 32]>()) {
+            if let Some(bn) = ark_bn254::Fr::from_random_bytes(&trng().r#gen::<[u8; 32]>()) {
                 return bn;
             }
         }

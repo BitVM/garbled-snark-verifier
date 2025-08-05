@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn test_multiplexer() {
         use rand::Rng;
-        let mut rng = rand::rng();
+        let mut rng = trng();
 
         let w = 3;
         let n = 2_usize.pow(w as u32);
@@ -371,8 +371,8 @@ mod tests {
         let a: Vec<WireId> = (0..n).map(|_| circuit.issue_input_wire()).collect();
         let s: Vec<WireId> = (0..w).map(|_| circuit.issue_input_wire()).collect();
 
-        let a_values: Vec<bool> = (0..n).map(|_| rng.random()).collect();
-        let s_values: Vec<bool> = (0..w).map(|_| rng.random()).collect();
+        let a_values: Vec<bool> = (0..n).map(|_| rng.r#gen()).collect();
+        let s_values: Vec<bool> = (0..w).map(|_| rng.r#gen()).collect();
 
         let mut u = 0;
         for &value in s_values.iter().rev() {

@@ -3,7 +3,7 @@ use std::{cmp::min, collections::HashMap, iter::zip};
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
 use digest::typenum::bit;
 use num_bigint::BigUint;
-use rand::{Rng, rng};
+use rand::Rng;
 
 use crate::{
     Circuit, WireId,
@@ -456,7 +456,7 @@ mod tests {
 
     use ark_ec::{CurveGroup, VariableBaseMSM};
     use ark_ff::BigInt;
-    use rand::{SeedableRng, random};
+    use rand::SeedableRng;
 
     use super::*;
     use crate::{CircuitContext, circuit, test_utils::trng};
@@ -464,7 +464,7 @@ mod tests {
     fn rnd() -> ark_bn254::G1Projective {
         use ark_ec::PrimeGroup;
         let g1 = ark_bn254::G1Projective::generator();
-        g1.mul_bigint(<rand::rngs::StdRng as SeedableRng>::seed_from_u64(1).random::<[u64; 4]>())
+        g1.mul_bigint(<rand::rngs::StdRng as SeedableRng>::seed_from_u64(1).r#gen::<[u64; 4]>())
     }
 
     #[test]
@@ -582,7 +582,7 @@ mod tests {
         let a_val = (0..n)
             .map(|_| G1Projective::random(&mut trng()))
             .collect::<Vec<_>>();
-        let s_val = (0..w).map(|_| rng().random()).collect::<Vec<_>>();
+        let s_val = (0..w).map(|_| trng().r#gen()).collect::<Vec<_>>();
 
         let mut u = 0;
         for i in s_val.iter().rev() {

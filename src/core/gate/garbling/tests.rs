@@ -7,8 +7,7 @@ const GATE_ID: GateId = 0;
 const TEST_CASES: [(bool, bool); 4] = [(false, false), (false, true), (true, false), (true, true)];
 
 fn garble_consistency(gt: GateType) {
-    use rand::rng;
-    let delta = Delta::generate(&mut rng());
+    let delta = Delta::generate(&mut trng());
 
     #[derive(Debug, PartialEq, Eq)]
     struct FailedCase {
@@ -101,9 +100,7 @@ garble_consistency_tests!(
 
 #[test]
 fn test_blake3_hasher() {
-    use rand::rng;
-
-    let delta = Delta::generate(&mut rng());
+    let delta = Delta::generate(&mut trng());
     let mut rng = trng();
 
     let a_label0 = S::random(&mut rng);

@@ -29,7 +29,7 @@ impl S {
     }
 
     pub fn random(rng: &mut impl Rng) -> Self {
-        Self(rng.random())
+        Self(rng.r#gen())
     }
 
     pub fn neg(&self) -> Self {

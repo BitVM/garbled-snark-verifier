@@ -8,8 +8,7 @@ const GATE_ID: GateId = 0;
 const TEST_CASES: [(bool, bool); 4] = [(false, false), (false, true), (true, false), (true, true)];
 
 fn create_test_delta() -> Delta {
-    use rand::rng;
-    Delta::generate(&mut rng())
+    Delta::generate(&mut trng())
 }
 
 fn issue_test_wire() -> GarbledWires {

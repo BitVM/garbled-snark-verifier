@@ -9,7 +9,7 @@
 
 use ark_ff::{Field, Fp2Config, PrimeField, UniformRand};
 use num_traits::Zero;
-use rand::{Rng, rng};
+use rand::Rng;
 use std::collections::HashMap;
 
 use crate::{

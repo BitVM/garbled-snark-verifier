@@ -18,9 +18,10 @@ pub use math::*;
 
 #[cfg(test)]
 pub mod test_utils {
-    use rand::SeedableRng;
+    use rand_chacha::{ChaCha20Rng};
+    use rand::{SeedableRng};
 
-    pub fn trng() -> rand::rngs::SmallRng {
-        rand::rngs::SmallRng::seed_from_u64(0)
+    pub fn trng() -> ChaCha20Rng {
+        ChaCha20Rng::seed_from_u64(0)
     }
 }
