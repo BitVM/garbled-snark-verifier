@@ -94,3 +94,5 @@ pub use structure::Circuit;
 pub mod test;
 #[cfg(test)]
 pub mod test_util;
+
+mod playground;
