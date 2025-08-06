@@ -1,5 +1,5 @@
 use crate::{
-    circuit::playground::{CircuitBuilder, CircuitContext},
+    circuit::playground::{CircuitBuilder, CircuitContext, SimpleInputs, TripleInputs},
     component, Gate, WireId,
 };
 
@@ -19,15 +19,17 @@ fn triple_and(ctx: &mut impl CircuitContext, a: WireId, b: WireId, c: WireId) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::circuit::playground::Evaluate;
+    use crate::circuit::playground::{Evaluate, TripleInputsWire};
 
     #[test]
     fn test_component_macro_basic() {
-        CircuitBuilder::<Evaluate>::new(2, |mut root| {
-            let a = root.issue_wire();
-            let b = root.issue_wire();
+        let inputs = SimpleInputs { a: true, b: false };
 
-            let c = and_gate(&mut root, a, b);
+        CircuitBuilder::<Evaluate>::streaming_process(2, inputs, |root, inputs_wire| {
+            let a = inputs_wire.a;
+            let b = inputs_wire.b;
+
+            let c = and_gate(root, a, b);
 
             vec![c]
         });
@@ -35,12 +37,16 @@ mod tests {
 
     #[test]
     fn test_component_macro_nested() {
-        CircuitBuilder::<Evaluate>::new(2, |mut root| {
-            let a = root.issue_wire();
-            let b = root.issue_wire();
-            let c = root.issue_wire();
+        let inputs = TripleInputs {
+            a: true,
+            b: true,
+            c: false,
+        };
 
-            let result = triple_and(&mut root, a, b, c);
+        CircuitBuilder::<Evaluate>::streaming_process(2, inputs, |root, inputs_wire| {
+            let TripleInputsWire { a, b, c } = inputs_wire;
+
+            let result = triple_and(root, a, b, c);
 
             vec![result]
         });

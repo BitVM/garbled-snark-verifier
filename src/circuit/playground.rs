@@ -137,7 +137,6 @@ impl ModeCache for WireCache<bool> {
     }
 }
 
-// ――― Helper functions ―――
 fn is_true_leaf(component: &Component) -> bool {
     component
         .actions
@@ -206,6 +205,8 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
         child_component.output_wires = output_wires.get_wires_vec();
         child_component.num_wire = self.builder.next_wire_id - child_component.internal_wire_offset;
 
+        // TODO Check order of two next expression
+
         // Pop from stack and handle exit logic
         self.builder.exit_component();
 
@@ -243,18 +244,25 @@ impl CircuitMode for Evaluate {
 
         let mut local_cache = WireCache::default();
 
+        println!(
+            "DEBUG: evaluate_component({component_id:?}) processing input wires: {:?}",
+            component.input_wires
+        );
         for &wire_id in &component.input_wires {
+            println!("DEBUG: Looking for input wire {wire_id:?} in parent cache");
             let value = parent_cache
                 .lookup_wire(wire_id)
                 .ok_or("Missing input wire value")?;
 
             local_cache.feed_wire(wire_id, value);
+            println!("DEBUG: Fed wire {wire_id:?} into local cache");
         }
 
         // Process actions
         for action in &component.actions {
             match action {
                 Action::Gate(gate) => {
+                    println!("Process {gate:?}");
                     let a = local_cache
                         .lookup_wire(gate.wire_a)
                         .ok_or("Wire A not evaluated")?;
@@ -282,7 +290,6 @@ impl CircuitMode for Evaluate {
             }
         }
 
-        // Collect output wires from local cache
         let outputs: Vec<(WireId, bool)> = component
             .output_wires
             .iter()
@@ -323,7 +330,15 @@ pub struct CircuitBuilder<M: CircuitMode> {
 }
 
 impl<M: CircuitMode> CircuitBuilder<M> {
-    pub fn new(max_depth: usize, root: impl FnOnce(ComponentHandle<M>) -> Vec<WireId>) -> Self {
+    pub fn streaming_process<I, F>(
+        max_depth: usize,
+        inputs: I,
+        f: F,
+    ) -> Vec<<M::Cache as ModeCache>::Value>
+    where
+        I: CircuitInput + EncodeInput<M>,
+        F: FnOnce(&mut ComponentHandle<M>, I::WireRepr) -> Vec<WireId>,
+    {
         let mut builder = Self {
             pool: ComponentPool(SlotMap::with_key()),
             stack: vec![],
@@ -334,11 +349,42 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             next_wire_id: 2,
         };
 
-        let handler = builder.enter_component(Component::empty_root());
+        let root_id = builder.pool.insert(Component::empty_root());
+        builder.stack.push(root_id);
 
-        root(handler);
+        let mut root_handle = ComponentHandle {
+            id: root_id,
+            builder: &mut builder,
+        };
 
-        builder
+        // Allocate input wires using the input type
+        let inputs_wire = I::allocate(&mut root_handle);
+        println!("DEBUG: Input wires allocated");
+
+        root_handle.get_component().input_wires = I::collect_wire_ids(&inputs_wire);
+
+        // Push inputs into cache
+        inputs.encode(&inputs_wire, &mut root_handle.builder.wire_cache);
+
+        // Here real eval can be start
+        let output = f(&mut root_handle, inputs_wire);
+        root_handle.get_component().output_wires = output.into_wire_list();
+
+        // Finish evaluation
+        root_handle.builder.evaluate_subgraph(root_id);
+
+        let output = root_handle.get_component().output_wires.clone();
+
+        output
+            .iter()
+            .copied()
+            .map(|wire_id| {
+                builder
+                    .wire_cache
+                    .lookup_wire(wire_id)
+                    .unwrap_or_else(|| panic!("output wire not presetened: {wire_id:?}"))
+            })
+            .collect::<Vec<_>>()
     }
 
     pub fn global_input(&self) -> &[WireId] {
@@ -358,18 +404,6 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         let wire = WireId(self.next_wire_id);
         self.next_wire_id += 1;
         wire
-    }
-
-    pub fn enter_component(&mut self, c: Component) -> ComponentHandle<M> {
-        let id = self.pool.insert(c);
-
-        if let Some(&parent) = self.stack.last() {
-            let parent = self.pool.get_mut(parent);
-            parent.actions.push(Action::Call { id });
-        }
-
-        self.stack.push(id);
-        ComponentHandle { id, builder: self }
     }
 
     pub fn exit_component(&mut self) {
@@ -407,28 +441,34 @@ impl<M: CircuitMode> CircuitBuilder<M> {
 
     pub fn evaluate_subgraph(&mut self, id: ComponentId) {
         // Feed component inputs from existing wire cache
+        println!(
+            "DEBUG: Component {id:?} expects input wires: {:?}",
+            self.pool.get(id).input_wires
+        );
         for wire_id in self.pool.get(id).input_wires.iter().copied() {
             if self.wire_cache.lookup_wire(wire_id).is_none() {
                 println!("Warning: Input wire {wire_id:?} not in cache");
+            } else {
+                println!("DEBUG: Found input wire {wire_id:?} in cache");
             }
         }
 
         println!("Cache size before evaluation: {}", self.wire_cache.size());
+        println!(
+            "DEBUG: Cache has WireId(2): {}, WireId(3): {}",
+            self.wire_cache.lookup_wire(WireId(2)).is_some(),
+            self.wire_cache.lookup_wire(WireId(3)).is_some()
+        );
 
         let outputs = M::evaluate_component(id, &mut self.pool, &mut self.wire_cache).unwrap();
 
-        println!(
-            "Evaluated component {:?}, got {} outputs",
-            id,
-            outputs.len()
-        );
+        println!("Evaluated component {id:?}, got {} outputs", outputs.len());
 
         let mut keep_wires = vec![];
         let output_wires: Vec<WireId> = outputs.iter().map(|(wire_id, _)| *wire_id).collect();
 
         keep_wires.extend(self.pool.get(id).input_wires.clone());
         keep_wires.extend(output_wires);
-        keep_wires.extend(self.global_input());
 
         for (wire_id, value) in outputs {
             println!("  Output wire {wire_id:?} = {value}");
@@ -444,6 +484,157 @@ impl<M: CircuitMode> CircuitBuilder<M> {
     }
 }
 
+// ――― Input Provisioning System ―――
+
+/// Trait for types that can be converted to bit vectors
+pub trait ToBits {
+    fn to_bits_le(&self) -> Vec<bool>;
+}
+
+impl ToBits for bool {
+    fn to_bits_le(&self) -> Vec<bool> {
+        vec![*self]
+    }
+}
+
+impl ToBits for u64 {
+    fn to_bits_le(&self) -> Vec<bool> {
+        (0..64).map(|i| (self >> i) & 1 == 1).collect()
+    }
+}
+
+/// Trait for allocating wire representations of input types
+pub trait CircuitInput {
+    type WireRepr;
+    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr;
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId>;
+}
+
+/// Trait for encoding semantic values into mode-specific caches
+pub trait EncodeInput<M: CircuitMode>: Sized + CircuitInput {
+    fn encode(self, repr: &Self::WireRepr, cache: &mut M::Cache);
+}
+
+// ――― Example Implementation ―――
+
+/// Example input structure with mixed types
+pub struct Inputs {
+    pub flag: bool,
+    pub nonce: u64,
+}
+
+/// Wire representation of Inputs
+pub struct InputsWire {
+    pub flag: WireId,
+    pub nonce: [WireId; 64],
+}
+
+impl CircuitInput for Inputs {
+    type WireRepr = InputsWire;
+
+    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+        InputsWire {
+            flag: ctx.issue_wire(),
+            nonce: core::array::from_fn(|_| ctx.issue_wire()),
+        }
+    }
+
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        let mut wires = vec![repr.flag];
+        wires.extend_from_slice(&repr.nonce);
+        wires
+    }
+}
+
+impl EncodeInput<Evaluate> for Inputs {
+    fn encode(self, repr: &InputsWire, cache: &mut WireCache<bool>) {
+        cache.feed_wire(repr.flag, self.flag);
+        let bits = self.nonce.to_bits_le();
+        for (i, bit) in bits.into_iter().enumerate() {
+            cache.feed_wire(repr.nonce[i], bit);
+        }
+    }
+}
+
+// ――― Simple Input Types for Basic Tests ―――
+
+/// Simple two-input structure for basic circuit tests
+pub struct SimpleInputs {
+    pub a: bool,
+    pub b: bool,
+}
+
+pub struct SimpleInputsWire {
+    pub a: WireId,
+    pub b: WireId,
+}
+
+impl CircuitInput for SimpleInputs {
+    type WireRepr = SimpleInputsWire;
+
+    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+        let a = ctx.issue_wire();
+        let b = ctx.issue_wire();
+        println!("DEBUG: SimpleInputs allocated wire A: {a:?}, wire B: {b:?}");
+        SimpleInputsWire { a, b }
+    }
+
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        vec![repr.a, repr.b]
+    }
+}
+
+impl EncodeInput<Evaluate> for SimpleInputs {
+    fn encode(self, repr: &SimpleInputsWire, cache: &mut WireCache<bool>) {
+        println!(
+            "DEBUG: Encoding wire A: {a:?} = {av}, wire B: {b:?} = {bv}",
+            a = repr.a,
+            av = self.a,
+            b = repr.b,
+            bv = self.b
+        );
+        cache.feed_wire(repr.a, self.a);
+        cache.feed_wire(repr.b, self.b);
+    }
+}
+
+/// Three-input structure for macro tests
+pub struct TripleInputs {
+    pub a: bool,
+    pub b: bool,
+    pub c: bool,
+}
+
+pub struct TripleInputsWire {
+    pub a: WireId,
+    pub b: WireId,
+    pub c: WireId,
+}
+
+impl CircuitInput for TripleInputs {
+    type WireRepr = TripleInputsWire;
+
+    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+        TripleInputsWire {
+            a: ctx.issue_wire(),
+            b: ctx.issue_wire(),
+            c: ctx.issue_wire(),
+        }
+    }
+
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        vec![repr.a, repr.b, repr.c]
+    }
+}
+
+impl EncodeInput<Evaluate> for TripleInputs {
+    fn encode(self, repr: &TripleInputsWire, cache: &mut WireCache<bool>) {
+        cache.feed_wire(repr.a, self.a);
+        cache.feed_wire(repr.b, self.b);
+        cache.feed_wire(repr.c, self.c);
+    }
+}
+
 #[cfg(test)]
 mod test_macro;
 
@@ -453,30 +644,98 @@ mod eval_test {
 
     #[test]
     fn simple() {
-        CircuitBuilder::<Evaluate>::new(2, |mut root| {
-            let a = root.issue_wire();
-            let b = root.issue_wire();
+        let inputs = Inputs {
+            flag: true,
+            nonce: u64::MAX,
+        };
 
-            let c = root.with_child(vec![a, b], |component| {
-                let c = component.issue_wire();
+        let output =
+            CircuitBuilder::<Evaluate>::streaming_process(2, inputs, |root, inputs_wire| {
+                let InputsWire { flag, nonce } = inputs_wire;
 
-                component.add_gate(Gate::and(a, b, c));
+                let result = root.issue_wire();
+                root.add_gate(Gate::and(flag, nonce[0], result));
 
-                c
+                vec![result]
             });
 
-            let d = root.with_child(vec![a, b], |component| {
-                let c = component.issue_wire();
+        assert!(output[0])
+    }
 
-                component.add_gate(Gate::and(a, b, c));
+    #[test]
+    fn test_multi_wire_inputs() {
+        // Define input values
+        let inputs = Inputs {
+            flag: true,
+            nonce: 0xDEADBEEF12345678,
+        };
 
-                c
+        let output =
+            CircuitBuilder::<Evaluate>::streaming_process(2, inputs, |root, inputs_wire| {
+                // Create some logic using the allocated wires
+                // Test flag AND first bit of nonce
+                let InputsWire { flag, nonce } = inputs_wire;
+
+                let result1 = root.issue_wire();
+                root.add_gate(Gate::and(flag, nonce[0], result1));
+
+                // Test XOR of two nonce bits
+                let result2 = root.with_child(vec![nonce[1], nonce[2]], |child| {
+                    let result2 = child.issue_wire();
+                    child.add_gate(Gate::xor(nonce[1], nonce[2], result2));
+                    result2
+                });
+
+                // Final AND of the two results
+                let final_result = root.issue_wire();
+                root.add_gate(Gate::and(result1, result2, final_result));
+
+                vec![final_result]
             });
 
-            let e = root.issue_wire();
-            root.add_gate(Gate::and(c, d, e));
+        assert!(!output[0]);
 
-            vec![e]
-        });
+        //// Verify that the values were encoded correctly
+        //// We need to recreate the wire allocation to test the cache
+        //let temp_inputs_wire = Inputs::allocate(&mut builder.current_component());
+
+        //assert_eq!(
+        //    builder.wire_cache.lookup_wire(temp_inputs_wire.flag),
+        //    Some(true)
+        //);
+
+        //// Check that the u64 bits were encoded correctly (little-endian)
+        //let nonce_bits = 0xDEADBEEF12345678u64.to_bits_le();
+        //for (i, expected_bit) in nonce_bits.iter().enumerate() {
+        //    assert_eq!(
+        //        builder.wire_cache.lookup_wire(temp_inputs_wire.nonce[i]),
+        //        Some(*expected_bit),
+        //        "Bit {i} mismatch"
+        //    );
+        //}
+
+        //println!("Multi-wire input test completed successfully");
+        //println!("Cache size: {}", builder.wire_cache.size());
+        //println!(
+        //    "Flag value: {:?}",
+        //    builder.wire_cache.lookup_wire(temp_inputs_wire.flag)
+        //);
+        //println!(
+        //    "First 8 nonce bits: {:?}",
+        //    (0..8)
+        //        .map(|i| builder.wire_cache.lookup_wire(temp_inputs_wire.nonce[i]))
+        //        .collect::<Vec<_>>()
+        //);
+
+        //// Verify the expected bit pattern for 0xDEADBEEF12345678
+        //// In little-endian: 0x78 (01111000) = [false, false, false, true, true, true, true, false]
+        //let expected_first_8_bits = [false, false, false, true, true, true, true, false];
+        //for (i, expected) in expected_first_8_bits.iter().enumerate() {
+        //    assert_eq!(
+        //        builder.wire_cache.lookup_wire(temp_inputs_wire.nonce[i]),
+        //        Some(*expected),
+        //        "First 8 bits verification failed at bit {i}"
+        //    );
+        //}
     }
 }
