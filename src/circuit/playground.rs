@@ -420,10 +420,10 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         if !self.counting_mode && is_true_leaf(&self.pool.0[id]) {
             self.counting_mode = true;
             self.depth_count = 1;
-            println!("Started counting from leaf component {id:?}");
+            println!("Started counting from leaf component {id:?} with output_wires: {:?}", self.pool.get(id).output_wires);
         } else if self.counting_mode {
             self.depth_count += 1;
-            println!("Counting depth: {}/{}", self.depth_count, self.max_depth);
+            println!("Counting depth: {}/{}, component {id:?} with output_wires: {:?}", self.depth_count, self.max_depth, self.pool.get(id).output_wires);
 
             if self.depth_count == self.max_depth {
                 println!("Reached max depth, evaluating buffered components");
@@ -442,8 +442,9 @@ impl<M: CircuitMode> CircuitBuilder<M> {
     pub fn evaluate_subgraph(&mut self, id: ComponentId) {
         // Feed component inputs from existing wire cache
         println!(
-            "DEBUG: Component {id:?} expects input wires: {:?}",
-            self.pool.get(id).input_wires
+            "DEBUG: Component {id:?} expects input wires: {:?}, output wires: {:?}",
+            self.pool.get(id).input_wires,
+            self.pool.get(id).output_wires
         );
         for wire_id in self.pool.get(id).input_wires.iter().copied() {
             if self.wire_cache.lookup_wire(wire_id).is_none() {
@@ -694,48 +695,5 @@ mod eval_test {
             });
 
         assert!(!output[0]);
-
-        //// Verify that the values were encoded correctly
-        //// We need to recreate the wire allocation to test the cache
-        //let temp_inputs_wire = Inputs::allocate(&mut builder.current_component());
-
-        //assert_eq!(
-        //    builder.wire_cache.lookup_wire(temp_inputs_wire.flag),
-        //    Some(true)
-        //);
-
-        //// Check that the u64 bits were encoded correctly (little-endian)
-        //let nonce_bits = 0xDEADBEEF12345678u64.to_bits_le();
-        //for (i, expected_bit) in nonce_bits.iter().enumerate() {
-        //    assert_eq!(
-        //        builder.wire_cache.lookup_wire(temp_inputs_wire.nonce[i]),
-        //        Some(*expected_bit),
-        //        "Bit {i} mismatch"
-        //    );
-        //}
-
-        //println!("Multi-wire input test completed successfully");
-        //println!("Cache size: {}", builder.wire_cache.size());
-        //println!(
-        //    "Flag value: {:?}",
-        //    builder.wire_cache.lookup_wire(temp_inputs_wire.flag)
-        //);
-        //println!(
-        //    "First 8 nonce bits: {:?}",
-        //    (0..8)
-        //        .map(|i| builder.wire_cache.lookup_wire(temp_inputs_wire.nonce[i]))
-        //        .collect::<Vec<_>>()
-        //);
-
-        //// Verify the expected bit pattern for 0xDEADBEEF12345678
-        //// In little-endian: 0x78 (01111000) = [false, false, false, true, true, true, true, false]
-        //let expected_first_8_bits = [false, false, false, true, true, true, true, false];
-        //for (i, expected) in expected_first_8_bits.iter().enumerate() {
-        //    assert_eq!(
-        //        builder.wire_cache.lookup_wire(temp_inputs_wire.nonce[i]),
-        //        Some(*expected),
-        //        "First 8 bits verification failed at bit {i}"
-        //    );
-        //}
     }
 }
