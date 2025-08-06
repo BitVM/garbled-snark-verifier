@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use slotmap::{SlotMap, new_key_type};
+use slotmap::{new_key_type, SlotMap};
 
 use crate::{Gate, WireId};
 
@@ -23,6 +23,8 @@ impl<T: IntoWireList + Clone> IntoWires for T {
 /// Simplified CircuitContext trait for hierarchical circuit building
 /// Focuses on core operations without flat circuit input/output designation
 pub trait CircuitContext {
+    type Mode: CircuitMode;
+
     /// Allocates a new wire and returns its identifier
     fn issue_wire(&mut self) -> WireId;
 
@@ -32,7 +34,7 @@ pub trait CircuitContext {
     fn with_child<O: IntoWires>(
         &mut self,
         input_wires: Vec<WireId>,
-        f: impl FnOnce(&mut ComponentHandle) -> O,
+        f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
     ) -> O;
 }
 
@@ -93,12 +95,26 @@ impl ComponentPool {
     }
 }
 
-#[derive(Default, Clone)]
-struct WireCache {
-    values: HashMap<WireId, bool>,
+pub trait ModeCache: Default {
+    type Value;
+
+    fn lookup_wire(&self, wire: WireId) -> Option<Self::Value>;
+
+    fn feed_wire(&mut self, wire: WireId, value: Self::Value);
+
+    fn size(&self) -> usize;
+
+    fn clean_session(&mut self, keep_wires: &[WireId]);
 }
 
-impl WireCache {
+#[derive(Default, Clone)]
+pub struct WireCache<T> {
+    values: HashMap<WireId, T>,
+}
+
+impl ModeCache for WireCache<bool> {
+    type Value = bool;
+
     fn lookup_wire(&self, wire: WireId) -> Option<bool> {
         match wire {
             FALSE_WIRE => Some(false),
@@ -121,73 +137,6 @@ impl WireCache {
     }
 }
 
-fn evaluate_component(
-    component_id: ComponentId,
-    pool: &mut ComponentPool,
-    parent_cache: &mut WireCache,
-) -> Result<Vec<(WireId, bool)>, &'static str> {
-    let component = pool.get(component_id).clone();
-
-    let mut local_cache = WireCache::default();
-
-    for &wire_id in &component.input_wires {
-        let value = parent_cache
-            .lookup_wire(wire_id)
-            .ok_or("Missing input wire value")?;
-
-        local_cache.feed_wire(wire_id, value);
-    }
-
-    // Process actions
-    for action in &component.actions {
-        match action {
-            Action::Gate(gate) => {
-                let a = local_cache
-                    .lookup_wire(gate.wire_a)
-                    .ok_or("Wire A not evaluated")?;
-                let b = local_cache
-                    .lookup_wire(gate.wire_b)
-                    .ok_or("Wire B not evaluated")?;
-
-                let c = (gate.gate_type.f())(a, b);
-                local_cache.feed_wire(gate.wire_c, c);
-            }
-            Action::Call { id } => {
-                let child_outputs = evaluate_component(*id, pool, &mut local_cache)?;
-
-                println!(
-                    "  Successfully evaluated child component {:?} with {} outputs",
-                    id,
-                    child_outputs.len()
-                );
-
-                // Feed child outputs into our local cache
-                for (wire_id, value) in child_outputs {
-                    local_cache.feed_wire(wire_id, value);
-                }
-            }
-        }
-    }
-
-    // Collect output wires from local cache
-    let outputs: Vec<(WireId, bool)> = component
-        .output_wires
-        .iter()
-        .map(|&wire_id| {
-            let value = local_cache
-                .lookup_wire(wire_id)
-                .ok_or("Output wire not evaluated")?;
-            Ok((wire_id, value))
-        })
-        .collect::<Result<Vec<_>, &'static str>>()?;
-
-    for (wire_id, value) in &outputs {
-        parent_cache.feed_wire(*wire_id, *value);
-    }
-
-    Ok(outputs)
-}
-
 // ――― Helper functions ―――
 fn is_true_leaf(component: &Component) -> bool {
     component
@@ -196,12 +145,12 @@ fn is_true_leaf(component: &Component) -> bool {
         .all(|action| matches!(action, Action::Gate(_)))
 }
 
-pub struct ComponentHandle<'a> {
+pub struct ComponentHandle<'a, M: CircuitMode> {
     id: ComponentId,
-    builder: &'a mut CircuitBuilder,
+    builder: &'a mut CircuitBuilder<M>,
 }
 
-impl<'a> ComponentHandle<'a> {
+impl<'a, M: CircuitMode> ComponentHandle<'a, M> {
     /// Direct access to the underlying component (for metadata operations)
     pub fn get_component(&mut self) -> &mut Component {
         self.builder.pool.get_mut(self.id)
@@ -209,7 +158,9 @@ impl<'a> ComponentHandle<'a> {
 }
 
 // Implement the CircuitContext trait for ComponentHandle
-impl<'a> CircuitContext for ComponentHandle<'a> {
+impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
+    type Mode = M;
+
     fn issue_wire(&mut self) -> WireId {
         self.builder.allocate_wire()
     }
@@ -227,7 +178,7 @@ impl<'a> CircuitContext for ComponentHandle<'a> {
     fn with_child<O: IntoWires>(
         &mut self,
         input_wires: Vec<WireId>,
-        f: impl FnOnce(&mut ComponentHandle) -> O,
+        f: impl FnOnce(&mut ComponentHandle<M>) -> O,
     ) -> O {
         // Create child component
         let mut child = Component::empty_root();
@@ -269,25 +220,117 @@ impl<'a> CircuitContext for ComponentHandle<'a> {
     }
 }
 
-pub struct CircuitBuilder {
+pub trait CircuitMode {
+    type Cache: ModeCache;
+
+    fn evaluate_component(
+        component: ComponentId,
+        pool: &mut ComponentPool,
+        cache: &mut Self::Cache,
+    ) -> Result<Vec<(WireId, bool)>, &'static str>;
+}
+
+pub struct Evaluate;
+impl CircuitMode for Evaluate {
+    type Cache = WireCache<bool>;
+
+    fn evaluate_component(
+        component_id: ComponentId,
+        pool: &mut ComponentPool,
+        parent_cache: &mut WireCache<bool>,
+    ) -> Result<Vec<(WireId, bool)>, &'static str> {
+        let component = pool.get(component_id).clone();
+
+        let mut local_cache = WireCache::default();
+
+        for &wire_id in &component.input_wires {
+            let value = parent_cache
+                .lookup_wire(wire_id)
+                .ok_or("Missing input wire value")?;
+
+            local_cache.feed_wire(wire_id, value);
+        }
+
+        // Process actions
+        for action in &component.actions {
+            match action {
+                Action::Gate(gate) => {
+                    let a = local_cache
+                        .lookup_wire(gate.wire_a)
+                        .ok_or("Wire A not evaluated")?;
+                    let b = local_cache
+                        .lookup_wire(gate.wire_b)
+                        .ok_or("Wire B not evaluated")?;
+
+                    let c = (gate.gate_type.f())(a, b);
+                    local_cache.feed_wire(gate.wire_c, c);
+                }
+                Action::Call { id } => {
+                    let child_outputs = Self::evaluate_component(*id, pool, &mut local_cache)?;
+
+                    println!(
+                        "  Successfully evaluated child component {:?} with {} outputs",
+                        id,
+                        child_outputs.len()
+                    );
+
+                    // Feed child outputs into our local cache
+                    for (wire_id, value) in child_outputs {
+                        local_cache.feed_wire(wire_id, value);
+                    }
+                }
+            }
+        }
+
+        // Collect output wires from local cache
+        let outputs: Vec<(WireId, bool)> = component
+            .output_wires
+            .iter()
+            .map(|&wire_id| {
+                let value = local_cache
+                    .lookup_wire(wire_id)
+                    .ok_or("Output wire not evaluated")?;
+                Ok((wire_id, value))
+            })
+            .collect::<Result<Vec<_>, &'static str>>()?;
+
+        for (wire_id, value) in &outputs {
+            parent_cache.feed_wire(*wire_id, *value);
+        }
+
+        Ok(outputs)
+    }
+}
+
+//pub struct Garble;
+//impl CircuitMode for Garble {
+//    type Cache = HashMap<WireId, ([u8; 16], [u8; 16])>;
+//}
+//
+//pub struct CheckGarbling;
+//impl CircuitMode for CheckGarbling {
+//    type Cache = HashMap<WireId, [u8; 16]>;
+//}
+
+pub struct CircuitBuilder<M: CircuitMode> {
     pool: ComponentPool,
     stack: Vec<ComponentId>,
     counting_mode: bool,
     depth_count: usize,
     max_depth: usize,
-    wire_cache: WireCache,
+    wire_cache: M::Cache,
     next_wire_id: usize,
 }
 
-impl CircuitBuilder {
-    pub fn new(max_depth: usize, root: impl FnOnce(ComponentHandle) -> Vec<WireId>) -> Self {
+impl<M: CircuitMode> CircuitBuilder<M> {
+    pub fn new(max_depth: usize, root: impl FnOnce(ComponentHandle<M>) -> Vec<WireId>) -> Self {
         let mut builder = Self {
             pool: ComponentPool(SlotMap::with_key()),
             stack: vec![],
             counting_mode: false,
             depth_count: 0,
             max_depth,
-            wire_cache: WireCache::default(),
+            wire_cache: M::Cache::default(),
             next_wire_id: 2,
         };
 
@@ -303,7 +346,7 @@ impl CircuitBuilder {
         &self.pool.get(*root).input_wires
     }
 
-    pub fn current_component(&mut self) -> ComponentHandle {
+    pub fn current_component(&mut self) -> ComponentHandle<M> {
         let current_id = *self.stack.last().unwrap();
         ComponentHandle {
             id: current_id,
@@ -317,7 +360,7 @@ impl CircuitBuilder {
         wire
     }
 
-    pub fn enter_component(&mut self, c: Component) -> ComponentHandle {
+    pub fn enter_component(&mut self, c: Component) -> ComponentHandle<M> {
         let id = self.pool.insert(c);
 
         if let Some(&parent) = self.stack.last() {
@@ -372,7 +415,7 @@ impl CircuitBuilder {
 
         println!("Cache size before evaluation: {}", self.wire_cache.size());
 
-        let outputs = evaluate_component(id, &mut self.pool, &mut self.wire_cache).unwrap();
+        let outputs = M::evaluate_component(id, &mut self.pool, &mut self.wire_cache).unwrap();
 
         println!(
             "Evaluated component {:?}, got {} outputs",
@@ -410,7 +453,7 @@ mod eval_test {
 
     #[test]
     fn simple() {
-        CircuitBuilder::new(2, |mut root| {
+        CircuitBuilder::<Evaluate>::new(2, |mut root| {
             let a = root.issue_wire();
             let b = root.issue_wire();
 

@@ -1,7 +1,6 @@
 use crate::{
-    Gate, WireId,
     circuit::playground::{CircuitBuilder, CircuitContext},
-    component,
+    component, Gate, WireId,
 };
 
 #[component]
@@ -20,10 +19,11 @@ fn triple_and(ctx: &mut impl CircuitContext, a: WireId, b: WireId, c: WireId) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::circuit::playground::Evaluate;
 
     #[test]
     fn test_component_macro_basic() {
-        CircuitBuilder::new(2, |mut root| {
+        CircuitBuilder::<Evaluate>::new(2, |mut root| {
             let a = root.issue_wire();
             let b = root.issue_wire();
 
@@ -35,7 +35,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_nested() {
-        CircuitBuilder::new(2, |mut root| {
+        CircuitBuilder::<Evaluate>::new(2, |mut root| {
             let a = root.issue_wire();
             let b = root.issue_wire();
             let c = root.issue_wire();
