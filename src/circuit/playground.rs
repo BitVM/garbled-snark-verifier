@@ -377,9 +377,10 @@ pub struct Garble;
 pub struct GarbleCache {
     rng: ChaChaRng,
     delta: Delta,
-    wires: GarbledWires,
+    wires: Vec<GarbledWires>,
     garble_table: Vec<S>,
     gate_index: usize,
+    component_max_live_wires: usize,
 }
 
 impl GarbleCache {
@@ -389,7 +390,8 @@ impl GarbleCache {
         GarbleCache {
             rng,
             delta,
-            wires: GarbledWires::new(component_max_live_wires),
+            component_max_live_wires,
+            wires: vec![GarbledWires::new(component_max_live_wires)],
             garble_table: Default::default(),
             gate_index: 0,
         }
@@ -405,34 +407,36 @@ impl ModeCache for GarbleCache {
     type Value = GarbledWire;
 
     fn lookup_wire(&self, wire: WireId) -> Option<&Self::Value> {
-        self.wires.get(wire).ok()
+        self.wires.last().and_then(|last| last.get(wire).ok())
     }
 
     fn feed_wire(&mut self, wire: WireId, value: Self::Value) {
-        self.wires.init(wire, value).unwrap();
+        self.wires.last_mut().unwrap().init(wire, value).unwrap();
     }
 
     fn size(&self) -> usize {
-        self.wires.size()
+        self.wires.iter().map(|l| l.size()).sum()
     }
 
     fn push_frame(&mut self, inputs: Vec<(WireId, Self::Value)>) {
-        // For garbling, frames might work differently - just add to the main map for now
-        for (wire_id, value) in inputs {
-            self.feed_wire(wire_id, value);
-        }
+        let mut new_cache = GarbledWires::new(self.component_max_live_wires);
+        inputs.into_iter().for_each(|(wire_id, value)| {
+            new_cache.init(wire_id, value).unwrap();
+        });
+
+        self.wires.push(new_cache);
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::Value)>
     where
         Self::Value: Clone,
     {
+        let last = self.wires.pop().unwrap();
+
         outputs
             .iter()
-            .filter_map(|&wire_id| {
-                self.lookup_wire(wire_id)
-                    .map(|value| (wire_id, value.clone()))
-            })
+            .copied()
+            .map(|wire_id| (wire_id, last.get(wire_id).unwrap().clone()))
             .collect()
     }
 
@@ -461,7 +465,12 @@ impl CircuitMode for Garble {
         let gate_id = cache.nect_gate_index();
 
         if let Some(ciphertext) = gate
-            .garble::<Blake3Hasher>(gate_id, &mut cache.wires, &cache.delta, &mut cache.rng)
+            .garble::<Blake3Hasher>(
+                gate_id,
+                cache.wires.last_mut().unwrap(),
+                &cache.delta,
+                &mut cache.rng,
+            )
             .unwrap()
         {
             cache.garble_table.push(ciphertext);
@@ -475,18 +484,18 @@ pub struct CheckGarbling;
 
 #[derive(Default)]
 pub struct CheckGarblingCache {
-    wires: HashMap<WireId, EvaluatedWire>,
+    wires: Vec<HashMap<WireId, EvaluatedWire>>,
 }
 
 impl ModeCache for CheckGarblingCache {
     type Value = EvaluatedWire;
 
     fn lookup_wire(&self, wire: WireId) -> Option<&Self::Value> {
-        self.wires.get(&wire)
+        self.wires.last().and_then(|last| last.get(&wire))
     }
 
     fn feed_wire(&mut self, wire: WireId, value: Self::Value) {
-        self.wires.insert(wire, value);
+        self.wires.last_mut().unwrap().insert(wire, value);
     }
 
     fn size(&self) -> usize {
@@ -494,21 +503,18 @@ impl ModeCache for CheckGarblingCache {
     }
 
     fn push_frame(&mut self, inputs: Vec<(WireId, Self::Value)>) {
-        for (wire_id, value) in inputs {
-            self.feed_wire(wire_id, value);
-        }
+        self.wires.push(inputs.into_iter().collect())
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::Value)>
     where
         Self::Value: Clone,
     {
-        outputs
-            .iter()
-            .filter_map(|&wire_id| {
-                self.lookup_wire(wire_id)
-                    .map(|value| (wire_id, value.clone()))
-            })
+        self.wires
+            .pop()
+            .unwrap()
+            .into_iter()
+            .filter(|(wire_id, _value)| outputs.contains(wire_id))
             .collect()
     }
 

@@ -49,7 +49,7 @@ mod tests {
     use super::*;
     use crate::{
         circuit::playground::{
-            CheckGarbling, CircuitMode, ComponentHandle, Evaluate, Garble, GarbleCache, WireStack,
+            CheckGarbling, CircuitMode, ComponentHandle, Evaluate, Garble, GarbleCache, WireStack
         },
         GarbledWire, S,
     };
@@ -255,7 +255,7 @@ mod tests {
 
         let out = CircuitBuilder::<Garble>::streaming_process(
             OneInput { x: true },
-            GarbleCache::new(0, 1_000_000),
+            GarbleCache::new(0, 2_000),
             |root, iw| {
                 let seed = iw.x;
                 expand_tree(root, seed, DEPTH);
@@ -266,74 +266,6 @@ mod tests {
         // Ensure we got back the expected pair of labels for the input wire
         assert_eq!(out, vec![lbl_pair(WireId(2))]);
     }
-
-    // Large circuit with outputs under CheckGarbling; run twice and ensure outputs differ by input
-    //#[test]
-    //fn test_streaming_checkgarbling_large_circuit_outputs_vary_with_input() {
-    //    struct OneInput {
-    //        x: bool,
-    //    }
-    //    struct OneInputWire {
-    //        x: WireId,
-    //    }
-    //    impl crate::circuit::playground::CircuitInput for OneInput {
-    //        type WireRepr = OneInputWire;
-    //        fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
-    //            OneInputWire {
-    //                x: ctx.issue_wire(),
-    //            }
-    //        }
-    //        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-    //            vec![repr.x]
-    //        }
-    //    }
-    //    impl crate::circuit::playground::EncodeInput<CheckGarbling> for OneInput {
-    //        fn encode(
-    //            self,
-    //            repr: &OneInputWire,
-    //            cache: &mut crate::circuit::playground::CheckGarblingCache,
-    //        ) {
-    //            cache.feed_wire(repr.x, lbl_single(repr.x, self.x));
-    //        }
-    //    }
-
-    //    const FANOUT: usize = 3;
-    //    const DEPTH: usize = 7; // matches the large garbling structure
-
-    //    fn expand_tree<C: CircuitContext>(ctx: &mut C, seed: WireId, depth: usize) {
-    //        if depth == 0 {
-    //            let _ = big_chain(ctx, seed);
-    //        } else {
-    //            for _ in 0..FANOUT {
-    //                ctx.with_child(vec![seed], |child| {
-    //                    expand_tree(child, seed, depth - 1);
-    //                    Vec::<WireId>::new()
-    //                });
-    //            }
-    //        }
-    //    }
-
-    //    let out_false = CircuitBuilder::<CheckGarbling>::streaming_process(
-    //        OneInput { x: false },
-    //        CheckGarblingCache::default(),
-    //        |root, iw| {
-    //            expand_tree(root, iw.x, DEPTH);
-    //            vec![iw.x]
-    //        },
-    //    );
-
-    //    let out_true = CircuitBuilder::<CheckGarbling>::streaming_process(
-    //        OneInput { x: true },
-    //        CheckGarblingCache::default(),
-    //        |root, iw| {
-    //            expand_tree(root, iw.x, DEPTH);
-    //            vec![iw.x]
-    //        },
-    //    );
-    //    // Assert specific expected label values for determinism, not just inequality
-    //    assert_eq!(out_false, vec![lbl_single(WireId(2), false)]);
-    //    assert_eq!(out_true, vec![lbl_single(WireId(2), true)]);
-    //}
 
     // Evaluate-mode correctness on a smaller tree: big_chain keeps the input value; OR-reduction preserves it
     #[test]

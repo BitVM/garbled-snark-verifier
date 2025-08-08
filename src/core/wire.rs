@@ -69,40 +69,28 @@ impl GarbledWire {
 }
 
 mod garbled_wires {
-    use std::mem::MaybeUninit;
-
-    use bitvec::vec::BitVec;
+    use std::collections::{hash_map::Entry, HashMap};
 
     use super::{GarbledWire, WireError, WireId};
 
     #[derive(Debug)]
     pub struct GarbledWires {
-        wires: Vec<MaybeUninit<GarbledWire>>,
-        initialized: BitVec,
-        max_wire_id: usize,
+        wires: HashMap<WireId, GarbledWire>,
+        num_wires: usize,
     }
 
     impl GarbledWires {
         pub fn new(num_wires: usize) -> Self {
             Self {
-                wires: {
-                    // Safe because we won't read before writing
-                    let mut vec = Vec::with_capacity(num_wires);
-                    vec.resize_with(num_wires, MaybeUninit::uninit);
-                    vec
-                },
-                initialized: BitVec::repeat(false, num_wires),
-                max_wire_id: num_wires,
+                wires: HashMap::new(),
+                num_wires,
             }
         }
 
         pub fn get(&self, wire_id: WireId) -> Result<&GarbledWire, WireError> {
-            if wire_id.0 >= self.initialized.len() || !self.initialized[wire_id.0] {
-                return Err(WireError::InvalidWireIndex(wire_id));
-            }
-
-            // SAFETY: We checked it's initialized
-            Ok(unsafe { self.wires[wire_id.0].assume_init_ref() })
+            self.wires
+                .get(&wire_id)
+                .ok_or(WireError::InvalidWireIndex(wire_id))
         }
 
         pub fn init(
@@ -110,59 +98,43 @@ mod garbled_wires {
             wire_id: WireId,
             wire: GarbledWire,
         ) -> Result<&GarbledWire, WireError> {
-            self.ensure_capacity(wire_id.0 + 1)?;
-
-            if self.initialized[wire_id.0] {
+            if wire_id.0 > self.num_wires {
                 return Err(WireError::InvalidWireIndex(wire_id));
             }
-
-            self.wires[wire_id.0] = MaybeUninit::new(wire);
-            self.initialized.set(wire_id.0, true);
-            self.get(wire_id)
+            match self.wires.entry(wire_id) {
+                Entry::Occupied(_) => Err(WireError::InvalidWireIndex(wire_id)),
+                Entry::Vacant(vac) => Ok(vac.insert(wire)),
+            }
         }
 
         pub fn toggle_wire_not_mark(&mut self, wire_id: WireId) -> Result<(), WireError> {
-            if wire_id.0 >= self.initialized.len() || !self.initialized[wire_id.0] {
-                return Err(WireError::InvalidWireIndex(wire_id));
-            }
-
-            unsafe {
-                self.wires[wire_id.0].assume_init_mut().toggle_not();
-            }
+            self.wires
+                .get_mut(&wire_id)
+                .ok_or(WireError::InvalidWireIndex(wire_id))?
+                .toggle_not();
 
             Ok(())
         }
 
-        pub fn get_or_init(
-            &mut self,
+        pub fn get_or_init<'s>(
+            &'s mut self,
             wire_id: WireId,
             init: &mut impl FnMut() -> GarbledWire,
-        ) -> Result<&GarbledWire, WireError> {
-            if wire_id.0 >= self.max_wire_id {
-                return Err(WireError::InvalidWireIndex(wire_id));
+        ) -> Result<&'s GarbledWire, WireError> {
+            let containt = self.wires.contains_key(&wire_id);
+
+            match containt {
+                true => self.get(wire_id),
+                false => {
+                    self.init(wire_id, init())?;
+                    self.get(wire_id)
+                }
             }
-
-            self.ensure_capacity(wire_id.0 + 1)?;
-
-            if !self.initialized[wire_id.0] {
-                let wire = init();
-                self.wires[wire_id.0] = MaybeUninit::new(wire);
-                self.initialized.set(wire_id.0, true);
-            }
-
-            Ok(unsafe { self.wires[wire_id.0].assume_init_ref() })
         }
 
-        fn ensure_capacity(&mut self, size: usize) -> Result<(), WireError> {
-            if self.wires.len() < size {
-                self.wires.resize_with(size, MaybeUninit::uninit);
-                self.initialized.resize(size, false);
-            }
-            Ok(())
-        }
         pub fn size(&self) -> usize {
             // TODO Double check
-            self.initialized.last_one().unwrap_or(0)
+            self.wires.len()
         }
     }
 }
