@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{visit_mut::VisitMut, Error, Ident, ItemFn, Pat, Result};
+use syn::{Error, Ident, ItemFn, Pat, Result, visit_mut::VisitMut};
 
 use crate::parse_sig::ComponentSignature;
 

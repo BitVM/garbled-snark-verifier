@@ -1,4 +1,4 @@
-use syn::{punctuated::Punctuated, Error, FnArg, ItemFn, Lit, Meta, Pat, PatType, Result, Token};
+use syn::{Error, FnArg, ItemFn, Lit, Meta, Pat, PatType, Result, Token, punctuated::Punctuated};
 
 pub struct ComponentSignature {
     #[allow(dead_code)]

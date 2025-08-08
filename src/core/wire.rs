@@ -160,6 +160,10 @@ mod garbled_wires {
             }
             Ok(())
         }
+        pub fn size(&self) -> usize {
+            // TODO Double check
+            self.initialized.last_one().unwrap_or(0)
+        }
     }
 }
 pub use garbled_wires::GarbledWires;

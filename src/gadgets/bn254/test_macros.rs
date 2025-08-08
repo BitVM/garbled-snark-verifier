@@ -1,5 +1,5 @@
 //! Shared test macros for BN254 field operations
-//! 
+//!
 //! This module provides reusable test macro patterns that can be used across
 //! all BN254 field types (Fq, Fq2, Fq6, Fq12, Fr) to reduce code duplication
 //! and ensure consistent testing patterns.

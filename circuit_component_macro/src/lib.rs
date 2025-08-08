@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, punctuated::Punctuated, ItemFn, Meta, Token};
+use syn::{ItemFn, Meta, Token, parse_macro_input, punctuated::Punctuated};
 
 mod gen_wrapper;
 mod parse_sig;
