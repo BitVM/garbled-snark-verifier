@@ -4,11 +4,11 @@ use std::collections::{HashMap, HashSet};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{SlotMap, new_key_type};
 
 use crate::{
-    core::gate::garbling::Blake3Hasher, Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate,
-    WireId, S,
+    Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
+    core::gate::garbling::Blake3Hasher,
 };
 
 mod into_wire_list;

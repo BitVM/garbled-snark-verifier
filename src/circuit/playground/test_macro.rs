@@ -1,6 +1,6 @@
 use crate::{
-    circuit::playground::{CircuitBuilder, CircuitContext, ModeCache, SimpleInputs, TripleInputs},
     Gate, WireId,
+    circuit::playground::{CircuitBuilder, CircuitContext, ModeCache, SimpleInputs, TripleInputs},
 };
 
 // Simple implementations without the component macro for testing
@@ -48,10 +48,10 @@ fn big_chain_eval(
 mod tests {
     use super::*;
     use crate::{
-        circuit::playground::{
-            CheckGarbling, CircuitMode, ComponentHandle, Evaluate, Garble, GarbleCache, WireStack
-        },
         GarbledWire, S,
+        circuit::playground::{
+            CheckGarbling, CircuitMode, ComponentHandle, Evaluate, Garble, GarbleCache, WireStack,
+        },
     };
 
     // Deterministic label helpers for tests
