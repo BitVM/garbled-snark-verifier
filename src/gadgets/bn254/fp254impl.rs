@@ -6,7 +6,8 @@ use num_traits::{One, Zero};
 
 use super::super::bigint::{self, BigIntWires};
 use crate::{
-    Circuit, CircuitContext, Gate, WireId, gadgets::bigint::select,
+    CircuitContext, Gate, WireId, gadgets::bigint::select,
+    circuit::streaming::{TRUE_WIRE, FALSE_WIRE},
     math::montgomery::calculate_montgomery_constants,
 };
 
@@ -146,9 +147,9 @@ pub trait Fp254Impl {
     fn neg<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
-        let not_a = BigIntWires::new(circuit, a.len(), false, false);
+        let not_a = BigIntWires::new(circuit, a.len());
         not_a.iter().zip(a.iter()).for_each(|(not_a, a_i)| {
-            circuit.add_gate(Gate::xor(*a_i, C::TRUE_WIRE, *not_a));
+            circuit.add_gate(Gate::xor(*a_i, TRUE_WIRE, *not_a));
         });
 
         Self::add_constant(
@@ -162,7 +163,7 @@ pub trait Fp254Impl {
     fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
-        let shift_wire = C::FALSE_WIRE;
+        let shift_wire = FALSE_WIRE;
 
         let mut shifted_a = a.clone();
         let u = shifted_a.pop().unwrap();
@@ -248,7 +249,7 @@ pub trait Fp254Impl {
         assert_eq!(a.len(), Self::N_BITS);
 
         if b == &ark_bn254::Fq::ZERO {
-            return BigIntWires::new_constant(circuit, a.len(), &BigUint::zero()).unwrap();
+            return BigIntWires::new_constant(a.len(), &BigUint::zero()).unwrap();
         }
 
         if b == &Self::as_montgomery(ark_bn254::Fq::ONE) {
@@ -310,7 +311,7 @@ pub trait Fp254Impl {
         let bound_check = bigint::greater_than(circuit, &sub, &x_high);
 
         let modulus_as_biguint =
-            BigIntWires::new_constant(circuit, x_high.len(), &Self::modulus_as_biguint()).unwrap();
+            BigIntWires::new_constant(x_high.len(), &Self::modulus_as_biguint()).unwrap();
 
         let subtract_if_too_much = bigint::self_or_zero(circuit, &modulus_as_biguint, bound_check);
 
@@ -330,14 +331,13 @@ pub trait Fp254Impl {
         let mut u = Self::half(circuit, &neg_odd_part);
         let mut v = odd_part;
 
-        let mut k = BigIntWires::new_constant(circuit, a.len(), &BigUint::from(ark_bn254::Fq::ONE))
+        let mut k = BigIntWires::new_constant(a.len(), &BigUint::from(ark_bn254::Fq::ONE))
             .unwrap();
 
-        let mut r = BigIntWires::new_constant(circuit, a.len(), &BigUint::from(ark_bn254::Fq::ONE))
+        let mut r = BigIntWires::new_constant(a.len(), &BigUint::from(ark_bn254::Fq::ONE))
             .unwrap();
 
         let mut s = BigIntWires::new_constant(
-            circuit,
             a.len(),
             &BigUint::from(ark_bn254::Fq::ONE + ark_bn254::Fq::ONE),
         )
@@ -516,7 +516,7 @@ pub trait Fp254Impl {
         exp: &BigUint,
     ) -> BigIntWires {
         if exp.is_zero() {
-            return BigIntWires::new_constant(circuit, a.len(), &BigUint::one()).unwrap();
+            return BigIntWires::new_constant(a.len(), &BigUint::one()).unwrap();
         }
 
         if exp.is_one() {
@@ -553,9 +553,9 @@ pub trait Fp254Impl {
         assert_eq!(a.len(), Self::N_BITS);
 
         let half = Self::half(circuit, a);
-        let mut result = BigIntWires::new(circuit, a.len(), false, false);
-        let mut r1 = C::FALSE_WIRE;
-        let mut r2 = C::FALSE_WIRE;
+        let mut result = BigIntWires::new(circuit, a.len());
+        let mut r1 = FALSE_WIRE;
+        let mut r2 = FALSE_WIRE;
 
         for i in 0..Self::N_BITS {
             // msb to lsb

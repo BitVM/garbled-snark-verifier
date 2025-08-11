@@ -14,7 +14,7 @@ use num_traits::Zero;
 use rand::Rng;
 
 use crate::{
-    Circuit, CircuitContext, Gate, WireId,
+    CircuitContext, Gate, WireId,
     gadgets::{
         bigint::{self, BigIntWires, select},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
@@ -49,12 +49,6 @@ impl Fq2 {
     pub fn from_components(c0: Fq, c1: Fq) -> Self {
         Fq2([c0, c1])
     }
-
-    /// Mark both components as output
-    pub fn mark_as_output(&self, circuit: &mut Circuit) {
-        self.c0().0.mark_as_output(circuit);
-        self.c1().0.mark_as_output(circuit);
-    }
 }
 
 impl Fq2 {
@@ -80,10 +74,10 @@ impl Fq2 {
         ark_bn254::Fq2::new(Fq::from_bits(bits.0), Fq::from_bits(bits.1))
     }
 
-    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Fq2 {
+    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq2 {
         Fq2::from_components(
-            Fq::new(circuit, is_input, is_output),
-            Fq::new(circuit, is_input, is_output),
+            Fq::new(circuit),
+            Fq::new(circuit),
         )
     }
 
@@ -109,7 +103,7 @@ impl Fq2 {
         format!("c0: {c0_mask}, c1: {c1_mask}")
     }
 
-    pub fn equal_constant(circuit: &mut Circuit, a: &Fq2, b: &ark_bn254::Fq2) -> WireId {
+    pub fn equal_constant<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq2) -> WireId {
         let u = Fq::equal_constant(circuit, a.c0(), &b.c0);
         let v = Fq::equal_constant(circuit, a.c1(), &b.c1);
         let w = circuit.issue_wire();
@@ -117,7 +111,7 @@ impl Fq2 {
         w
     }
 
-    pub fn add(circuit: &mut Circuit, a: &Fq2, b: &Fq2) -> Fq2 {
+    pub fn add<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(b.c0().len(), Self::N_BITS / 2);
 
@@ -127,7 +121,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn add_constant(circuit: &mut Circuit, a: &Fq2, b: &ark_bn254::Fq2) -> Fq2 {
+    pub fn add_constant<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -136,7 +130,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn neg(circuit: &mut Circuit, a: Fq2) -> Fq2 {
+    pub fn neg<C: CircuitContext>(circuit: &mut C, a: Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -145,7 +139,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn sub(circuit: &mut Circuit, a: &Fq2, b: &Fq2) -> Fq2 {
+    pub fn sub<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -158,7 +152,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn double(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn double<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -168,7 +162,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn half(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn half<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -178,7 +172,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn triple(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn triple<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -187,7 +181,7 @@ impl Fq2 {
         Self::add(circuit, a, &a_2)
     }
 
-    pub fn mul_montgomery(circuit: &mut Circuit, a: &Fq2, b: &Fq2) -> Fq2 {
+    pub fn mul_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
         assert_eq!(b.c0().len(), Self::N_BITS / 2);
@@ -214,7 +208,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_by_constant_montgomery(circuit: &mut Circuit, a: &Fq2, b: &ark_bn254::Fq2) -> Fq2 {
+    pub fn mul_by_constant_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -235,7 +229,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_by_fq_montgomery(circuit: &mut Circuit, a: &Fq2, b: &Fq) -> Fq2 {
+    pub fn mul_by_fq_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &Fq) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
         assert_eq!(b.len(), Fq::N_BITS);
@@ -246,7 +240,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_by_constant_fq_montgomery(circuit: &mut Circuit, a: &Fq2, b: &ark_bn254::Fq) -> Fq2 {
+    pub fn mul_by_constant_fq_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -256,7 +250,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_constant_by_fq_montgomery(circuit: &mut Circuit, a: &ark_bn254::Fq2, b: &Fq) -> Fq2 {
+    pub fn mul_constant_by_fq_montgomery<C: CircuitContext>(circuit: &mut C, a: &ark_bn254::Fq2, b: &Fq) -> Fq2 {
         assert_eq!(b.len(), Fq::N_BITS);
 
         let c0 = Fq::mul_by_constant_montgomery(circuit, b, &a.c0);
@@ -265,7 +259,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_by_nonresidue(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn mul_by_nonresidue<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -282,7 +276,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn square_montgomery(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn square_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -297,7 +291,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn inverse_montgomery(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn inverse_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -314,7 +308,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn frobenius_montgomery(circuit: &mut Circuit, a: &Fq2, i: usize) -> Fq2 {
+    pub fn frobenius_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, i: usize) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -330,7 +324,7 @@ impl Fq2 {
         Fq2::from_components(a.c0().clone(), c1)
     }
 
-    pub fn div6(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn div6<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -341,7 +335,7 @@ impl Fq2 {
     }
 
     // Calculate c0² + c1²
-    fn norm_montgomery(circuit: &mut Circuit, c0: &Fq, c1: &Fq) -> Fq {
+    fn norm_montgomery<C: CircuitContext>(circuit: &mut C, c0: &Fq, c1: &Fq) -> Fq {
         let c0_square = Fq::square_montgomery(circuit, c0);
         let c1_square = Fq::square_montgomery(circuit, c1);
 
@@ -351,13 +345,13 @@ impl Fq2 {
     // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
     // Assume that the square root exists.
     // Special case: c1 == 0, not used in real case, just for testing
-    pub fn sqrt_c1_zero_montgomery(circuit: &mut Circuit, a: &Fq2, is_qr: WireId) -> Fq2 {
+    pub fn sqrt_c1_zero_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, is_qr: WireId) -> Fq2 {
         let c0_sqrt = Fq::sqrt_montgomery(circuit, a.c0());
         let c0_neg = Fq::neg(circuit, a.c0());
         let c1_sqrt = Fq::sqrt_montgomery(circuit, &c0_neg);
 
         let zero =
-            BigIntWires::new_constant(circuit, Fq::N_BITS, &num_bigint::BigUint::ZERO).unwrap();
+            BigIntWires::new_constant(Fq::N_BITS, &num_bigint::BigUint::ZERO).unwrap();
 
         let c0_final = select(circuit, &c0_sqrt, &zero, is_qr);
         let c1_final = select(circuit, &zero, &c1_sqrt, is_qr);
@@ -366,7 +360,7 @@ impl Fq2 {
     }
 
     // General case: c1 != 0
-    pub fn sqrt_general_montgomery(circuit: &mut Circuit, a: &Fq2) -> Fq2 {
+    pub fn sqrt_general_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         let alpha = Self::norm_montgomery(circuit, a.c0(), a.c1()); // c0² + c1²
         let alpha_sqrt = Fq::sqrt_montgomery(circuit, &alpha); // sqrt(norm)
 

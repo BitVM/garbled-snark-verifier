@@ -10,8 +10,7 @@ use rand::Rng;
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
-    Circuit, WireId,
-    core::wire,
+    CircuitContext, WireId,
     gadgets::{
         self,
         bigint::{self, Error},
@@ -64,23 +63,18 @@ impl Fq {
         ark_bn254::Fq::from_random_bytes(&bytes).unwrap()
     }
 
-    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fq) -> Result<Fq, Error> {
+    pub fn new_constant(u: &ark_bn254::Fq) -> Result<Fq, Error> {
         Ok(Fq(BigIntWires::new_constant(
-            circuit,
             Self::N_BITS,
             &BigUint::from(u.into_bigint()),
         )?))
     }
 
     /// Create new field element wires
-    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Fq {
-        Fq(BigIntWires::new(circuit, Self::N_BITS, is_input, is_output))
+    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq {
+        Fq(BigIntWires::new(circuit, Self::N_BITS))
     }
 
-    /// Mark this field element as output
-    pub fn mark_as_output(&self, circuit: &mut Circuit) {
-        self.0.mark_as_output(circuit);
-    }
 
     pub fn get_wire_bits_fn(
         wires: &Fq,
@@ -154,12 +148,12 @@ impl Fq {
         ark_bn254::Fq::from(u)
     }
 
-    pub fn wires(circuit: &mut Circuit) -> Fq {
-        Fq(BigIntWires::new(circuit, Self::N_BITS, false, false))
+    pub fn wires<C: CircuitContext>(circuit: &mut C) -> Fq {
+        Fq(BigIntWires::new(circuit, Self::N_BITS))
     }
 
     // Check if field element is quadratic non-residue in Montgomery form
-    pub fn is_qnr_montgomery(circuit: &mut Circuit, x: &Fq) -> WireId {
+    pub fn is_qnr_montgomery<C: CircuitContext>(circuit: &mut C, x: &Fq) -> WireId {
         // y = x^((p - 1)/2)
         let y = Fq::exp_by_constant_montgomery(
             circuit,
@@ -168,7 +162,6 @@ impl Fq {
         );
 
         let neg_one_mont = Fq(BigIntWires::new_constant(
-            circuit,
             Self::N_BITS,
             &BigUint::from(-ark_bn254::Fq::ONE),
         )
@@ -274,7 +267,7 @@ impl Fq {
     }
 
     /// Square root in Montgomery form (assuming input is quadratic residue)
-    pub fn sqrt_montgomery(circuit: &mut Circuit, a: &Fq) -> Fq {
+    pub fn sqrt_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq) -> Fq {
         assert_eq!(a.0.len(), Self::N_BITS);
 
         Self::exp_by_constant_montgomery(

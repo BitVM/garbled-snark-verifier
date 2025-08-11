@@ -20,7 +20,7 @@ use rand_chacha::ChaCha20Rng;
 
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
-    Circuit, WireId,
+    CircuitContext, WireId,
     core::wire,
     gadgets::{
         self,
@@ -91,23 +91,18 @@ impl Fr {
     ///
     /// # Returns
     /// Field element wires representing the constant value
-    pub fn new_constant(circuit: &mut Circuit, u: &ark_bn254::Fr) -> Result<Fr, Error> {
+    pub fn new_constant(u: &ark_bn254::Fr) -> Result<Fr, Error> {
         Ok(Fr(BigIntWires::new_constant(
-            circuit,
             Self::N_BITS,
             &BigUint::from(u.into_bigint()),
         )?))
     }
 
     /// Create new field element wires
-    pub fn new(circuit: &mut Circuit, is_input: bool, is_output: bool) -> Fr {
-        Fr(BigIntWires::new(circuit, Self::N_BITS, is_input, is_output))
+    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fr {
+        Fr(BigIntWires::new(circuit, Self::N_BITS))
     }
 
-    /// Mark this field element as output
-    pub fn mark_as_output(&self, circuit: &mut Circuit) {
-        self.0.mark_as_output(circuit);
-    }
 
     pub fn get_wire_bits_fn(
         wires: &Fr,
@@ -179,8 +174,8 @@ impl Fr {
         ark_bn254::Fr::from(u)
     }
 
-    pub fn wires(circuit: &mut Circuit) -> Fr {
-        Fr(BigIntWires::new(circuit, Self::N_BITS, false, false))
+    pub fn wires<C: CircuitContext>(circuit: &mut C) -> Fr {
+        Fr(BigIntWires::new(circuit, Self::N_BITS))
     }
 
     // Field arithmetic methods (directly using Fp254Impl trait methods)
@@ -235,7 +230,7 @@ impl Fr {
     ) -> Fr {
         let b_mont = Self::as_montgomery(*b);
         let b_wires =
-            BigIntWires::new_constant(circuit, Self::N_BITS, &BigUint::from(b_mont.into_bigint()))
+            BigIntWires::new_constant(Self::N_BITS, &BigUint::from(b_mont.into_bigint()))
                 .unwrap();
         Fr(<Self as Fp254Impl>::mul_montgomery(circuit, &a.0, &b_wires))
     }
