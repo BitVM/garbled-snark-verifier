@@ -7,10 +7,11 @@
 //! Fq2 is constructed as Fq[u]/(u² + 1) and is used as an intermediate field
 //! in the tower construction leading to Fq12 for pairing operations.
 
+use std::collections::HashMap;
+
 use ark_ff::{Field, Fp2Config, PrimeField, UniformRand};
 use num_traits::Zero;
 use rand::Rng;
-use std::collections::HashMap;
 
 use crate::{
     Circuit, CircuitContext, Gate, WireId,

@@ -1,5 +1,7 @@
-use std::ops::{Deref, DerefMut};
-use std::str::FromStr;
+use std::{
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;

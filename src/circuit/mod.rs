@@ -95,4 +95,4 @@ pub mod test;
 #[cfg(test)]
 pub mod test_util;
 
-pub mod playground;
+pub mod streaming;

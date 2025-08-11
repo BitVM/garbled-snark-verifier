@@ -4,8 +4,6 @@ mod gadgets;
 mod math;
 
 // Re-export the procedural macro
-pub use circuit_component_macro::component;
-
 pub use core::{
     delta::Delta,
     gate::{Gate, GateError},
@@ -17,6 +15,7 @@ pub use core::{
 pub use circuit::{
     Circuit, CircuitContext, CircuitError, EvaluatedCircuit, FinalizedCircuit, GarbledCircuit,
 };
+pub use circuit_component_macro::component;
 pub use math::*;
 
 #[cfg(test)]

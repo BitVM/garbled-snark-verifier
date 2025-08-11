@@ -1,5 +1,4 @@
-use super::super::GateId;
-use super::*;
+use super::{super::GateId, *};
 use crate::{Delta, EvaluatedWire, GarbledWire, GateType, S, test_utils::trng};
 
 const GATE_ID: GateId = 0;

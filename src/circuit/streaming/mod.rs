@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
-use slotmap::{SlotMap, new_key_type};
 
 use crate::{
     Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
@@ -12,109 +11,103 @@ use crate::{
 };
 
 mod into_wire_list;
-pub use into_wire_list::IntoWireList;
+pub use into_wire_list::{IntoWireList, IntoWires};
 
-pub trait IntoWires {
-    fn get_wires_vec(&self) -> Vec<WireId>;
-}
+mod circuit_context_trait {
 
-impl<T: IntoWireList + Clone> IntoWires for T {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        self.clone().into_wire_list()
+    // Export constants at module level
+    pub const FALSE_WIRE: WireId = WireId(0);
+    pub const TRUE_WIRE: WireId = WireId(1);
+
+    use crate::{
+        Gate, WireId,
+        circuit::streaming::{CircuitMode, ComponentHandle, IntoWires},
+    };
+
+    /// Simplified CircuitContext trait for hierarchical circuit building
+    /// Focuses on core operations without flat circuit input/output designation
+    pub trait CircuitContext {
+        type Mode: CircuitMode;
+
+        /// Allocates a new wire and returns its identifier
+        fn issue_wire(&mut self) -> WireId;
+
+        /// Adds a gate to the current component
+        fn add_gate(&mut self, gate: Gate);
+
+        fn with_child<O: IntoWires>(
+            &mut self,
+            input_wires: Vec<WireId>,
+            f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
+        ) -> O;
     }
 }
+pub use circuit_context_trait::{CircuitContext, FALSE_WIRE, TRUE_WIRE};
 
-/// Simplified CircuitContext trait for hierarchical circuit building
-/// Focuses on core operations without flat circuit input/output designation
-pub trait CircuitContext {
-    type Mode: CircuitMode;
+pub mod component {
+    use slotmap::{SlotMap, new_key_type};
 
-    /// Allocates a new wire and returns its identifier
-    fn issue_wire(&mut self) -> WireId;
+    use crate::{Gate, WireId};
 
-    /// Adds a gate to the current component
-    fn add_gate(&mut self, gate: Gate);
+    new_key_type! { pub struct ComponentId; }
 
-    fn with_child<O: IntoWires>(
-        &mut self,
-        input_wires: Vec<WireId>,
-        f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
-    ) -> O;
-}
+    #[derive(Clone, Debug)]
+    pub enum Action {
+        Gate(Gate),
+        Call { id: ComponentId },
+    }
 
-// Constants available to all context users
-pub const FALSE_WIRE: WireId = WireId(0);
-pub const TRUE_WIRE: WireId = WireId(1);
+    #[derive(Clone, Debug)]
+    pub struct Component {
+        pub internal_wire_offset: usize,
+        pub num_wire: usize,
+        pub input_wires: Vec<WireId>,
+        pub output_wires: Vec<WireId>,
+        pub actions: Vec<Action>,
+    }
 
-new_key_type! { pub struct ComponentId; }
+    impl Component {
+        pub fn empty_root() -> Self {
+            Self {
+                internal_wire_offset: 0,
+                num_wire: 2,
+                input_wires: Vec::new(),
+                output_wires: Vec::new(),
+                actions: Vec::new(),
+            }
+        }
+    }
 
-#[derive(Clone, Debug)]
-pub enum Action {
-    Gate(Gate),
-    Call { id: ComponentId },
-}
+    pub struct ComponentPool(pub(super) SlotMap<ComponentId, Component>);
 
-#[derive(Clone, Debug)]
-pub struct Component {
-    pub internal_wire_offset: usize,
-    pub num_wire: usize,
-    pub input_wires: Vec<WireId>,
-    pub output_wires: Vec<WireId>,
-    pub actions: Vec<Action>,
-}
+    impl ComponentPool {
+        pub(super) fn new() -> Self {
+            ComponentPool(SlotMap::with_key())
+        }
 
-impl Component {
-    pub fn empty_root() -> Self {
-        Self {
-            internal_wire_offset: 0,
-            num_wire: 2,
-            input_wires: Vec::new(),
-            output_wires: Vec::new(),
-            actions: Vec::new(),
+        pub(super) fn insert(&mut self, c: Component) -> ComponentId {
+            self.0.insert(c)
+        }
+
+        pub(super) fn remove(&mut self, id: ComponentId) {
+            self.0.remove(id);
+        }
+
+        pub(super) fn get(&self, id: ComponentId) -> &Component {
+            &self.0[id]
+        }
+
+        pub(super) fn get_mut(&mut self, id: ComponentId) -> &mut Component {
+            &mut self.0[id]
+        }
+
+        pub(super) fn take(&mut self, id: ComponentId) -> Component {
+            self.0.remove(id).unwrap()
         }
     }
 }
 
-pub struct ComponentPool(SlotMap<ComponentId, Component>);
-
-impl ComponentPool {
-    fn insert(&mut self, c: Component) -> ComponentId {
-        self.0.insert(c)
-    }
-
-    fn remove(&mut self, id: ComponentId) {
-        self.0.remove(id);
-    }
-
-    fn get(&self, id: ComponentId) -> &Component {
-        &self.0[id]
-    }
-
-    fn get_mut(&mut self, id: ComponentId) -> &mut Component {
-        &mut self.0[id]
-    }
-
-    fn take(&mut self, id: ComponentId) -> Component {
-        self.0.remove(id).unwrap()
-    }
-}
-
-pub trait ModeCache {
-    type Value: Clone;
-
-    fn lookup_wire(&self, wire: WireId) -> Option<&Self::Value>;
-
-    fn feed_wire(&mut self, wire: WireId, value: Self::Value);
-
-    fn size(&self) -> usize;
-
-    fn push_frame(&mut self, inputs: Vec<(WireId, Self::Value)>);
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::Value)>;
-
-    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, Self::Value)>;
-    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, Self::Value)>;
-}
+use component::{Action, Component, ComponentId, ComponentPool};
 
 pub struct Frame<T> {
     // Change to something cache-friendly
@@ -205,9 +198,7 @@ impl<T: Clone> WireStack<T> {
     }
 }
 
-impl ModeCache for WireStack<bool> {
-    type Value = bool;
-
+impl WireStack<bool> {
     fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
         match wire {
             FALSE_WIRE => Some(&false),
@@ -218,18 +209,6 @@ impl ModeCache for WireStack<bool> {
 
     fn feed_wire(&mut self, wire: WireId, value: bool) {
         self.insert(wire, value);
-    }
-
-    fn size(&self) -> usize {
-        WireStack::size(self)
-    }
-
-    fn push_frame(&mut self, inputs: Vec<(WireId, bool)>) {
-        WireStack::push_frame(self, inputs);
-    }
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
-        WireStack::pop_frame(self, outputs)
     }
 
     fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, bool)> {
@@ -349,30 +328,70 @@ impl<'a> ComponentHandle<'a, Evaluate> {
 }
 
 pub trait CircuitMode {
-    type Cache: ModeCache;
+    type Value: Clone;
 
-    fn evaluate_gate(
-        gate: &Gate,
-        cache: &mut Self::Cache,
-    ) -> Option<<Self::Cache as ModeCache>::Value>;
+    fn lookup_wire(&self, wire: WireId) -> Option<&Self::Value>;
+
+    fn feed_wire(&mut self, wire: WireId, value: Self::Value);
+
+    fn size(&self) -> usize;
+
+    fn push_frame(&mut self, inputs: Vec<(WireId, Self::Value)>);
+
+    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::Value)>;
+
+    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, Self::Value)>;
+
+    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, Self::Value)>;
+
+    fn evaluate_gate(&mut self, gate: &Gate) -> Option<Self::Value>;
 }
 
-pub struct Evaluate;
-impl CircuitMode for Evaluate {
-    type Cache = WireStack<bool>;
+pub struct Evaluate(WireStack<bool>);
 
-    fn evaluate_gate(gate: &Gate, cache: &mut Self::Cache) -> Option<bool> {
-        let wire_a_val = cache.lookup_wire(gate.wire_a)?;
-        let wire_b_val = cache.lookup_wire(gate.wire_b)?;
+impl CircuitMode for Evaluate {
+    type Value = bool;
+
+    fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
+        self.0.lookup_wire(wire)
+    }
+
+    fn feed_wire(&mut self, wire: WireId, value: bool) {
+        self.0.feed_wire(wire, value);
+    }
+
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    fn push_frame(&mut self, inputs: Vec<(WireId, bool)>) {
+        self.0.push_frame(inputs);
+    }
+
+    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
+        self.0.pop_frame(outputs)
+    }
+
+    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, bool)> {
+        self.0.prepare_frame_inputs(input_wires)
+    }
+
+    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, bool)> {
+        self.0.extract_frame_outputs(output_wires)
+    }
+
+    fn evaluate_gate(&mut self, gate: &Gate) -> Option<bool> {
+        let wire_a_val = self.lookup_wire(gate.wire_a)?;
+        let wire_b_val = self.lookup_wire(gate.wire_b)?;
         let result = (gate.gate_type.f())(*wire_a_val, *wire_b_val);
-        cache.feed_wire(gate.wire_c, result);
+        self.feed_wire(gate.wire_c, result);
         Some(result)
     }
 }
 
 // Example modes to demonstrate the generic design
 
-pub struct Garble;
+pub struct Garble(GarbleCache);
 
 pub struct GarbleCache {
     rng: ChaChaRng,
@@ -403,14 +422,12 @@ impl GarbleCache {
     }
 }
 
-impl ModeCache for GarbleCache {
-    type Value = GarbledWire;
-
-    fn lookup_wire(&self, wire: WireId) -> Option<&Self::Value> {
+impl GarbleCache {
+    fn lookup_wire(&self, wire: WireId) -> Option<&GarbledWire> {
         self.wires.last().and_then(|last| last.get(wire).ok())
     }
 
-    fn feed_wire(&mut self, wire: WireId, value: Self::Value) {
+    fn feed_wire(&mut self, wire: WireId, value: GarbledWire) {
         self.wires.last_mut().unwrap().init(wire, value).unwrap();
     }
 
@@ -418,7 +435,7 @@ impl ModeCache for GarbleCache {
         self.wires.iter().map(|l| l.size()).sum()
     }
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, Self::Value)>) {
+    fn push_frame(&mut self, inputs: Vec<(WireId, GarbledWire)>) {
         let mut new_cache = GarbledWires::new(self.component_max_live_wires);
         inputs.into_iter().for_each(|(wire_id, value)| {
             new_cache.init(wire_id, value).unwrap();
@@ -427,10 +444,7 @@ impl ModeCache for GarbleCache {
         self.wires.push(new_cache);
     }
 
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::Value)>
-    where
-        Self::Value: Clone,
-    {
+    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, GarbledWire)> {
         let last = self.wires.pop().unwrap();
 
         outputs
@@ -456,45 +470,68 @@ impl ModeCache for GarbleCache {
 }
 
 impl CircuitMode for Garble {
-    type Cache = GarbleCache;
+    type Value = GarbledWire;
 
-    fn evaluate_gate(
-        gate: &Gate,
-        cache: &mut Self::Cache,
-    ) -> Option<<Self::Cache as ModeCache>::Value> {
-        let gate_id = cache.nect_gate_index();
+    fn lookup_wire(&self, wire: WireId) -> Option<&GarbledWire> {
+        self.0.lookup_wire(wire)
+    }
+
+    fn feed_wire(&mut self, wire: WireId, value: GarbledWire) {
+        self.0.feed_wire(wire, value);
+    }
+
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    fn push_frame(&mut self, inputs: Vec<(WireId, GarbledWire)>) {
+        self.0.push_frame(inputs);
+    }
+
+    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, GarbledWire)> {
+        self.0.pop_frame(outputs)
+    }
+
+    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
+        self.0.prepare_frame_inputs(input_wires)
+    }
+
+    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
+        self.0.extract_frame_outputs(output_wires)
+    }
+
+    fn evaluate_gate(&mut self, gate: &Gate) -> Option<GarbledWire> {
+        let gate_id = self.0.nect_gate_index();
 
         if let Some(ciphertext) = gate
             .garble::<Blake3Hasher>(
                 gate_id,
-                cache.wires.last_mut().unwrap(),
-                &cache.delta,
-                &mut cache.rng,
+                self.0.wires.last_mut().unwrap(),
+                &self.0.delta,
+                &mut self.0.rng,
             )
             .unwrap()
         {
-            cache.garble_table.push(ciphertext);
+            self.0.garble_table.push(ciphertext);
         }
 
         todo!()
     }
 }
 
-pub struct CheckGarbling;
+pub struct CheckGarbling(CheckGarblingCache);
 
 #[derive(Default)]
 pub struct CheckGarblingCache {
     wires: Vec<HashMap<WireId, EvaluatedWire>>,
 }
 
-impl ModeCache for CheckGarblingCache {
-    type Value = EvaluatedWire;
-
-    fn lookup_wire(&self, wire: WireId) -> Option<&Self::Value> {
+impl CheckGarblingCache {
+    fn lookup_wire(&self, wire: WireId) -> Option<&EvaluatedWire> {
         self.wires.last().and_then(|last| last.get(&wire))
     }
 
-    fn feed_wire(&mut self, wire: WireId, value: Self::Value) {
+    fn feed_wire(&mut self, wire: WireId, value: EvaluatedWire) {
         self.wires.last_mut().unwrap().insert(wire, value);
     }
 
@@ -502,14 +539,11 @@ impl ModeCache for CheckGarblingCache {
         self.wires.len()
     }
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, Self::Value)>) {
+    fn push_frame(&mut self, inputs: Vec<(WireId, EvaluatedWire)>) {
         self.wires.push(inputs.into_iter().collect())
     }
 
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::Value)>
-    where
-        Self::Value: Clone,
-    {
+    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
         self.wires
             .pop()
             .unwrap()
@@ -534,12 +568,37 @@ impl ModeCache for CheckGarblingCache {
 }
 
 impl CircuitMode for CheckGarbling {
-    type Cache = CheckGarblingCache;
+    type Value = EvaluatedWire;
 
-    fn evaluate_gate(
-        _gate: &Gate,
-        _cache: &mut Self::Cache,
-    ) -> Option<<Self::Cache as ModeCache>::Value> {
+    fn lookup_wire(&self, wire: WireId) -> Option<&EvaluatedWire> {
+        self.0.lookup_wire(wire)
+    }
+
+    fn feed_wire(&mut self, wire: WireId, value: EvaluatedWire) {
+        self.0.feed_wire(wire, value);
+    }
+
+    fn size(&self) -> usize {
+        self.0.size()
+    }
+
+    fn push_frame(&mut self, inputs: Vec<(WireId, EvaluatedWire)>) {
+        self.0.push_frame(inputs);
+    }
+
+    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
+        self.0.pop_frame(outputs)
+    }
+
+    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
+        self.0.prepare_frame_inputs(input_wires)
+    }
+
+    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
+        self.0.extract_frame_outputs(output_wires)
+    }
+
+    fn evaluate_gate(&mut self, _gate: &Gate) -> Option<EvaluatedWire> {
         todo!()
     }
 }
@@ -547,23 +606,21 @@ impl CircuitMode for CheckGarbling {
 pub struct CircuitBuilder<M: CircuitMode> {
     pool: ComponentPool,
     stack: Vec<ComponentId>,
-    wire_cache: M::Cache,
+    wire_cache: M,
     next_wire_id: usize,
 }
 
+pub struct StreamingResult {}
+
 impl<M: CircuitMode> CircuitBuilder<M> {
     /// Convenience wrapper using the generic streaming path for Evaluate mode
-    pub fn streaming_process<I, F>(
-        inputs: I,
-        wire_cache: M::Cache,
-        f: F,
-    ) -> Vec<<M::Cache as ModeCache>::Value>
+    pub fn streaming_process<I, F>(inputs: I, wire_cache: M, f: F) -> Vec<M::Value>
     where
         I: CircuitInput + EncodeInput<M>,
         F: FnOnce(&mut ComponentHandle<M>, I::WireRepr) -> Vec<WireId>,
     {
         let mut builder = Self {
-            pool: ComponentPool(SlotMap::with_key()),
+            pool: ComponentPool::new(),
             stack: vec![],
             wire_cache,
             next_wire_id: 2,
@@ -642,7 +699,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
     where
         M: CircuitMode,
     {
-        M::evaluate_gate(&gate, &mut self.wire_cache).unwrap();
+        self.wire_cache.evaluate_gate(&gate).unwrap();
 
         // Always store the gate action for structural purposes (garbling, proofs, etc.)
         self.pool
@@ -680,7 +737,7 @@ pub trait CircuitInput {
 
 /// Trait for encoding semantic values into mode-specific caches
 pub trait EncodeInput<M: CircuitMode>: Sized + CircuitInput {
-    fn encode(self, repr: &Self::WireRepr, cache: &mut M::Cache);
+    fn encode(self, repr: &Self::WireRepr, cache: &mut M);
 }
 
 // ――― Example Implementation ―――
@@ -715,7 +772,7 @@ impl CircuitInput for Inputs {
 }
 
 impl EncodeInput<Evaluate> for Inputs {
-    fn encode(self, repr: &InputsWire, cache: &mut WireStack<bool>) {
+    fn encode(self, repr: &InputsWire, cache: &mut Evaluate) {
         cache.feed_wire(repr.flag, self.flag);
         let bits = self.nonce.to_bits_le();
         for (i, bit) in bits.into_iter().enumerate() {
@@ -754,7 +811,7 @@ impl CircuitInput for SimpleInputs {
 }
 
 impl EncodeInput<Evaluate> for SimpleInputs {
-    fn encode(self, repr: &SimpleInputsWire, cache: &mut WireStack<bool>) {
+    fn encode(self, repr: &SimpleInputsWire, cache: &mut Evaluate) {
         println!(
             "DEBUG: Encoding wire A: {a:?} = {av}, wire B: {b:?} = {bv}",
             a = repr.a,
@@ -797,7 +854,7 @@ impl CircuitInput for TripleInputs {
 }
 
 impl EncodeInput<Evaluate> for TripleInputs {
-    fn encode(self, repr: &TripleInputsWire, cache: &mut WireStack<bool>) {
+    fn encode(self, repr: &TripleInputsWire, cache: &mut Evaluate) {
         cache.feed_wire(repr.a, self.a);
         cache.feed_wire(repr.b, self.b);
         cache.feed_wire(repr.c, self.c);
@@ -820,7 +877,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 let InputsWire { flag, nonce } = inputs_wire;
 
@@ -844,7 +901,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 // Create some logic using the allocated wires
                 // Test flag AND first bit of nonce
@@ -879,7 +936,7 @@ mod eval_test {
 
         CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 let parent_secret = root.issue_wire();
                 root.add_gate(Gate::and(inputs_wire.a, inputs_wire.b, parent_secret));
@@ -905,7 +962,7 @@ mod eval_test {
 
         CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 root.with_child(vec![inputs_wire.a], |_child| {
                     // Child declares an output but never creates it
@@ -924,7 +981,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, _inputs_wire| {
                 let result = root.with_child(vec![], |child| {
                     // Use constants without passing them as inputs
@@ -947,7 +1004,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs.clone(),
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 let mut current = inputs_wire.a;
 
@@ -968,7 +1025,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 let mut current = inputs_wire.b;
 
@@ -994,7 +1051,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 // First child creates a wire
                 let child1_output = root.with_child(vec![inputs_wire.a], |child| {
@@ -1027,7 +1084,7 @@ mod eval_test {
 
         CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, _inputs_wire| {
                 // Parent issues a wire but doesn't pass it to child
                 let _parent_secret = root.issue_wire();
@@ -1049,20 +1106,21 @@ mod eval_test {
         // Test that root frame is properly released after streaming_process
         let inputs = SimpleInputs { a: true, b: false };
 
+        let wire_cache = Evaluate(WireStack::<bool>::default());
         let builder = CircuitBuilder::<Evaluate> {
-            pool: ComponentPool(SlotMap::with_key()),
+            pool: ComponentPool::new(),
             stack: vec![],
-            wire_cache: WireStack::<bool>::default(),
+            wire_cache,
             next_wire_id: 2,
         };
 
         // Check initial state
-        assert_eq!(builder.wire_cache.frames.len(), 0);
+        assert_eq!(builder.wire_cache.0.frames.len(), 0);
 
         // Run a simple circuit
         let _output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 let result = root.issue_wire();
                 root.add_gate(Gate::and(inputs_wire.a, inputs_wire.b, result));
@@ -1081,7 +1139,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, _inputs_wire| {
                 // Use constants in parent
                 let parent_result = root.issue_wire();
@@ -1109,7 +1167,7 @@ mod eval_test {
 
         let output = CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 let mut current = inputs_wire.a;
 
@@ -1137,7 +1195,7 @@ mod eval_test {
 
         CircuitBuilder::<Evaluate>::streaming_process(
             inputs,
-            WireStack::default(),
+            Evaluate(WireStack::default()),
             |root, inputs_wire| {
                 root.with_child(vec![inputs_wire.a], |child| {
                     let result = child.issue_wire();

@@ -383,16 +383,13 @@ impl Fq12 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::str::FromStr;
+    use std::{collections::HashMap, str::FromStr};
 
     use ark_ff::CyclotomicMultSubgroup;
     use num_bigint::BigUint;
 
-    use crate::gadgets::bn254::Fp254Impl;
-
     use super::*;
-    use crate::test_utils::trng;
+    use crate::{gadgets::bn254::Fp254Impl, test_utils::trng};
 
     fn random() -> ark_bn254::Fq12 {
         Fq12::random(&mut trng())

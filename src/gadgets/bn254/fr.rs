@@ -7,14 +7,15 @@
 //! The Fr type wraps BigIntWires to provide field-specific operations in Montgomery form
 //! for efficient modular arithmetic within garbled circuits.
 
-use std::ops::{Deref, DerefMut};
-use std::str::FromStr;
+use std::{
+    ops::{Deref, DerefMut},
+    str::FromStr,
+};
 
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
 use num_bigint::BigUint;
-use rand::Rng;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 use super::super::bn254::fp254impl::Fp254Impl;
