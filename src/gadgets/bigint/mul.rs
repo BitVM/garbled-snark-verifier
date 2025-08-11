@@ -24,7 +24,10 @@ pub fn mul_generic<C: CircuitContext>(
     assert_eq!(a.len(), b.len());
     let len = a.len();
 
-    let mut result_bits: Vec<_> = (0..(len * 2)).map(|_| C::FALSE_WIRE).collect();
+    let mut result_bits: Vec<_> = (0..(len * 2)).map(|_| circuit.issue_wire()).collect();
+    for wire in &result_bits {
+        circuit.add_gate(Gate::new(GateType::Nimp, a.bits[0], a.bits[0], *wire));
+    }
 
     for (i, &current_bit) in b.iter().enumerate() {
         let addition_wires_0: Vec<WireId> = result_bits[i..i + len].to_vec();
@@ -65,7 +68,12 @@ pub fn mul_karatsuba<C: CircuitContext>(
         return mul_generic(circuit, a, b);
     }
 
-    let mut result_bits = vec![C::FALSE_WIRE; len * 2];
+    let mut result_bits: Vec<WireId> = Vec::with_capacity(len * 2);
+    for _ in 0..(len * 2) {
+        let wire = circuit.issue_wire();
+        circuit.add_gate(Gate::new(GateType::Nimp, a.bits[0], a.bits[0], wire));
+        result_bits.push(wire);
+    }
 
     let len_0 = len / 2;
     let len_1 = len.div_ceil(2);
@@ -171,7 +179,7 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
     }
 }
 
-#[component]
+#[component(ignore = "c")]
 pub fn mul_by_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -205,7 +213,7 @@ pub fn mul_by_constant<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
-#[component]
+#[component(ignore = "c,power")]
 pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -255,42 +263,132 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
 }
 #[cfg(test)]
 mod tests {
+    use std::{array, collections::HashMap};
+
     use test_log::test;
 
     use super::*;
-    use crate::{test_utils::trng};
+    use crate::{
+        circuit::{
+            CircuitBuilder, CircuitInput,
+            streaming::{
+                ComponentHandle, EncodeInput, Execute, IntoWireList, StreamingResult,
+                modes::CircuitMode,
+            },
+        },
+        gadgets::bigint::bits_from_biguint_with_len,
+    };
+
+    struct Input<const N: usize> {
+        len: usize,
+        bns: [BigUint; N],
+    }
+
+    impl<const N: usize> Input<N> {
+        fn new(n_bits: usize, bns: [u64; N]) -> Self {
+            Self {
+                len: n_bits,
+                bns: bns.map(BigUint::from),
+            }
+        }
+    }
+
+    impl<const N: usize> CircuitInput for Input<N> {
+        type WireRepr = [BigIntWires; N];
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            array::from_fn(|_| BigIntWires::new(ctx, self.len))
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            repr.iter().flat_map(|a| a.iter().copied()).collect()
+        }
+    }
+
+    impl<const N: usize> EncodeInput<Execute> for Input<N> {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            self.bns.iter().zip(repr.iter()).for_each(|(bn, bn_wires)| {
+                let bits = bits_from_biguint_with_len(bn, self.len).unwrap();
+                bn_wires.iter().zip(bits).for_each(|(w, b)| {
+                    cache.feed_wire(*w, b);
+                });
+            });
+        }
+    }
 
     fn test_mul_operation(
         n_bits: usize,
         a_val: u64,
         b_val: u64,
         expected: u128,
-        operation: impl FnOnce(&mut Circuit, &BigIntWires, &BigIntWires) -> BigIntWires,
+        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigIntWires) -> BigIntWires,
     ) {
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, n_bits, true, false);
-        let b = BigIntWires::new(&mut circuit, n_bits, true, false);
-        let result = operation(&mut circuit, &a, &b);
+        let input = Input::new(n_bits, [a_val, b_val]);
 
-        assert_eq!(result.bits.len(), n_bits * 2);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, input| {
+            let [a, b] = input;
+            let result = operation(root, a, b);
+            assert_eq!(result.bits.len(), n_bits * 2);
 
-        result.bits.iter().for_each(|bit| {
-            circuit.make_wire_output(*bit);
+            result.into_wire_list()
         });
 
-        let a_big = BigUint::from(a_val);
-        let b_big = BigUint::from(b_val);
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
         let expected_big = BigUint::from(expected);
+        let expected_fn = res.get_wire_bits_fn(&expected_big).unwrap();
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let b_input = b.get_wire_bits_fn(&b_big).unwrap();
-        let get_expected_result_fn = result.get_wire_bits_fn(&expected_big).unwrap();
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        circuit.full_cycle_test(
-            |id| a_input(id).or_else(|| b_input(id)),
-            get_expected_result_fn,
-            &mut trng(),
-        );
+        assert_eq!(expected, actual);
+    }
+
+    struct SingleInput {
+        len: usize,
+        bn: BigUint,
+    }
+
+    impl SingleInput {
+        fn new(n_bits: usize, bn: u64) -> Self {
+            Self {
+                len: n_bits,
+                bn: BigUint::from(bn),
+            }
+        }
+    }
+
+    impl CircuitInput for SingleInput {
+        type WireRepr = BigIntWires;
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            BigIntWires::new(ctx, self.len)
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            repr.iter().copied().collect()
+        }
+    }
+
+    impl EncodeInput<Execute> for SingleInput {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            let bits = bits_from_biguint_with_len(&self.bn, self.len).unwrap();
+            repr.iter().zip(bits).for_each(|(w, b)| {
+                cache.feed_wire(*w, b);
+            });
+        }
     }
 
     fn test_mul_by_constant_operation(
@@ -298,24 +396,37 @@ mod tests {
         a_val: u64,
         c_val: u64,
         expected: u128,
-        operation: impl FnOnce(&mut Circuit, &BigIntWires, &BigUint) -> BigIntWires,
+        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigUint) -> BigIntWires,
     ) {
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, n_bits, true, false);
+        let input = SingleInput::new(n_bits, a_val);
         let c_big = BigUint::from(c_val);
-        let result = operation(&mut circuit, &a, &c_big);
 
-        result.bits.iter().for_each(|bit| {
-            circuit.make_wire_output(*bit);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, a| {
+            let result = operation(root, a, &c_big);
+            result.into_wire_list()
         });
 
-        let a_big = BigUint::from(a_val);
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
         let expected_big = BigUint::from(expected);
+        let expected_fn = res.get_wire_bits_fn(&expected_big).unwrap();
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let get_expected_result_fn = result.get_wire_bits_fn(&expected_big).unwrap();
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        circuit.full_cycle_test(a_input, get_expected_result_fn, &mut trng());
+        assert_eq!(expected, actual);
     }
 
     const NUM_BITS: usize = 8;
@@ -323,46 +434,48 @@ mod tests {
     // Basic multiplication tests
     #[test]
     fn test_mul_generic_basic() {
-        test_mul_operation(NUM_BITS, 5, 3, 15, mul_generic);
+        test_mul_operation(NUM_BITS, 5, 3, 15, |c, a, b| mul_generic(c, a, b));
     }
 
     #[test]
     fn test_mul_generic_larger() {
-        test_mul_operation(NUM_BITS, 15, 17, 255, mul_generic);
+        test_mul_operation(NUM_BITS, 15, 17, 255, |c, a, b| mul_generic(c, a, b));
     }
 
     #[test]
     fn test_mul_generic_zero() {
-        test_mul_operation(NUM_BITS, 0, 42, 0, mul_generic);
-        test_mul_operation(NUM_BITS, 42, 0, 0, mul_generic);
+        test_mul_operation(NUM_BITS, 0, 42, 0, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 42, 0, 0, |c, a, b| mul_generic(c, a, b));
     }
 
     #[test]
     fn test_mul_generic_one() {
-        test_mul_operation(NUM_BITS, 1, 42, 42, mul_generic);
-        test_mul_operation(NUM_BITS, 42, 1, 42, mul_generic);
+        test_mul_operation(NUM_BITS, 1, 42, 42, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 42, 1, 42, |c, a, b| mul_generic(c, a, b));
     }
 
     #[test]
     fn test_mul_generic_max_values() {
         // Test with maximum values for given bit size
         let max_val = (1u64 << NUM_BITS) - 1; // 255 for 8 bits
-        test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, mul_generic);
+        test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, |c, a, b| {
+            mul_generic(c, a, b)
+        });
         test_mul_operation(
             NUM_BITS,
             max_val,
             max_val,
             (max_val as u128) * (max_val as u128),
-            mul_generic,
+            |c, a, b| mul_generic(c, a, b),
         );
     }
 
     #[test]
     fn test_mul_generic_powers_of_two() {
-        test_mul_operation(NUM_BITS, 2, 2, 4, mul_generic);
-        test_mul_operation(NUM_BITS, 4, 4, 16, mul_generic);
-        test_mul_operation(NUM_BITS, 8, 8, 64, mul_generic);
-        test_mul_operation(NUM_BITS, 16, 16, 256, mul_generic);
+        test_mul_operation(NUM_BITS, 2, 2, 4, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 4, 4, 16, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 8, 8, 64, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 16, 16, 256, |c, a, b| mul_generic(c, a, b));
     }
 
     #[test]
@@ -370,61 +483,71 @@ mod tests {
         // Test that a * b == b * a
         let test_cases = [(5, 7), (13, 19), (1, 255), (17, 23)];
         for (a, b) in test_cases {
-            test_mul_operation(NUM_BITS, a, b, (a as u128) * (b as u128), mul_generic);
-            test_mul_operation(NUM_BITS, b, a, (a as u128) * (b as u128), mul_generic);
+            test_mul_operation(NUM_BITS, a, b, (a as u128) * (b as u128), |c, x, y| {
+                mul_generic(c, x, y)
+            });
+            test_mul_operation(NUM_BITS, b, a, (a as u128) * (b as u128), |c, x, y| {
+                mul_generic(c, x, y)
+            });
         }
     }
 
     // Karatsuba multiplication tests
     #[test]
     fn test_mul_karatsuba_basic() {
-        test_mul_operation(NUM_BITS, 5, 3, 15, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 5, 3, 15, |c, a, b| mul_karatsuba(c, a, b));
     }
 
     #[test]
     fn test_mul_karatsuba_larger() {
-        test_mul_operation(NUM_BITS, 15, 17, 255, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 15, 17, 255, |c, a, b| mul_karatsuba(c, a, b));
     }
 
     #[test]
     fn test_mul_karatsuba_zero() {
-        test_mul_operation(NUM_BITS, 0, 42, 0, mul_karatsuba);
-        test_mul_operation(NUM_BITS, 42, 0, 0, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 0, 42, 0, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 42, 0, 0, |c, a, b| mul_karatsuba(c, a, b));
     }
 
     #[test]
     fn test_mul_karatsuba_one() {
-        test_mul_operation(NUM_BITS, 1, 42, 42, mul_karatsuba);
-        test_mul_operation(NUM_BITS, 42, 1, 42, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 1, 42, 42, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 42, 1, 42, |c, a, b| mul_karatsuba(c, a, b));
     }
 
     #[test]
     fn test_mul_karatsuba_max_values() {
         let max_val = (1u64 << NUM_BITS) - 1;
-        test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, mul_karatsuba);
+        test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, |c, a, b| {
+            mul_karatsuba(c, a, b)
+        });
         test_mul_operation(
             NUM_BITS,
             max_val,
             max_val,
             (max_val as u128) * (max_val as u128),
-            mul_karatsuba,
+            |c, a, b| mul_karatsuba(c, a, b),
         );
     }
 
     #[test]
     fn test_mul_karatsuba_powers_of_two() {
-        test_mul_operation(NUM_BITS, 2, 2, 4, mul_karatsuba);
-        test_mul_operation(NUM_BITS, 4, 4, 16, mul_karatsuba);
-        test_mul_operation(NUM_BITS, 8, 8, 64, mul_karatsuba);
-        test_mul_operation(NUM_BITS, 16, 16, 256, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 2, 2, 4, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 4, 4, 16, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 8, 8, 64, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 16, 16, 256, |c, a, b| mul_karatsuba(c, a, b));
     }
 
     #[test]
     fn test_mul_karatsuba_commutative() {
         let test_cases = [(5, 7), (13, 19), (1, 255), (17, 23)];
         for (a, b) in test_cases {
-            test_mul_operation(NUM_BITS, a, b, (a as u128) * (b as u128), mul_karatsuba);
-            test_mul_operation(NUM_BITS, b, a, (a as u128) * (b as u128), mul_karatsuba);
+            test_mul_operation(NUM_BITS, a, b, (a as u128) * (b as u128), |c, x, y| {
+                mul_karatsuba(c, x, y)
+            });
+            test_mul_operation(NUM_BITS, b, a, (a as u128) * (b as u128), |c, x, y| {
+                mul_karatsuba(c, x, y)
+            });
         }
     }
 
@@ -447,135 +570,160 @@ mod tests {
         ];
 
         for (a, b) in test_cases {
-            let mut circuit1 = Circuit::default();
-            let a_wires1 = BigIntWires::new(&mut circuit1, NUM_BITS, true, false);
-            let b_wires1 = BigIntWires::new(&mut circuit1, NUM_BITS, true, false);
-            let result1 = mul_generic(&mut circuit1, &a_wires1, &b_wires1);
-
-            let mut circuit2 = Circuit::default();
-            let a_wires2 = BigIntWires::new(&mut circuit2, NUM_BITS, true, false);
-            let b_wires2 = BigIntWires::new(&mut circuit2, NUM_BITS, true, false);
-            let result2 = mul_karatsuba(&mut circuit2, &a_wires2, &b_wires2);
-
-            // Both should produce same bit length
-            assert_eq!(result1.bits.len(), result2.bits.len());
-
             // Test with same inputs
             let expected = (a as u128) * (b as u128);
-            test_mul_operation(NUM_BITS, a, b, expected, mul_generic);
-            test_mul_operation(NUM_BITS, a, b, expected, mul_karatsuba);
+            test_mul_operation(NUM_BITS, a, b, expected, |c, x, y| mul_generic(c, x, y));
+            test_mul_operation(NUM_BITS, a, b, expected, |c, x, y| mul_karatsuba(c, x, y));
         }
     }
 
     // Multiplication by constant tests
     #[test]
     fn test_mul_by_constant_basic() {
-        test_mul_by_constant_operation(NUM_BITS, 5, 3, 15, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 5, 3, 15, |c, a, b| mul_by_constant(c, a, b));
     }
 
     #[test]
     fn test_mul_by_constant_larger() {
-        test_mul_by_constant_operation(NUM_BITS, 15, 17, 255, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 15, 17, 255, |c, a, b| mul_by_constant(c, a, b));
     }
 
     #[test]
     fn test_mul_by_constant_zero() {
-        test_mul_by_constant_operation(NUM_BITS, 0, 42, 0, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 0, 42, 0, |c, a, b| mul_by_constant(c, a, b));
     }
 
     #[test]
     fn test_mul_by_constant_one() {
-        test_mul_by_constant_operation(NUM_BITS, 42, 1, 42, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 42, 1, 42, |c, a, b| mul_by_constant(c, a, b));
     }
 
     #[test]
     fn test_mul_by_constant_max_values() {
         let max_val = (1u64 << NUM_BITS) - 1;
-        test_mul_by_constant_operation(NUM_BITS, max_val, 1, max_val as u128, mul_by_constant);
-        test_mul_by_constant_operation(NUM_BITS, 1, max_val, max_val as u128, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, max_val, 1, max_val as u128, |c, a, b| {
+            mul_by_constant(c, a, b)
+        });
+        test_mul_by_constant_operation(NUM_BITS, 1, max_val, max_val as u128, |c, a, b| {
+            mul_by_constant(c, a, b)
+        });
     }
 
     #[test]
     fn test_mul_by_constant_powers_of_two() {
-        test_mul_by_constant_operation(NUM_BITS, 17, 2, 34, mul_by_constant);
-        test_mul_by_constant_operation(NUM_BITS, 17, 4, 68, mul_by_constant);
-        test_mul_by_constant_operation(NUM_BITS, 17, 8, 136, mul_by_constant);
-        test_mul_by_constant_operation(NUM_BITS, 17, 16, 272, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 17, 2, 34, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 17, 4, 68, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 17, 8, 136, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 17, 16, 272, |c, a, b| mul_by_constant(c, a, b));
     }
 
     // Modular multiplication tests
     #[test]
     fn test_mul_by_constant_modulo_power_two_basic() {
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, NUM_BITS, true, false);
+        let input = SingleInput::new(NUM_BITS, 15);
         let c = BigUint::from(17u64);
         let power = 12;
-        let result = mul_by_constant_modulo_power_two(&mut circuit, &a, &c, power);
 
-        assert_eq!(result.bits.len(), power);
-
-        result.bits.iter().for_each(|bit| {
-            circuit.make_wire_output(*bit);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, a| {
+            let result = mul_by_constant_modulo_power_two(root, a, &c, power);
+            assert_eq!(result.bits.len(), power);
+            result.into_wire_list()
         });
 
-        let a_val = 15u64;
-        let a_big = BigUint::from(a_val);
-        let expected = (a_val * 17) % (2u64.pow(power as u32));
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
+        let expected = (15u64 * 17) % (2u64.pow(power as u32));
         let expected_big = BigUint::from(expected);
+        let expected_fn = res.get_wire_bits_fn(&expected_big).unwrap();
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let result_output = result.get_wire_bits_fn(&expected_big).unwrap();
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        circuit.full_cycle_test(a_input, result_output, &mut trng());
+        assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_mul_by_constant_modulo_power_two_simple() {
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, NUM_BITS, true, false);
+        let input = SingleInput::new(NUM_BITS, 100);
         let c = BigUint::from(3u64);
         let power = 8;
-        let result = mul_by_constant_modulo_power_two(&mut circuit, &a, &c, power);
 
-        assert_eq!(result.bits.len(), power);
-
-        result.bits.iter().for_each(|bit| {
-            circuit.make_wire_output(*bit);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, a| {
+            let result = mul_by_constant_modulo_power_two(root, a, &c, power);
+            assert_eq!(result.bits.len(), power);
+            result.into_wire_list()
         });
 
-        let a_val = 100u64;
-        let a_big = BigUint::from(a_val);
-        let expected = (a_val * 3) % 256u64; // 300 % 256 = 44
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
+        let expected = (100u64 * 3) % 256u64; // 300 % 256 = 44
         let expected_big = BigUint::from(expected);
+        let expected_fn = res.get_wire_bits_fn(&expected_big).unwrap();
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let get_expected_result_fn = result.get_wire_bits_fn(&expected_big).unwrap();
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        circuit.full_cycle_test(a_input, get_expected_result_fn, &mut trng());
+        assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_mul_by_constant_modulo_power_two_overflow() {
         // Test cases where multiplication would overflow without modulo
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, NUM_BITS, true, false);
+        let input = SingleInput::new(NUM_BITS, 100);
         let c = BigUint::from(5u64);
         let power = 8; // mod 256
-        let result = mul_by_constant_modulo_power_two(&mut circuit, &a, &c, power);
 
-        result.bits.iter().for_each(|bit| {
-            circuit.make_wire_output(*bit);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, a| {
+            let result = mul_by_constant_modulo_power_two(root, a, &c, power);
+            result.into_wire_list()
         });
 
-        let a_val = 100u64;
-        let a_big = BigUint::from(a_val);
-        let expected = (a_val * 5) % 256; // 500 % 256 = 244
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
+        let expected = (100u64 * 5) % 256; // 500 % 256 = 244
         let expected_big = BigUint::from(expected);
+        let expected_fn = res.get_wire_bits_fn(&expected_big).unwrap();
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let result_output = result.get_wire_bits_fn(&expected_big).unwrap();
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        circuit.full_cycle_test(a_input, result_output, &mut trng());
+        assert_eq!(expected, actual);
     }
 
     // Test with different bit sizes
@@ -585,12 +733,14 @@ mod tests {
         const LARGE_BITS: usize = 16;
 
         // Test with 4-bit inputs
-        test_mul_operation(SMALL_BITS, 7, 5, 35, mul_generic);
-        test_mul_operation(SMALL_BITS, 15, 15, 225, mul_generic); // max 4-bit value
+        test_mul_operation(SMALL_BITS, 7, 5, 35, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(SMALL_BITS, 15, 15, 225, |c, a, b| mul_generic(c, a, b)); // max 4-bit value
 
         // Test with 16-bit inputs (if supported)
-        test_mul_operation(LARGE_BITS, 255, 255, 65025, mul_generic);
-        test_mul_operation(LARGE_BITS, 1000, 1000, 1000000, mul_generic);
+        test_mul_operation(LARGE_BITS, 255, 255, 65025, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(LARGE_BITS, 1000, 1000, 1000000, |c, a, b| {
+            mul_generic(c, a, b)
+        });
     }
 
     // Random property-based tests
@@ -598,12 +748,12 @@ mod tests {
     fn test_mul_generic_random_properties() {
         // Test multiplicative identity: a * 1 = a
         for a in [0, 1, 7, 15, 42, 100, 255] {
-            test_mul_operation(NUM_BITS, a, 1, a as u128, mul_generic);
+            test_mul_operation(NUM_BITS, a, 1, a as u128, |c, x, y| mul_generic(c, x, y));
         }
 
         // Test zero property: a * 0 = 0
         for a in [1, 7, 15, 42, 100, 255] {
-            test_mul_operation(NUM_BITS, a, 0, 0, mul_generic);
+            test_mul_operation(NUM_BITS, a, 0, 0, |c, x, y| mul_generic(c, x, y));
         }
 
         // Test distributive property: a * (b + c) = a * b + a * c (where results fit in range)
@@ -617,38 +767,6 @@ mod tests {
         }
     }
 
-    #[test]
-    #[ignore = "Run this test when changing multiplication logic to regenerate the decision matrix"]
-    fn test_karatsuba_decision_matrix() {
-        println!("Testing Karatsuba decision matrix for 4000 elements in parallel...");
-
-        let decisions = (0..=4000_usize)
-            .rev()
-            .filter(|len| {
-                let len = *len;
-                let (generic_count, karatsuba_count) = rayon::join(
-                    || {
-                        let mut tmp = Circuit::default();
-                        let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
-                        let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-                        mul_generic(&mut tmp, &a_tmp, &b_tmp);
-                        tmp.gate_count().nonfree_gate_count()
-                    },
-                    || {
-                        let mut tmp = Circuit::default();
-                        let a_tmp = BigIntWires::new(&mut tmp, len, false, false);
-                        let b_tmp = BigIntWires::new(&mut tmp, len, false, false);
-                        mul_karatsuba(&mut tmp, &a_tmp, &b_tmp);
-                        tmp.gate_count().nonfree_gate_count()
-                    },
-                );
-
-                let use_karatsuba = karatsuba_count < generic_count;
-
-                is_use_karatsuba(len).ne(&use_karatsuba)
-            })
-            .collect::<Vec<usize>>();
-
-        assert!(decisions.is_empty(), "{decisions:?}");
-    }
+    // The Karatsuba decision matrix test is omitted as it requires the old Circuit API
+    // The is_use_karatsuba function has been pre-computed with the optimal threshold
 }

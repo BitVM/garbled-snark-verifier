@@ -211,9 +211,11 @@ mod tests {
     use super::*;
     use crate::{
         circuit::{
+            CircuitBuilder, CircuitInput,
             streaming::{
-                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList, StreamingResult
-            }, CircuitBuilder, CircuitInput
+                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList,
+                StreamingResult,
+            },
         },
         gadgets::bigint::bits_from_biguint_with_len,
     };
@@ -478,7 +480,7 @@ mod tests {
 
         struct DivOut {
             odd: BigUint,
-            k: BigUint
+            k: BigUint,
         }
 
         impl CircuitOutput<Execute> for DivOut {
@@ -490,19 +492,21 @@ mod tests {
                 let odd = BigUint::decode(odd, cache);
                 let k = BigUint::decode(k, cache);
 
-                Self {
-                    odd, k
-                }
+                Self { odd, k }
             }
         }
 
-        let result = CircuitBuilder::<Execute>::streaming_process::<Input<_>, _, DivOut>(input, Execute::default(), |root, input| {
-            let [a] =input;
+        let result = CircuitBuilder::<Execute>::streaming_process::<Input<_>, _, DivOut>(
+            input,
+            Execute::default(),
+            |root, input| {
+                let [a] = input;
 
-            let (odd_result, k_result) = odd_part(root, a);
+                let (odd_result, k_result) = odd_part(root, a);
 
-            [odd_result, k_result]
-        });
+                [odd_result, k_result]
+            },
+        );
 
         assert_eq!(result.output_wires.odd, expected_odd);
         assert_eq!(result.output_wires.k, expected_k);

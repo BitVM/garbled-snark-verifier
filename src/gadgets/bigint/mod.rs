@@ -6,18 +6,18 @@ use bitvec::prelude::*;
 pub use num_bigint::BigUint;
 
 use crate::{
-    circuit::streaming::{
-        CircuitMode, CircuitOutput, Execute, IntoWireList, FALSE_WIRE, TRUE_WIRE,
-    },
     CircuitContext, WireId,
+    circuit::streaming::{
+        CircuitMode, CircuitOutput, Execute, FALSE_WIRE, IntoWireList, TRUE_WIRE,
+    },
 };
 
 mod add;
 mod cmp;
-//mod mul;
+mod mul;
 pub use add::*;
 pub use cmp::*;
-//pub use mul::*;
+pub use mul::*;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
