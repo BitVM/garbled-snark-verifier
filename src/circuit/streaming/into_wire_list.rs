@@ -26,12 +26,6 @@ impl IntoWireList for Vec<WireId> {
     }
 }
 
-impl IntoWireList for &[WireId] {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.to_vec()
-    }
-}
-
 impl<const N: usize> IntoWireList for [WireId; N] {
     fn into_wire_list(self) -> Vec<WireId> {
         self.to_vec()
@@ -41,6 +35,15 @@ impl<const N: usize> IntoWireList for [WireId; N] {
 impl<const N: usize> IntoWireList for &[WireId; N] {
     fn into_wire_list(self) -> Vec<WireId> {
         self.to_vec()
+    }
+}
+
+impl<T: Clone + IntoWireList> IntoWireList for &[T] {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.iter()
+            .cloned()
+            .flat_map(|t| t.into_wire_list())
+            .collect()
     }
 }
 

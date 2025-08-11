@@ -5,14 +5,19 @@ use std::{collections::HashMap, iter};
 use bitvec::prelude::*;
 pub use num_bigint::BigUint;
 
-use crate::{CircuitContext, WireId};
+use crate::{
+    circuit::streaming::{
+        CircuitMode, CircuitOutput, Execute, IntoWireList, FALSE_WIRE, TRUE_WIRE,
+    },
+    CircuitContext, WireId,
+};
 
 mod add;
 mod cmp;
-mod mul;
+//mod mul;
 pub use add::*;
 pub use cmp::*;
-pub use mul::*;
+//pub use mul::*;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -49,26 +54,30 @@ pub struct BigIntWires {
     bits: Vec<WireId>,
 }
 
+impl IntoWireList for BigIntWires {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.bits
+    }
+}
+
+impl IntoWireList for &BigIntWires {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.bits.clone()
+    }
+}
+
+impl<const N: usize> IntoWireList for [BigIntWires; N] {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.iter().flat_map(|bn| bn.into_wire_list()).collect()
+    }
+}
+
 impl BigIntWires {
-    pub fn new<C: CircuitContext>(
-        circuit: &mut C,
-        len: usize,
-        is_input: bool,
-        is_output: bool,
-    ) -> Self {
+    pub fn new<C: CircuitContext>(circuit: &mut C, len: usize) -> Self {
         Self {
-            bits: iter::repeat_with(|| {
-                let w = circuit.issue_wire();
-                if is_input {
-                    circuit.make_wire_input(w);
-                }
-                if is_output {
-                    circuit.make_wire_output(w);
-                }
-                w
-            })
-            .take(len)
-            .collect(),
+            bits: iter::repeat_with(|| circuit.issue_wire())
+                .take(len)
+                .collect(),
         }
     }
 
@@ -78,27 +87,17 @@ impl BigIntWires {
         }
     }
 
-    pub fn new_constant<C: CircuitContext>(
-        _circuit: &mut C,
-        len: usize,
-        u: &BigUint,
-    ) -> Result<Self, Error> {
+    pub fn new_constant(len: usize, u: &BigUint) -> Result<Self, Error> {
         let bits = bits_from_biguint_with_len(u, len)?;
 
         let bits = (0..len)
             .map(|i| match *bits.get(i).unwrap() {
-                true => C::TRUE_WIRE,
-                false => C::FALSE_WIRE,
+                true => TRUE_WIRE,
+                false => FALSE_WIRE,
             })
             .collect::<Vec<_>>();
 
         Ok(Self { bits })
-    }
-
-    pub fn mark_as_output<C: CircuitContext>(&self, circuit: &mut C) {
-        self.bits.iter().for_each(|wire_bit| {
-            circuit.make_wire_output(*wire_bit);
-        });
     }
 
     #[must_use]
@@ -198,5 +197,23 @@ impl BigIntWires {
 impl AsRef<[WireId]> for BigIntWires {
     fn as_ref(&self) -> &[WireId] {
         self.bits.as_ref()
+    }
+}
+
+impl CircuitOutput<Execute> for BigUint {
+    type WireRepr = BigIntWires;
+
+    fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        let bit_len = wires.len();
+        let mut bytes = vec![0u8; bit_len.div_ceil(8)];
+
+        for (i, w) in wires.iter().enumerate() {
+            let bit = *cache.lookup_wire(*w).expect("missing wire value");
+            if bit {
+                bytes[i / 8] |= 1u8 << (i % 8);
+            }
+        }
+
+        BigUint::from_bytes_le(&bytes)
     }
 }

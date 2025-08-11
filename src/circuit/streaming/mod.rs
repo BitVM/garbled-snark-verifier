@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use crate::{Gate, WireId, core::gate_type::GateCount};
+use std::array;
+
+use crate::{core::gate_type::GateCount, Gate, WireId};
 
 mod into_wire_list;
 pub use into_wire_list::{IntoWireList, IntoWires};
@@ -29,7 +31,6 @@ impl<'a, M: CircuitMode> ComponentHandle<'a, M> {
     }
 }
 
-// Implement the CircuitContext trait for ComponentHandle
 impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
     type Mode = M;
 
@@ -116,9 +117,9 @@ pub struct CircuitBuilder<M: CircuitMode> {
     gate_count: GateCount,
 }
 
-pub struct StreamingResult<M: CircuitMode, I: CircuitInput> {
+pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>> {
     pub input_wires: I::WireRepr,
-    pub output_wires: Vec<M::WireValue>,
+    pub output_wires: O,
     pub output_wires_ids: Vec<WireId>,
 
     pub zero_constant: M::WireValue,
@@ -127,10 +128,11 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput> {
 
 impl<M: CircuitMode> CircuitBuilder<M> {
     /// Convenience wrapper using the generic streaming path for Evaluate mode
-    pub fn streaming_process<I, F>(inputs: I, wire_cache: M, f: F) -> StreamingResult<M, I>
+    pub fn streaming_process<I, F, O>(inputs: I, wire_cache: M, f: F) -> StreamingResult<M, I, O>
     where
         I: CircuitInput + EncodeInput<M>,
-        F: FnOnce(&mut ComponentHandle<M>, &I::WireRepr) -> Vec<WireId>,
+        O: CircuitOutput<M>,
+        F: FnOnce(&mut ComponentHandle<M>, &I::WireRepr) -> O::WireRepr,
     {
         let mut builder = Self {
             pool: ComponentPool::new(),
@@ -152,28 +154,18 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         };
 
         // Allocate input wires using the input type
-        let input_wires = I::allocate(&mut root_handle);
+        let input_wires = I::allocate(&inputs, &mut root_handle);
         root_handle.get_component().input_wires = I::collect_wire_ids(&input_wires);
         inputs.encode(&input_wires, &mut root_handle.builder.wire_cache);
 
         let output = f(&mut root_handle, &input_wires);
-        root_handle.get_component().output_wires = output.into_wire_list();
+        root_handle.get_component().output_wires = output.clone().into_wire_list();
 
         let output_wires_ids = root_handle.get_component().output_wires.clone();
 
         StreamingResult {
             input_wires,
-            output_wires: output_wires_ids
-                .iter()
-                .copied()
-                .map(|wire_id| {
-                    builder
-                        .wire_cache
-                        .lookup_wire(wire_id)
-                        .cloned()
-                        .unwrap_or_else(|| panic!("output wire not present: {wire_id:?}"))
-                })
-                .collect::<Vec<_>>(),
+            output_wires: O::decode(output, &builder.wire_cache),
             output_wires_ids,
             one_constant: builder.wire_cache.lookup_wire(TRUE_WIRE).unwrap().clone(),
             zero_constant: builder.wire_cache.lookup_wire(FALSE_WIRE).unwrap().clone(),
@@ -188,7 +180,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
 
 impl CircuitBuilder<Execute> {
     /// Convenience wrapper using the generic streaming path for Evaluate mode
-    pub fn streaming_execute<I, F>(inputs: I, f: F) -> StreamingResult<Execute, I>
+    pub fn streaming_execute<I, F>(inputs: I, f: F) -> StreamingResult<Execute, I, Vec<bool>>
     where
         I: CircuitInput + EncodeInput<Execute>,
         F: FnOnce(&mut ComponentHandle<Execute>, &I::WireRepr) -> Vec<WireId>,
@@ -249,7 +241,8 @@ impl ToBits for u64 {
 /// Trait for allocating wire representations of input types
 pub trait CircuitInput {
     type WireRepr;
-    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr;
+
+    fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr;
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId>;
 }
 
@@ -258,122 +251,44 @@ pub trait EncodeInput<M: CircuitMode>: Sized + CircuitInput {
     fn encode(self, repr: &Self::WireRepr, cache: &mut M);
 }
 
-// ――― Example Implementation ―――
+pub type SimpleInputs<const N: usize> = [bool; N];
+pub type SimpleInputsWire<const N: usize> = [WireId; N];
 
-/// Example input structure with mixed types
-pub struct Inputs {
-    pub flag: bool,
-    pub nonce: u64,
-}
+impl<const N: usize> CircuitInput for SimpleInputs<N> {
+    type WireRepr = SimpleInputsWire<N>;
 
-/// Wire representation of Inputs
-pub struct InputsWire {
-    pub flag: WireId,
-    pub nonce: [WireId; 64],
-}
-
-impl CircuitInput for Inputs {
-    type WireRepr = InputsWire;
-
-    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
-        InputsWire {
-            flag: ctx.issue_wire(),
-            nonce: core::array::from_fn(|_| ctx.issue_wire()),
-        }
+    fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+        array::from_fn(|_| ctx.issue_wire())
     }
 
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        let mut wires = vec![repr.flag];
-        wires.extend_from_slice(&repr.nonce);
+        repr.to_vec()
+    }
+}
+
+impl<const N: usize> EncodeInput<Execute> for SimpleInputs<N> {
+    fn encode(self, repr: &SimpleInputsWire<N>, cache: &mut Execute) {
+        self.iter().zip(repr.iter()).for_each(|(v, w)| {
+            cache.feed_wire(*w, *v);
+        });
+    }
+}
+
+/// Trait for encoding semantic values into mode-specific caches
+pub trait CircuitOutput<M: CircuitMode>: Sized {
+    type WireRepr: Clone + IntoWireList;
+
+    fn decode(wires: Self::WireRepr, cache: &M) -> Self;
+}
+
+impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
+    type WireRepr = Vec<WireId>;
+
+    fn decode(wires: Self::WireRepr, cache: &M) -> Self {
         wires
-    }
-}
-
-impl EncodeInput<Execute> for Inputs {
-    fn encode(self, repr: &InputsWire, cache: &mut Execute) {
-        cache.feed_wire(repr.flag, self.flag);
-        let bits = self.nonce.to_bits_le();
-        for (i, bit) in bits.into_iter().enumerate() {
-            cache.feed_wire(repr.nonce[i], bit);
-        }
-    }
-}
-
-pub type SoloInputs = (bool,);
-pub type SoloInputsWire = (WireId,);
-
-impl CircuitInput for SoloInputs {
-    type WireRepr = SoloInputsWire;
-
-    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
-        (ctx.issue_wire(),)
-    }
-
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        vec![repr.0]
-    }
-}
-
-impl EncodeInput<Execute> for SoloInputs {
-    fn encode(self, repr: &SoloInputsWire, cache: &mut Execute) {
-        cache.feed_wire(repr.0, self.0);
-    }
-}
-
-pub type SimpleInputs = (bool, bool);
-pub type SimpleInputsWire = (WireId, WireId);
-
-impl CircuitInput for SimpleInputs {
-    type WireRepr = SimpleInputsWire;
-
-    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
-        let a = ctx.issue_wire();
-        let b = ctx.issue_wire();
-        println!("DEBUG: SimpleInputs allocated wire A: {a:?}, wire B: {b:?}");
-        (a, b)
-    }
-
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        vec![repr.0, repr.1]
-    }
-}
-
-impl EncodeInput<Execute> for SimpleInputs {
-    fn encode(self, repr: &SimpleInputsWire, cache: &mut Execute) {
-        println!(
-            "DEBUG: Encoding wire A: {a:?} = {av}, wire B: {b:?} = {bv}",
-            a = repr.0,
-            av = self.0,
-            b = repr.1,
-            bv = self.1
-        );
-        cache.feed_wire(repr.0, self.0);
-        cache.feed_wire(repr.1, self.1);
-    }
-}
-
-/// Three-input structure for macro tests
-pub type TripleInputs = (bool, bool, bool);
-
-pub type TripleInputsWire = (WireId, WireId, WireId);
-
-impl CircuitInput for TripleInputs {
-    type WireRepr = TripleInputsWire;
-
-    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
-        (ctx.issue_wire(), ctx.issue_wire(), ctx.issue_wire())
-    }
-
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        vec![repr.0, repr.1, repr.2]
-    }
-}
-
-impl EncodeInput<Execute> for TripleInputs {
-    fn encode(self, repr: &TripleInputsWire, cache: &mut Execute) {
-        cache.feed_wire(repr.0, self.0);
-        cache.feed_wire(repr.1, self.1);
-        cache.feed_wire(repr.2, self.2);
+            .iter()
+            .map(|w| cache.lookup_wire(*w).unwrap().clone())
+            .collect()
     }
 }
 
@@ -384,15 +299,54 @@ mod test_macro;
 mod exec_test {
     use super::*;
 
+    /// Example input structure with mixed types
+    pub struct Inputs {
+        pub flag: bool,
+        pub nonce: u64,
+    }
+
+    /// Wire representation of Inputs
+    pub struct InputsWire {
+        pub flag: WireId,
+        pub nonce: [WireId; 64],
+    }
+
+    impl CircuitInput for Inputs {
+        type WireRepr = InputsWire;
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            InputsWire {
+                flag: ctx.issue_wire(),
+                nonce: core::array::from_fn(|_| ctx.issue_wire()),
+            }
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            let mut wires = vec![repr.flag];
+            wires.extend_from_slice(&repr.nonce);
+            wires
+        }
+    }
+
+    impl EncodeInput<Execute> for Inputs {
+        fn encode(self, repr: &InputsWire, cache: &mut Execute) {
+            cache.feed_wire(repr.flag, self.flag);
+            let bits = self.nonce.to_bits_le();
+            for (i, bit) in bits.into_iter().enumerate() {
+                cache.feed_wire(repr.nonce[i], bit);
+            }
+        }
+    }
+
     #[test]
     fn simple() {
         let inputs = Inputs {
             flag: true,
             nonce: u64::MAX,
         };
-        let output = CircuitBuilder::<Execute>::streaming_process(
+
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
                 let InputsWire { flag, nonce } = inputs_wire;
 
@@ -414,9 +368,8 @@ mod exec_test {
             nonce: 0xDEADBEEF12345678,
         };
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
                 // Create some logic using the allocated wires
                 // Test flag AND first bit of nonce
@@ -447,14 +400,13 @@ mod exec_test {
     #[should_panic]
     fn test_undeclared_input_is_invisible() {
         // Test that child components cannot access parent wires not in input_wires
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        CircuitBuilder::<Execute>::streaming_process(
+        CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
                 let parent_secret = root.issue_wire();
-                root.add_gate(Gate::and(inputs_wire.0, inputs_wire.1, parent_secret));
+                root.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], parent_secret));
 
                 // Try to use parent wire without declaring it as input - should panic
                 root.with_child(vec![], |child| {
@@ -473,13 +425,12 @@ mod exec_test {
     #[should_panic(expected = "Output wire")]
     fn test_missing_output_panics() {
         // Test that missing output wires cause a panic
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        CircuitBuilder::<Execute>::streaming_process(
+        CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                root.with_child(vec![inputs_wire.0], |_child| {
+                root.with_child(vec![inputs_wire[0]], |_child| {
                     // Child declares an output but never creates it
                     vec![WireId(999)]
                 });
@@ -492,11 +443,10 @@ mod exec_test {
     #[test]
     fn test_constants_are_globally_visible() {
         // Test that TRUE_WIRE and FALSE_WIRE are accessible in child components
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, _inputs_wire| {
                 let result = root.with_child(vec![], |child| {
                     // Use constants without passing them as inputs
@@ -515,13 +465,12 @@ mod exec_test {
     #[test]
     fn test_deep_nesting() {
         // Test deep component nesting
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
-            inputs.clone(),
-            Execute::default(),
+        let output = CircuitBuilder::<Execute>::streaming_execute(
+            inputs,
             |root, inputs_wire| {
-                let mut current = inputs_wire.0;
+                let mut current = inputs_wire[0];
 
                 // Create 10 levels of nesting
                 for _ in 0..10 {
@@ -538,11 +487,10 @@ mod exec_test {
 
         assert!(output.output_wires[0]);
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                let mut current = inputs_wire.1;
+                let mut current = inputs_wire[1];
 
                 for _ in 0..10 {
                     current = root.with_child(vec![current], |child| {
@@ -562,24 +510,23 @@ mod exec_test {
     #[test]
     fn test_isolation_between_siblings() {
         // Test that sibling components cannot see each other's wires
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
                 // First child creates a wire
-                let child1_output = root.with_child(vec![inputs_wire.0], |child| {
+                let child1_output = root.with_child(vec![inputs_wire[0]], |child| {
                     let internal = child.issue_wire();
-                    child.add_gate(Gate::and(inputs_wire.0, TRUE_WIRE, internal));
+                    child.add_gate(Gate::and(inputs_wire[0], TRUE_WIRE, internal));
                     internal
                 });
 
                 // Second child should not be able to see first child's internal wires
-                let child2_output = root.with_child(vec![inputs_wire.1], |child| {
+                let child2_output = root.with_child(vec![inputs_wire[1]], |child| {
                     let result = child.issue_wire();
                     // This uses only declared inputs and constants
-                    child.add_gate(Gate::or(inputs_wire.1, FALSE_WIRE, result));
+                    child.add_gate(Gate::or(inputs_wire[1], FALSE_WIRE, result));
                     result
                 });
 
@@ -595,11 +542,10 @@ mod exec_test {
     #[should_panic]
     fn test_parent_wire_access_panics() {
         // Test that child cannot access parent wires not in input_wires
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        CircuitBuilder::<Execute>::streaming_process(
+        CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, _inputs_wire| {
                 // Parent issues a wire but doesn't pass it to child
                 let _parent_secret = root.issue_wire();
@@ -619,15 +565,14 @@ mod exec_test {
     #[test]
     fn test_root_frame_released() {
         // Test that root frame is properly released after streaming_process
-        let inputs = (true, false);
+        let inputs = [true, false];
 
         // Run a simple circuit
-        let _output = CircuitBuilder::<Execute>::streaming_process(
+        let _output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
                 let result = root.issue_wire();
-                root.add_gate(Gate::and(inputs_wire.0, inputs_wire.1, result));
+                root.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], result));
                 vec![result]
             },
         );
@@ -636,11 +581,10 @@ mod exec_test {
     #[test]
     fn test_constants_cannot_be_overwritten() {
         // Test that constants are protected and work correctly
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, _inputs_wire| {
                 // Use constants in parent
                 let parent_result = root.issue_wire();
@@ -664,13 +608,12 @@ mod exec_test {
     #[test]
     fn test_deep_nesting_stress() {
         // Test very deep component nesting (1000 levels)
-        let inputs = (true, true);
+        let inputs = [true, true];
 
-        let output = CircuitBuilder::<Execute>::streaming_process(
+        let output = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                let mut current = inputs_wire.0;
+                let mut current = inputs_wire[0];
 
                 // Create 1000 levels of nesting
                 for _ in 0..1000 {
@@ -692,15 +635,14 @@ mod exec_test {
     #[should_panic(expected = "appears multiple times")]
     fn test_duplicate_output_panics() {
         // Test that returning the same wire twice as output causes panic
-        let inputs = (true, false);
+        let inputs = [true, false];
 
-        CircuitBuilder::<Execute>::streaming_process(
+        CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                root.with_child(vec![inputs_wire.0], |child| {
+                root.with_child(vec![inputs_wire[0]], |child| {
                     let result = child.issue_wire();
-                    child.add_gate(Gate::and(inputs_wire.0, TRUE_WIRE, result));
+                    child.add_gate(Gate::and(inputs_wire[0], TRUE_WIRE, result));
                     // Return same wire twice - should panic during extract_outputs
                     vec![result, result]
                 });

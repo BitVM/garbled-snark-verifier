@@ -1,3 +1,4 @@
+use circuit_component_macro::component;
 use log::debug;
 
 use super::{BigIntWires, BigUint};
@@ -14,6 +15,7 @@ fn extend_with_zero<C: CircuitContext>(circuit: &mut C, bits: &mut Vec<WireId>) 
     bits.push(zero_wire);
 }
 
+#[component]
 pub fn mul_generic<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -50,6 +52,7 @@ pub fn mul_generic<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
+#[component]
 pub fn mul_karatsuba<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -144,6 +147,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
+#[component]
 pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let len = a.len();
@@ -167,6 +171,7 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
     }
 }
 
+#[component]
 pub fn mul_by_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -200,6 +205,7 @@ pub fn mul_by_constant<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
+#[component]
 pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -249,11 +255,10 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
 }
 #[cfg(test)]
 mod tests {
-
     use test_log::test;
 
     use super::*;
-    use crate::{Circuit, test_utils::trng};
+    use crate::{test_utils::trng};
 
     fn test_mul_operation(
         n_bits: usize,

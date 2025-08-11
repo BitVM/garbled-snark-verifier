@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_basic_evaluate() {
-        let inputs = (true, false);
+        let inputs = [true, false];
 
         fn and_gate_eval(ctx: &mut ComponentHandle<Execute>, a: WireId, b: WireId) -> WireId {
             let c = ctx.issue_wire();
@@ -98,11 +98,10 @@ mod tests {
             c
         }
 
-        let result = CircuitBuilder::<Execute>::streaming_process(
+        let result = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                let c = and_gate_eval(root, inputs_wire.0, inputs_wire.1);
+                let c = and_gate_eval(root, inputs_wire[0], inputs_wire[1]);
                 vec![c]
             },
         );
@@ -112,7 +111,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_nested_evaluate() {
-        let inputs = (true, true, false);
+        let inputs = [true, true, false];
 
         fn triple_and_eval(
             ctx: &mut ComponentHandle<Execute>,
@@ -130,11 +129,10 @@ mod tests {
             res
         }
 
-        let result = CircuitBuilder::<Execute>::streaming_process(
+        let result = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                let r = triple_and_eval(root, inputs_wire.0, inputs_wire.1, inputs_wire.2);
+                let r = triple_and_eval(root, inputs_wire[0], inputs_wire[1], inputs_wire[2]);
                 vec![r]
             },
         );
@@ -144,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_true_case() {
-        let inputs = (true, true, true);
+        let inputs = [true, true, true];
 
         fn triple_and_eval(
             ctx: &mut ComponentHandle<Execute>,
@@ -162,11 +160,10 @@ mod tests {
             res
         }
 
-        let result = CircuitBuilder::<Execute>::streaming_process(
+        let result = CircuitBuilder::<Execute>::streaming_execute(
             inputs,
-            Execute::default(),
             |root, inputs_wire| {
-                let r = triple_and_eval(root, inputs_wire.0, inputs_wire.1, inputs_wire.2);
+                let r = triple_and_eval(root, inputs_wire[0], inputs_wire[1], inputs_wire[2]);
                 vec![r]
             },
         );
@@ -187,7 +184,7 @@ mod tests {
         }
         impl crate::circuit::streaming::CircuitInput for OneInput {
             type WireRepr = OneInputWire;
-            fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
                 OneInputWire {
                     x: ctx.issue_wire(),
                 }
@@ -221,7 +218,7 @@ mod tests {
             }
         }
 
-        let out = CircuitBuilder::<Garble>::streaming_process(
+        let out = CircuitBuilder::<Garble>::streaming_process::<_, _, Vec<GarbledWire>>(
             OneInput { x: true },
             Garble::new(0, 2_000),
             |root, iw| {
@@ -246,7 +243,7 @@ mod tests {
         }
         impl crate::circuit::streaming::CircuitInput for OneInput {
             type WireRepr = OneInputWire;
-            fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
                 OneInputWire {
                     x: ctx.issue_wire(),
                 }
@@ -276,9 +273,8 @@ mod tests {
         }
 
         for &input in &[false, true] {
-            let out = CircuitBuilder::<Execute>::streaming_process(
+            let out = CircuitBuilder::streaming_execute(
                 OneInput { x: input },
-                Execute::default(),
                 |root, iw| {
                     // Build many big chains and OR them to keep dependency on input
                     let mut acc: Option<WireId> = None;
@@ -308,7 +304,7 @@ mod tests {
         }
         impl crate::circuit::streaming::CircuitInput for OneInput {
             type WireRepr = OneInputWire;
-            fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
                 OneInputWire {
                     x: ctx.issue_wire(),
                 }
@@ -371,9 +367,8 @@ mod tests {
         }
 
         for &input in &[false, true] {
-            let out = CircuitBuilder::<Execute>::streaming_process(
+            let out = CircuitBuilder::streaming_execute(
                 OneInput { x: input },
-                Execute::default(),
                 |root, iw| {
                     let r = expand_tree_eval(root, iw.x, DEPTH);
                     vec![r]

@@ -1,8 +1,11 @@
 use std::iter;
 
-use super::{BigIntWires, BigUint, select};
-use crate::{CircuitContext, Gate, WireId, gadgets::basic};
+use circuit_component_macro::component;
 
+use super::{BigIntWires, BigUint, select};
+use crate::{CircuitContext, Gate, WireId, circuit::streaming::FALSE_WIRE, gadgets::basic};
+
+#[component]
 pub fn add_generic<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -36,6 +39,7 @@ pub fn add_without_carry<C: CircuitContext>(
     c
 }
 
+#[component(ignore = "b")]
 pub fn add_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -91,6 +95,7 @@ pub fn add_constant_without_carry<C: CircuitContext>(
     c
 }
 
+#[component]
 pub fn sub_generic<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -116,6 +121,7 @@ pub fn sub_generic<C: CircuitContext>(
     BigIntWires { bits }
 }
 
+#[component]
 pub fn sub_generic_without_borrow<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -126,6 +132,7 @@ pub fn sub_generic_without_borrow<C: CircuitContext>(
     BigIntWires { bits }
 }
 
+#[component]
 pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     let a_0 = a.get(0).unwrap();
@@ -135,18 +142,7 @@ pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWire
         bits: iter::once(zero_wire).chain(a.iter().copied()).collect(),
     }
 }
-
-//    pub fn double_without_overflow(a: Wires) -> Circuit {
-//        assert_eq!(a.len(), N_BITS);
-//        let mut circuit = Circuit::empty();
-//        let not_a = new_wirex();
-//        let zero_wire = new_wirex();
-//        circuit.add(Gate::not(a[0].clone(), not_a.clone()));
-//        circuit.add(Gate::and(a[0].clone(), not_a.clone(), zero_wire.clone()));
-//        circuit.add_wire(zero_wire);
-//        circuit.add_wires(a[0..N_BITS - 1].to_vec());
-//        circuit
-//    }
+#[component]
 pub fn double_without_overflow<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     let a_0 = a.get(0).unwrap();
@@ -166,13 +162,13 @@ pub fn half<C: CircuitContext>(_circuit: &mut C, a: &BigIntWires) -> BigIntWires
             .iter()
             .skip(1)
             .copied()
-            .chain(iter::once(C::FALSE_WIRE))
+            .chain(iter::once(FALSE_WIRE))
             .collect(),
     }
 }
 
 pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntWires, BigIntWires) {
-    let mut select_bn = BigIntWires::new(circuit, a.len() - 1, false, false);
+    let mut select_bn = BigIntWires::new(circuit, a.len() - 1);
     select_bn.insert(0, a.get(0).unwrap());
 
     for i in 1..a.len() {
@@ -183,7 +179,7 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntW
         ));
     }
 
-    let mut k = BigIntWires::new(circuit, a.len() - 1, false, false);
+    let mut k = BigIntWires::new(circuit, a.len() - 1);
     k.insert(0, a.get(0).unwrap());
 
     for i in 1..a.len() {
@@ -208,43 +204,94 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntW
 #[cfg(test)]
 mod tests {
 
-    use std::collections::HashMap;
+    use std::{array, collections::HashMap};
 
     use test_log::test;
 
     use super::*;
-    use crate::{test_utils::trng};
+    use crate::{
+        circuit::{
+            streaming::{
+                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList, StreamingResult
+            }, CircuitBuilder, CircuitInput
+        },
+        gadgets::bigint::bits_from_biguint_with_len,
+    };
+
+    struct Input<const N: usize> {
+        len: usize,
+        bns: [BigUint; N],
+    }
+
+    impl<const N: usize> Input<N> {
+        fn new(n_bits: usize, bns: [u64; N]) -> Self {
+            Self {
+                len: n_bits,
+                bns: bns.map(BigUint::from),
+            }
+        }
+    }
+
+    impl<const N: usize> CircuitInput for Input<N> {
+        type WireRepr = [BigIntWires; N];
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            array::from_fn(|_| BigIntWires::new(ctx, self.len))
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            repr.iter().flat_map(|a| a.iter().copied()).collect()
+        }
+    }
+
+    impl<const N: usize> EncodeInput<Execute> for Input<N> {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            self.bns.iter().zip(repr.iter()).for_each(|(bn, bn_wires)| {
+                let bits = bits_from_biguint_with_len(bn, self.len).unwrap();
+                bn_wires.iter().zip(bits).for_each(|(w, b)| {
+                    cache.feed_wire(*w, b);
+                });
+            });
+        }
+    }
 
     fn test_two_input_operation(
         n_bits: usize,
         a_val: u64,
         b_val: u64,
         expected: u64,
-        operation: impl FnOnce(&mut Circuit, &BigIntWires, &BigIntWires) -> BigIntWires,
+        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigIntWires) -> BigIntWires,
     ) {
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, n_bits, true, false);
-        let b = BigIntWires::new(&mut circuit, n_bits, true, false);
-        let result = operation(&mut circuit, &a, &b);
-        assert_eq!(result.bits.len(), n_bits + 1);
+        let input = Input::new(n_bits, [a_val, b_val]);
 
-        result.bits.iter().for_each(|bit| {
-            circuit.make_wire_output(*bit);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, input| {
+            let [a, b] = input;
+            let result = operation(root, a, b);
+            assert_eq!(result.bits.len(), n_bits + 1);
+
+            result.into_wire_list()
         });
 
-        let a_big = BigUint::from(a_val);
-        let b_big = BigUint::from(b_val);
-        let expected_big = BigUint::from(expected);
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let b_input = b.get_wire_bits_fn(&b_big).unwrap();
-        let get_expected_result_fn = result.get_wire_bits_fn(&expected_big).unwrap();
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
 
-        circuit.full_cycle_test(
-            |id| a_input(id).or_else(|| b_input(id)),
-            get_expected_result_fn,
-            &mut trng(),
-        );
+        let expected_fn = res.get_wire_bits_fn(&BigUint::from(expected)).unwrap();
+
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
+
+        assert_eq!(expected, actual);
     }
 
     fn test_constant_operation(
@@ -252,178 +299,212 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u64,
-        operation: impl FnOnce(&mut Circuit, &BigIntWires, &BigUint) -> BigIntWires,
+        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigUint) -> BigIntWires,
     ) {
-        let mut circuit = Circuit::default();
-
-        let a = BigIntWires::new(&mut circuit, n_bits, true, false);
+        let input = Input::new(n_bits, [a_val]);
         let b_big = BigUint::from(b_val);
-        let result = operation(&mut circuit, &a, &b_big);
 
-        for bit in result.bits.iter() {
-            circuit.make_wire_output(*bit);
-        }
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, input| {
+            let [a] = input;
+            let result = operation(root, a, &b_big);
 
-        let a_big = BigUint::from(a_val);
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let expected_big = BigUint::from(expected);
-        let get_expected_result_fn = result.get_wire_bits_fn(&expected_big).unwrap();
+            result.into_wire_list()
+        });
 
-        circuit.full_cycle_test(a_input, get_expected_result_fn, &mut trng());
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
+        let expected_fn = res.get_wire_bits_fn(&BigUint::from(expected)).unwrap();
+
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
+
+        assert_eq!(expected, actual)
     }
 
     const NUM_BITS: usize = 4;
 
     #[test]
     fn test_add_generic_basic() {
-        test_two_input_operation(NUM_BITS, 5, 3, 8, add_generic);
+        test_two_input_operation(NUM_BITS, 5, 3, 8, |ctx, a, b| add_generic(ctx, a, b));
     }
 
     #[test]
     fn test_add_generic_with_carry() {
-        test_two_input_operation(NUM_BITS, 7, 9, 16, add_generic);
+        test_two_input_operation(NUM_BITS, 7, 9, 16, |ctx, a, b| add_generic(ctx, a, b));
     }
 
     #[test]
     fn test_add_generic_max_plus_one() {
-        test_two_input_operation(NUM_BITS, 15, 1, 16, add_generic);
+        test_two_input_operation(NUM_BITS, 15, 1, 16, |ctx, a, b| add_generic(ctx, a, b));
     }
 
     #[test]
     fn test_add_generic_zero_zero() {
-        test_two_input_operation(NUM_BITS, 0, 0, 0, add_generic);
+        test_two_input_operation(NUM_BITS, 0, 0, 0, |ctx, a, b| add_generic(ctx, a, b));
     }
 
     #[test]
     fn test_add_generic_one_one() {
-        test_two_input_operation(NUM_BITS, 1, 1, 2, add_generic);
+        test_two_input_operation(NUM_BITS, 1, 1, 2, |ctx, a, b| add_generic(ctx, a, b));
     }
 
     #[test]
     fn test_add_constant_generic_basic() {
-        test_constant_operation(NUM_BITS, 5, 3, 8, add_constant);
+        test_constant_operation(NUM_BITS, 5, 3, 8, |ctx, a, b| add_constant(ctx, a, b));
     }
 
     #[test]
     fn test_add_constant_generic_with_carry() {
-        test_constant_operation(NUM_BITS, 7, 9, 16, add_constant);
+        test_constant_operation(NUM_BITS, 7, 9, 16, |ctx, a, b| add_constant(ctx, a, b));
     }
 
     #[test]
     fn test_add_constant_generic_max_plus_one() {
-        test_constant_operation(NUM_BITS, 15, 1, 16, add_constant);
+        test_constant_operation(NUM_BITS, 15, 1, 16, |ctx, a, b| add_constant(ctx, a, b));
     }
 
     #[test]
     fn test_add_constant_generic_zero_one() {
-        test_constant_operation(NUM_BITS, 0, 1, 1, add_constant);
+        test_constant_operation(NUM_BITS, 0, 1, 1, |ctx, a, b| add_constant(ctx, a, b));
     }
 
     #[test]
     fn test_add_constant_generic_one_one() {
-        test_constant_operation(NUM_BITS, 1, 1, 2, add_constant);
+        test_constant_operation(NUM_BITS, 1, 1, 2, |ctx, a, b| add_constant(ctx, a, b));
     }
 
     #[test]
     fn test_sub_generic_basic() {
-        test_two_input_operation(NUM_BITS, 8, 3, 5, sub_generic);
+        test_two_input_operation(NUM_BITS, 8, 3, 5, |ctx, a, b| sub_generic(ctx, a, b));
     }
 
     #[test]
     fn test_sub_generic_zero_zero() {
-        test_two_input_operation(NUM_BITS, 0, 0, 0, sub_generic);
+        test_two_input_operation(NUM_BITS, 0, 0, 0, |ctx, a, b| sub_generic(ctx, a, b));
     }
 
     #[test]
     fn test_sub_generic_max_minus_one() {
-        test_two_input_operation(NUM_BITS, 15, 1, 14, sub_generic);
+        test_two_input_operation(NUM_BITS, 15, 1, 14, |ctx, a, b| sub_generic(ctx, a, b));
     }
 
     #[test]
     fn test_sub_generic_same_values() {
-        test_two_input_operation(NUM_BITS, 7, 7, 0, sub_generic);
+        test_two_input_operation(NUM_BITS, 7, 7, 0, |ctx, a, b| sub_generic(ctx, a, b));
     }
 
     fn test_single_input_operation(
         n_bits: usize,
         a_val: u64,
         expected: u64,
-        operation: impl FnOnce(&mut Circuit, &BigIntWires) -> BigIntWires,
+        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires) -> BigIntWires,
     ) {
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, n_bits, true, false);
-        let result = operation(&mut circuit, &a);
-        assert_eq!(result.bits.len(), n_bits);
+        let input = Input::new(n_bits, [a_val]);
 
-        result.mark_as_output(&mut circuit);
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |root, input| {
+            let [a] = input;
 
-        let a_big = BigUint::from(a_val);
-        let expected_big = BigUint::from(expected);
+            let result = operation(root, a);
+            assert_eq!(result.bits.len(), n_bits);
 
-        let a_input = a.get_wire_bits_fn(&a_big).unwrap();
-        let get_expected_result_fn = result.get_wire_bits_fn(&expected_big).unwrap();
+            result.into_wire_list()
+        });
 
-        circuit.full_cycle_test(a_input, get_expected_result_fn, &mut trng());
+        let actual_fn = output_wires_ids
+            .iter()
+            .zip(output_wires.iter())
+            .map(|(w, v)| (*w, *v))
+            .collect::<HashMap<WireId, bool>>();
+
+        let res = BigIntWires {
+            bits: output_wires_ids,
+        };
+
+        let expected_fn = res.get_wire_bits_fn(&BigUint::from(expected)).unwrap();
+
+        let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
+        let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
+
+        assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_half_even_number() {
-        test_single_input_operation(NUM_BITS, 8, 4, half);
+        test_single_input_operation(NUM_BITS, 8, 4, |ctx, a| half(ctx, a));
     }
 
     #[test]
     fn test_half_odd_number() {
-        test_single_input_operation(NUM_BITS, 9, 4, half);
+        test_single_input_operation(NUM_BITS, 9, 4, |ctx, a| half(ctx, a));
     }
 
     #[test]
     fn test_half_zero() {
-        test_single_input_operation(NUM_BITS, 0, 0, half);
+        test_single_input_operation(NUM_BITS, 0, 0, |ctx, a| half(ctx, a));
     }
 
     #[test]
     fn test_half_one() {
-        test_single_input_operation(NUM_BITS, 1, 0, half);
+        test_single_input_operation(NUM_BITS, 1, 0, |ctx, a| half(ctx, a));
     }
 
     #[test]
     fn test_half_max_value() {
-        test_single_input_operation(NUM_BITS, 15, 7, half);
+        test_single_input_operation(NUM_BITS, 15, 7, |ctx, a| half(ctx, a));
     }
 
     #[test]
     fn test_odd_part_power_of_two() {
-        // Input: 8 (binary 1000)
-        // Expected: odd_part = 1 (0001), k = 8 (1000)
-        let mut circuit = Circuit::default();
-        let a = BigIntWires::new(&mut circuit, NUM_BITS, true, false);
-        let (odd_result, k_result) = odd_part(&mut circuit, &a);
-
-        odd_result.mark_as_output(&mut circuit);
-        k_result.mark_as_output(&mut circuit);
-
-        let input_val = BigUint::from(8u64);
         let expected_odd = BigUint::from(1u64); // 8 >> 3
         let expected_k = BigUint::from(8u64); // 1 << 3
 
-        let a_input = a.get_wire_bits_fn(&input_val).unwrap();
-        let expected_odd_fn = odd_result.get_wire_bits_fn(&expected_odd).unwrap();
-        let expected_k_fn = k_result.get_wire_bits_fn(&expected_k).unwrap();
+        let input = Input::new(8, [8]);
 
-        let output = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
+        struct DivOut {
+            odd: BigUint,
+            k: BigUint
+        }
 
-        let expected_odd_bitmask = odd_result.to_bitmask(|w| expected_odd_fn(w).unwrap());
-        let expected_k_bitmask = k_result.to_bitmask(|w| expected_k_fn(w).unwrap());
+        impl CircuitOutput<Execute> for DivOut {
+            type WireRepr = [BigIntWires; 2];
 
-        let actual_odd_bitmask = odd_result.to_bitmask(|w| *output.get(&w).unwrap());
-        let actual_k_bitmask = k_result.to_bitmask(|w| *output.get(&w).unwrap());
+            fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+                let [odd, k] = wires;
 
-        assert_eq!(
-            (expected_odd_bitmask, expected_k_bitmask),
-            (actual_odd_bitmask, actual_k_bitmask)
-        );
+                let odd = BigUint::decode(odd, cache);
+                let k = BigUint::decode(k, cache);
+
+                Self {
+                    odd, k
+                }
+            }
+        }
+
+        let result = CircuitBuilder::<Execute>::streaming_process::<Input<_>, _, DivOut>(input, Execute::default(), |root, input| {
+            let [a] =input;
+
+            let (odd_result, k_result) = odd_part(root, a);
+
+            [odd_result, k_result]
+        });
+
+        assert_eq!(result.output_wires.odd, expected_odd);
+        assert_eq!(result.output_wires.k, expected_k);
     }
 }
