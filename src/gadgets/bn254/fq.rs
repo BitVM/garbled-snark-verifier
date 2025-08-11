@@ -301,10 +301,10 @@ pub(super) mod tests {
         circuit::{
             CircuitBuilder, CircuitInput,
             streaming::{
-                CircuitMode, ComponentHandle, EncodeInput, Execute, IntoWireList, StreamingResult,
+                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList,
             },
         },
-        gadgets::bigint::bits_from_biguint_with_len,
+        gadgets::bigint::{bits_from_biguint_with_len, BigUint as BigUintOutput},
         test_utils::trng,
     };
 
@@ -347,6 +347,22 @@ pub(super) mod tests {
         }
     }
 
+    // Output struct for Fq tests
+    struct FqOutput {
+        value: ark_bn254::Fq,
+    }
+
+    impl CircuitOutput<Execute> for FqOutput {
+        type WireRepr = Fq;
+
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            // Decode BigIntWires to BigUint, then convert to ark_bn254::Fq
+            let biguint = BigUintOutput::decode(wires.0, cache);
+            let value = ark_bn254::Fq::from(biguint);
+            Self { value }
+        }
+    }
+
     pub fn rnd() -> ark_bn254::Fq {
         loop {
             if let Some(bn) = ark_bn254::Fq::from_random_bytes(&trng().r#gen::<[u8; 32]>()) {
@@ -379,25 +395,16 @@ pub(super) mod tests {
                 let expected = $ark_op(a_v);
                 let input = FqInput::new([a_v]);
 
-                let StreamingResult {
-                    output_wires,
-                    output_wires_ids,
-                    ..
-                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-                    let [a] = input;
-                    let c = $op(ctx, a);
-                    c.into_wire_list()
-                });
+                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                    input,
+                    Execute::default(),
+                    |ctx, input| {
+                        let [a] = input;
+                        $op(ctx, a)
+                    },
+                );
 
-                // Compare output bits directly, using actual output length
-                let expected_bits = bits_from_biguint_with_len(
-                    &BigUint::from(expected.into_bigint()),
-                    output_wires.len(),
-                )
-                .unwrap();
-                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-                    assert_eq!(actual, expected);
-                }
+                assert_eq!(result.output_wires.value, expected);
             }
         };
 
@@ -410,25 +417,16 @@ pub(super) mod tests {
                 let expected = $ark_op(a_v, b_v);
                 let input = FqInput::new([a_v, b_v]);
 
-                let StreamingResult {
-                    output_wires,
-                    output_wires_ids,
-                    ..
-                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-                    let [a, b] = input;
-                    let c = $op(ctx, a, b);
-                    c.into_wire_list()
-                });
+                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                    input,
+                    Execute::default(),
+                    |ctx, input| {
+                        let [a, b] = input;
+                        $op(ctx, a, b)
+                    },
+                );
 
-                // Compare output bits directly, using actual output length
-                let expected_bits = bits_from_biguint_with_len(
-                    &BigUint::from(expected.into_bigint()),
-                    output_wires.len(),
-                )
-                .unwrap();
-                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-                    assert_eq!(actual, expected);
-                }
+                assert_eq!(result.output_wires.value, expected);
             }
         };
 
@@ -441,25 +439,16 @@ pub(super) mod tests {
                 let expected = $ark_op(a_v, b_v);
                 let input = FqInput::new([a_v]);
 
-                let StreamingResult {
-                    output_wires,
-                    output_wires_ids,
-                    ..
-                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-                    let [a] = input;
-                    let c = $op(ctx, a, &b_v);
-                    c.into_wire_list()
-                });
+                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                    input,
+                    Execute::default(),
+                    |ctx, input| {
+                        let [a] = input;
+                        $op(ctx, a, &b_v)
+                    },
+                );
 
-                // Compare output bits directly, using actual output length
-                let expected_bits = bits_from_biguint_with_len(
-                    &BigUint::from(expected.into_bigint()),
-                    output_wires.len(),
-                )
-                .unwrap();
-                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-                    assert_eq!(actual, expected);
-                }
+                assert_eq!(result.output_wires.value, expected);
             }
         };
 
@@ -472,25 +461,16 @@ pub(super) mod tests {
                 let expected = Fq::as_montgomery($ark_op(a_v));
                 let input = FqInput::new([a_mont]);
 
-                let StreamingResult {
-                    output_wires,
-                    output_wires_ids,
-                    ..
-                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-                    let [a] = input;
-                    let c = $op(ctx, a);
-                    c.into_wire_list()
-                });
+                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                    input,
+                    Execute::default(),
+                    |ctx, input| {
+                        let [a] = input;
+                        $op(ctx, a)
+                    },
+                );
 
-                // Compare output bits directly, using actual output length
-                let expected_bits = bits_from_biguint_with_len(
-                    &BigUint::from(expected.into_bigint()),
-                    output_wires.len(),
-                )
-                .unwrap();
-                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-                    assert_eq!(actual, expected);
-                }
+                assert_eq!(result.output_wires.value, expected);
             }
         };
 
@@ -505,25 +485,16 @@ pub(super) mod tests {
                 let expected = Fq::as_montgomery($ark_op(a_v, b_v));
                 let input = FqInput::new([a_mont, b_mont]);
 
-                let StreamingResult {
-                    output_wires,
-                    output_wires_ids,
-                    ..
-                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-                    let [a, b] = input;
-                    let c = $op(ctx, a, b);
-                    c.into_wire_list()
-                });
+                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                    input,
+                    Execute::default(),
+                    |ctx, input| {
+                        let [a, b] = input;
+                        $op(ctx, a, b)
+                    },
+                );
 
-                // Compare output bits directly, using actual output length
-                let expected_bits = bits_from_biguint_with_len(
-                    &BigUint::from(expected.into_bigint()),
-                    output_wires.len(),
-                )
-                .unwrap();
-                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-                    assert_eq!(actual, expected);
-                }
+                assert_eq!(result.output_wires.value, expected);
             }
         };
 
@@ -538,25 +509,16 @@ pub(super) mod tests {
                 let expected = Fq::as_montgomery($ark_op(a_v, b_v));
                 let input = FqInput::new([a_mont]);
 
-                let StreamingResult {
-                    output_wires,
-                    output_wires_ids,
-                    ..
-                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-                    let [a] = input;
-                    let c = $op(ctx, a, &b_mont);
-                    c.into_wire_list()
-                });
+                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                    input,
+                    Execute::default(),
+                    |ctx, input| {
+                        let [a] = input;
+                        $op(ctx, a, &b_mont)
+                    },
+                );
 
-                // Compare output bits directly, using actual output length
-                let expected_bits = bits_from_biguint_with_len(
-                    &BigUint::from(expected.into_bigint()),
-                    output_wires.len(),
-                )
-                .unwrap();
-                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-                    assert_eq!(actual, expected);
-                }
+                assert_eq!(result.output_wires.value, expected);
             }
         };
 
@@ -665,22 +627,13 @@ pub(super) mod tests {
             value: input_value,
         };
 
-        let StreamingResult {
-            output_wires,
-            output_wires_ids,
-            ..
-        } = CircuitBuilder::streaming_execute(input, |ctx, x| {
-            let result = Fq::montgomery_reduce(ctx, &x);
-            result.into_wire_list()
-        });
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+            input,
+            Execute::default(),
+            |ctx, x| Fq::montgomery_reduce(ctx, &x),
+        );
 
-        // Compare output bits directly, using actual output length
-        let expected_bits =
-            bits_from_biguint_with_len(&BigUint::from(expected.into_bigint()), output_wires.len())
-                .unwrap();
-        for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-            assert_eq!(actual, expected);
-        }
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
@@ -697,25 +650,16 @@ pub(super) mod tests {
 
         let input = FqInput::new([aa_montgomery]);
 
-        let StreamingResult {
-            output_wires,
-            output_wires_ids,
-            ..
-        } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-            let [aa_wire] = input;
-            let c = Fq::sqrt_montgomery(ctx, aa_wire);
-            c.into_wire_list()
-        });
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [aa_wire] = input;
+                Fq::sqrt_montgomery(ctx, aa_wire)
+            },
+        );
 
-        // Compare output bits directly, using actual output length
-        let expected_bits = bits_from_biguint_with_len(
-            &BigUint::from(expected_c.into_bigint()),
-            output_wires.len(),
-        )
-        .unwrap();
-        for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-            assert_eq!(actual, expected);
-        }
+        assert_eq!(result.output_wires.value, expected_c);
     }
 
     #[test]
@@ -781,22 +725,15 @@ pub(super) mod tests {
             w,
         };
 
-        let StreamingResult {
-            output_wires,
-            output_wires_ids,
-            ..
-        } = CircuitBuilder::streaming_execute(input, |ctx, input| {
-            let (a, s) = input;
-            let c = Fq::multiplexer(ctx, &a, &s, w);
-            c.into_wire_list()
-        });
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let (a, s) = input;
+                Fq::multiplexer(ctx, &a, &s, w)
+            },
+        );
 
-        // Compare output bits directly, using actual output length
-        let expected_bits =
-            bits_from_biguint_with_len(&BigUint::from(expected.into_bigint()), output_wires.len())
-                .unwrap();
-        for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
-            assert_eq!(actual, expected);
-        }
+        assert_eq!(result.output_wires.value, expected);
     }
 }
