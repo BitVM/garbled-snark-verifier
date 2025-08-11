@@ -1,6 +1,6 @@
 use crate::{
     Gate, WireId,
-    circuit::streaming::{CircuitBuilder, CircuitContext, SimpleInputs, TripleInputs},
+    circuit::streaming::{CircuitBuilder, CircuitContext},
 };
 
 // Simple implementations without the component macro for testing
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_basic_evaluate() {
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         fn and_gate_eval(ctx: &mut ComponentHandle<Execute>, a: WireId, b: WireId) -> WireId {
             let c = ctx.issue_wire();
@@ -102,7 +102,7 @@ mod tests {
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                let c = and_gate_eval(root, inputs_wire.a, inputs_wire.b);
+                let c = and_gate_eval(root, inputs_wire.0, inputs_wire.1);
                 vec![c]
             },
         );
@@ -112,11 +112,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_nested_evaluate() {
-        let inputs = TripleInputs {
-            a: true,
-            b: true,
-            c: false,
-        };
+        let inputs = (true, true, false);
 
         fn triple_and_eval(
             ctx: &mut ComponentHandle<Execute>,
@@ -138,7 +134,7 @@ mod tests {
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                let r = triple_and_eval(root, inputs_wire.a, inputs_wire.b, inputs_wire.c);
+                let r = triple_and_eval(root, inputs_wire.0, inputs_wire.1, inputs_wire.2);
                 vec![r]
             },
         );
@@ -148,11 +144,7 @@ mod tests {
 
     #[test]
     fn test_component_macro_true_case() {
-        let inputs = TripleInputs {
-            a: true,
-            b: true,
-            c: true,
-        };
+        let inputs = (true, true, true);
 
         fn triple_and_eval(
             ctx: &mut ComponentHandle<Execute>,
@@ -174,7 +166,7 @@ mod tests {
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                let r = triple_and_eval(root, inputs_wire.a, inputs_wire.b, inputs_wire.c);
+                let r = triple_and_eval(root, inputs_wire.0, inputs_wire.1, inputs_wire.2);
                 vec![r]
             },
         );

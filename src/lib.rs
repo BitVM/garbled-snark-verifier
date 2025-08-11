@@ -12,9 +12,7 @@ pub use core::{
     wire::{EvaluatedWire, GarbledWire, GarbledWires, WireError, WireId},
 };
 
-pub use circuit::{
-    Circuit, CircuitContext, CircuitError, EvaluatedCircuit, FinalizedCircuit, GarbledCircuit,
-};
+pub use circuit::{CircuitContext, CircuitError};
 pub use circuit_component_macro::component;
 pub use math::*;
 

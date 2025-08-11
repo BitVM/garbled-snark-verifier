@@ -34,7 +34,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
             {
                 let mut input_wires = Vec::new();
                 #(
-                    input_wires.extend(crate::circuit::playground::IntoWireList::into_wire_list(#input_param_names));
+                    input_wires.extend(crate::circuit::streaming::IntoWireList::into_wire_list(#input_param_names));
                 )*
                 input_wires
             }
@@ -48,7 +48,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     let wrapper = quote! {
         #(#fn_attrs)*
         #fn_vis fn #fn_name(
-            #context_param_name: &mut impl crate::circuit::playground::CircuitContext,
+            #context_param_name: &mut impl crate::circuit::streaming::CircuitContext,
             #(#input_param_names: #input_param_types),*
         ) #return_type {
             let input_wires = #input_wire_collection;

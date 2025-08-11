@@ -213,7 +213,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::{Circuit, test_utils::trng};
+    use crate::{test_utils::trng};
 
     fn test_two_input_operation(
         n_bits: usize,

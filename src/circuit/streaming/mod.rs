@@ -184,6 +184,17 @@ impl<M: CircuitMode> CircuitBuilder<M> {
     }
 }
 
+impl CircuitBuilder<Execute> {
+    /// Convenience wrapper using the generic streaming path for Evaluate mode
+    pub fn streaming_execute<I, F>(inputs: I, f: F) -> StreamingResult<Execute, I>
+    where
+        I: CircuitInput + EncodeInput<Execute>,
+        F: FnOnce(&mut ComponentHandle<Execute>, &I::WireRepr) -> Vec<WireId>,
+    {
+        Self::streaming_process(inputs, Execute::default(), f)
+    }
+}
+
 impl<M: CircuitMode> CircuitBuilder<M> {
     pub fn current_component(&mut self) -> ComponentHandle<'_, M> {
         let current_id = *self.stack.last().unwrap();
@@ -281,19 +292,29 @@ impl EncodeInput<Execute> for Inputs {
     }
 }
 
-// ――― Simple Input Types for Basic Tests ―――
+pub type SoloInputs = (bool,);
+pub type SoloInputsWire = (WireId,);
 
-/// Simple two-input structure for basic circuit tests
-#[derive(Clone)]
-pub struct SimpleInputs {
-    pub a: bool,
-    pub b: bool,
+impl CircuitInput for SoloInputs {
+    type WireRepr = SoloInputsWire;
+
+    fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+        (ctx.issue_wire(),)
+    }
+
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        vec![repr.0]
+    }
 }
 
-pub struct SimpleInputsWire {
-    pub a: WireId,
-    pub b: WireId,
+impl EncodeInput<Execute> for SoloInputs {
+    fn encode(self, repr: &SoloInputsWire, cache: &mut Execute) {
+        cache.feed_wire(repr.0, self.0);
+    }
 }
+
+pub type SimpleInputs = (bool, bool);
+pub type SimpleInputsWire = (WireId, WireId);
 
 impl CircuitInput for SimpleInputs {
     type WireRepr = SimpleInputsWire;
@@ -302,11 +323,11 @@ impl CircuitInput for SimpleInputs {
         let a = ctx.issue_wire();
         let b = ctx.issue_wire();
         println!("DEBUG: SimpleInputs allocated wire A: {a:?}, wire B: {b:?}");
-        SimpleInputsWire { a, b }
+        (a, b)
     }
 
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        vec![repr.a, repr.b]
+        vec![repr.0, repr.1]
     }
 }
 
@@ -314,50 +335,38 @@ impl EncodeInput<Execute> for SimpleInputs {
     fn encode(self, repr: &SimpleInputsWire, cache: &mut Execute) {
         println!(
             "DEBUG: Encoding wire A: {a:?} = {av}, wire B: {b:?} = {bv}",
-            a = repr.a,
-            av = self.a,
-            b = repr.b,
-            bv = self.b
+            a = repr.0,
+            av = self.0,
+            b = repr.1,
+            bv = self.1
         );
-        cache.feed_wire(repr.a, self.a);
-        cache.feed_wire(repr.b, self.b);
+        cache.feed_wire(repr.0, self.0);
+        cache.feed_wire(repr.1, self.1);
     }
 }
 
 /// Three-input structure for macro tests
-pub struct TripleInputs {
-    pub a: bool,
-    pub b: bool,
-    pub c: bool,
-}
+pub type TripleInputs = (bool, bool, bool);
 
-pub struct TripleInputsWire {
-    pub a: WireId,
-    pub b: WireId,
-    pub c: WireId,
-}
+pub type TripleInputsWire = (WireId, WireId, WireId);
 
 impl CircuitInput for TripleInputs {
     type WireRepr = TripleInputsWire;
 
     fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
-        TripleInputsWire {
-            a: ctx.issue_wire(),
-            b: ctx.issue_wire(),
-            c: ctx.issue_wire(),
-        }
+        (ctx.issue_wire(), ctx.issue_wire(), ctx.issue_wire())
     }
 
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        vec![repr.a, repr.b, repr.c]
+        vec![repr.0, repr.1, repr.2]
     }
 }
 
 impl EncodeInput<Execute> for TripleInputs {
     fn encode(self, repr: &TripleInputsWire, cache: &mut Execute) {
-        cache.feed_wire(repr.a, self.a);
-        cache.feed_wire(repr.b, self.b);
-        cache.feed_wire(repr.c, self.c);
+        cache.feed_wire(repr.0, self.0);
+        cache.feed_wire(repr.1, self.1);
+        cache.feed_wire(repr.2, self.2);
     }
 }
 
@@ -431,14 +440,14 @@ mod exec_test {
     #[should_panic]
     fn test_undeclared_input_is_invisible() {
         // Test that child components cannot access parent wires not in input_wires
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         CircuitBuilder::<Execute>::streaming_process(
             inputs,
             Execute::default(),
             |root, inputs_wire| {
                 let parent_secret = root.issue_wire();
-                root.add_gate(Gate::and(inputs_wire.a, inputs_wire.b, parent_secret));
+                root.add_gate(Gate::and(inputs_wire.0, inputs_wire.1, parent_secret));
 
                 // Try to use parent wire without declaring it as input - should panic
                 root.with_child(vec![], |child| {
@@ -457,13 +466,13 @@ mod exec_test {
     #[should_panic(expected = "Output wire")]
     fn test_missing_output_panics() {
         // Test that missing output wires cause a panic
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         CircuitBuilder::<Execute>::streaming_process(
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                root.with_child(vec![inputs_wire.a], |_child| {
+                root.with_child(vec![inputs_wire.0], |_child| {
                     // Child declares an output but never creates it
                     vec![WireId(999)]
                 });
@@ -476,7 +485,7 @@ mod exec_test {
     #[test]
     fn test_constants_are_globally_visible() {
         // Test that TRUE_WIRE and FALSE_WIRE are accessible in child components
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         let output = CircuitBuilder::<Execute>::streaming_process(
             inputs,
@@ -499,13 +508,13 @@ mod exec_test {
     #[test]
     fn test_deep_nesting() {
         // Test deep component nesting
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         let output = CircuitBuilder::<Execute>::streaming_process(
             inputs.clone(),
             Execute::default(),
             |root, inputs_wire| {
-                let mut current = inputs_wire.a;
+                let mut current = inputs_wire.0;
 
                 // Create 10 levels of nesting
                 for _ in 0..10 {
@@ -526,7 +535,7 @@ mod exec_test {
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                let mut current = inputs_wire.b;
+                let mut current = inputs_wire.1;
 
                 for _ in 0..10 {
                     current = root.with_child(vec![current], |child| {
@@ -546,24 +555,24 @@ mod exec_test {
     #[test]
     fn test_isolation_between_siblings() {
         // Test that sibling components cannot see each other's wires
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         let output = CircuitBuilder::<Execute>::streaming_process(
             inputs,
             Execute::default(),
             |root, inputs_wire| {
                 // First child creates a wire
-                let child1_output = root.with_child(vec![inputs_wire.a], |child| {
+                let child1_output = root.with_child(vec![inputs_wire.0], |child| {
                     let internal = child.issue_wire();
-                    child.add_gate(Gate::and(inputs_wire.a, TRUE_WIRE, internal));
+                    child.add_gate(Gate::and(inputs_wire.0, TRUE_WIRE, internal));
                     internal
                 });
 
                 // Second child should not be able to see first child's internal wires
-                let child2_output = root.with_child(vec![inputs_wire.b], |child| {
+                let child2_output = root.with_child(vec![inputs_wire.1], |child| {
                     let result = child.issue_wire();
                     // This uses only declared inputs and constants
-                    child.add_gate(Gate::or(inputs_wire.b, FALSE_WIRE, result));
+                    child.add_gate(Gate::or(inputs_wire.1, FALSE_WIRE, result));
                     result
                 });
 
@@ -579,7 +588,7 @@ mod exec_test {
     #[should_panic]
     fn test_parent_wire_access_panics() {
         // Test that child cannot access parent wires not in input_wires
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         CircuitBuilder::<Execute>::streaming_process(
             inputs,
@@ -603,7 +612,7 @@ mod exec_test {
     #[test]
     fn test_root_frame_released() {
         // Test that root frame is properly released after streaming_process
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         // Run a simple circuit
         let _output = CircuitBuilder::<Execute>::streaming_process(
@@ -611,7 +620,7 @@ mod exec_test {
             Execute::default(),
             |root, inputs_wire| {
                 let result = root.issue_wire();
-                root.add_gate(Gate::and(inputs_wire.a, inputs_wire.b, result));
+                root.add_gate(Gate::and(inputs_wire.0, inputs_wire.1, result));
                 vec![result]
             },
         );
@@ -620,7 +629,7 @@ mod exec_test {
     #[test]
     fn test_constants_cannot_be_overwritten() {
         // Test that constants are protected and work correctly
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         let output = CircuitBuilder::<Execute>::streaming_process(
             inputs,
@@ -648,13 +657,13 @@ mod exec_test {
     #[test]
     fn test_deep_nesting_stress() {
         // Test very deep component nesting (1000 levels)
-        let inputs = SimpleInputs { a: true, b: true };
+        let inputs = (true, true);
 
         let output = CircuitBuilder::<Execute>::streaming_process(
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                let mut current = inputs_wire.a;
+                let mut current = inputs_wire.0;
 
                 // Create 1000 levels of nesting
                 for _ in 0..1000 {
@@ -676,15 +685,15 @@ mod exec_test {
     #[should_panic(expected = "appears multiple times")]
     fn test_duplicate_output_panics() {
         // Test that returning the same wire twice as output causes panic
-        let inputs = SimpleInputs { a: true, b: false };
+        let inputs = (true, false);
 
         CircuitBuilder::<Execute>::streaming_process(
             inputs,
             Execute::default(),
             |root, inputs_wire| {
-                root.with_child(vec![inputs_wire.a], |child| {
+                root.with_child(vec![inputs_wire.0], |child| {
                     let result = child.issue_wire();
-                    child.add_gate(Gate::and(inputs_wire.a, TRUE_WIRE, result));
+                    child.add_gate(Gate::and(inputs_wire.0, TRUE_WIRE, result));
                     // Return same wire twice - should panic during extract_outputs
                     vec![result, result]
                 });

@@ -1,7 +1,7 @@
 use bitvec::prelude::*;
 
 pub use super::{
-    circuit_context::CircuitContext,
+    streaming::CircuitContext,
     gate_source::{GateSource, VecGate},
 };
 use crate::{Gate, WireId, core::gate_type::GateCount};

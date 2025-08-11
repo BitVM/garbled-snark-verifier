@@ -1,7 +1,10 @@
 use std::array;
 
+use circuit_component_macro::component;
+
 use crate::{CircuitContext, Gate, GateType, WireId};
 
+#[component]
 pub fn half_adder<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId) -> (WireId, WireId) {
     let result = circuit.issue_wire();
     let carry = circuit.issue_wire();
@@ -12,6 +15,7 @@ pub fn half_adder<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId) -> (
     (result, carry)
 }
 
+#[component]
 pub fn full_adder<C: CircuitContext>(
     circuit: &mut C,
     a: WireId,
@@ -29,6 +33,7 @@ pub fn full_adder<C: CircuitContext>(
     (result, carry)
 }
 
+#[component]
 pub fn half_subtracter<C: CircuitContext>(
     circuit: &mut C,
     a: WireId,
@@ -43,6 +48,7 @@ pub fn half_subtracter<C: CircuitContext>(
     (result, borrow)
 }
 
+#[component]
 pub fn full_subtracter<C: CircuitContext>(
     circuit: &mut C,
     a: WireId,
@@ -60,6 +66,7 @@ pub fn full_subtracter<C: CircuitContext>(
     (result, carry)
 }
 
+#[component]
 pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: WireId) -> WireId {
     let [d, f, g] = array::from_fn(|_| circuit.issue_wire());
 
@@ -97,100 +104,82 @@ pub fn multiplexer<C: CircuitContext>(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use test_log::test;
 
     use super::*;
-    use crate::{Circuit, test_utils::trng};
+    use crate::{circuit::CircuitBuilder, test_utils::trng};
 
     #[test]
     fn not_not() {
-        let mut circuit = Circuit::default();
+        let not_not = CircuitBuilder::streaming_execute((true,), |circuit, wire| {
+            let (mut wire,) = *wire;
+            circuit.add_gate(Gate::not(&mut wire));
+            circuit.add_gate(Gate::not(&mut wire));
 
-        let mut wire = circuit.issue_input_wire();
-        circuit.make_wire_output(wire);
+            vec![wire]
+        })
+        .output_wires[0];
+        assert!(not_not);
 
-        circuit.add_gate(Gate::not(&mut wire));
-        circuit.add_gate(Gate::not(&mut wire));
+        let not_not_not = CircuitBuilder::streaming_execute((true,), |circuit, wire| {
+            let (mut wire,) = *wire;
+            circuit.add_gate(Gate::not(&mut wire));
+            circuit.add_gate(Gate::not(&mut wire));
+            circuit.add_gate(Gate::not(&mut wire));
 
-        circuit.full_cycle_test(|_id| Some(true), |_wire_id| Some(true), &mut trng());
+            vec![wire]
+        })
+        .output_wires[0];
 
-        circuit.add_gate(Gate::not(&mut wire));
-
-        circuit.full_cycle_test(|_id| Some(true), |_wire_id| Some(false), &mut trng());
+        assert!(!not_not_not);
     }
 
     #[test]
     fn xnor_connection_test() {
-        let mut circuit = Circuit::default();
+        let result = CircuitBuilder::streaming_execute((true, true), |circuit, wires| {
+            let (mut a_wire, mut b_wire) = *wires;
 
-        let mut a_wire = circuit.issue_input_wire();
-        let mut b_wire = circuit.issue_input_wire();
+            circuit.add_gate(Gate::not(&mut a_wire));
+            circuit.add_gate(Gate::not(&mut a_wire));
 
-        let res = circuit.issue_wire();
+            circuit.add_gate(Gate::not(&mut b_wire));
+            circuit.add_gate(Gate::not(&mut b_wire));
 
-        circuit.add_gate(Gate::not(&mut a_wire));
-        circuit.add_gate(Gate::not(&mut a_wire));
+            let res = circuit.issue_wire();
+            circuit.add_gate(Gate::and(a_wire, b_wire, res));
 
-        circuit.add_gate(Gate::not(&mut b_wire));
-        circuit.add_gate(Gate::not(&mut b_wire));
+            vec![res]
+        })
+        .output_wires[0];
 
-        circuit.add_gate(Gate::and(a_wire, b_wire, res));
-
-        circuit.make_wire_output(res);
-
-        circuit.full_cycle_test(|_id| Some(true), |_wire_id| Some(true), &mut trng());
+        assert!(result);
     }
 
     #[test]
     fn test_half_adder() {
-        let result = [
+        let test_cases = [
             ((false, false), (false, false)),
             ((false, true), (true, false)),
             ((true, false), (true, false)),
             ((true, true), (false, true)),
         ];
 
-        for ((a, b), (c, d)) in result {
-            let mut circuit = Circuit::default();
+        for ((a, b), (expected_result, expected_carry)) in test_cases {
+            let outputs = CircuitBuilder::streaming_execute((a, b), |circuit, wires| {
+                let (a_wire, b_wire) = *wires;
+                let (result_wire, carry_wire) = half_adder(circuit, a_wire, b_wire);
+                vec![result_wire, carry_wire]
+            })
+            .output_wires;
 
-            let a_wire = circuit.issue_input_wire();
-            let b_wire = circuit.issue_input_wire();
-
-            let (result_wire, carry_wire) = half_adder(&mut circuit, a_wire, b_wire);
-            circuit.make_wire_output(result_wire);
-            circuit.make_wire_output(carry_wire);
-
-            circuit
-                .garble(&mut trng())
-                .unwrap()
-                .evaluate(|id| {
-                    if id == a_wire {
-                        Some(a)
-                    } else if id == b_wire {
-                        Some(b)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap()
-                .iter_output()
-                .for_each(|(wire_id, value)| {
-                    if wire_id == result_wire {
-                        assert_eq!(value, c);
-                    } else if wire_id == carry_wire {
-                        assert_eq!(value, d);
-                    } else {
-                        unreachable!("no output Wire like that {wire_id}")
-                    }
-                });
+            assert_eq!(outputs[0], expected_result);
+            assert_eq!(outputs[1], expected_carry);
         }
     }
 
     #[test]
     fn test_full_adder() {
-        let result = [
+        let test_cases = [
             ((false, false, false), (false, false)),
             ((false, false, true), (true, false)),
             ((false, true, false), (true, false)),
@@ -201,78 +190,44 @@ mod tests {
             ((true, true, true), (true, true)),
         ];
 
-        for ((a, b, c), (d, e)) in result {
-            let mut circuit = Circuit::default();
+        for ((a, b, c), (expected_result, expected_carry)) in test_cases {
+            let outputs = CircuitBuilder::streaming_execute((a, b, c), |circuit, wires| {
+                let (a_wire, b_wire, c_wire) = *wires;
+                let (result_wire, carry_wire) = full_adder(circuit, a_wire, b_wire, c_wire);
+                vec![result_wire, carry_wire]
+            })
+            .output_wires;
 
-            let a_wire = circuit.issue_input_wire();
-            let b_wire = circuit.issue_input_wire();
-            let c_wire = circuit.issue_input_wire();
-
-            let (result_wire, carry_wire) = full_adder(&mut circuit, a_wire, b_wire, c_wire);
-            circuit.make_wire_output(result_wire);
-            circuit.make_wire_output(carry_wire);
-
-            let input = [(a_wire, a), (b_wire, b), (c_wire, c)]
-                .into_iter()
-                .collect::<HashMap<WireId, bool>>();
-            circuit
-                .garble(&mut trng())
-                .unwrap()
-                .evaluate(|id| input.get(&id).copied())
-                .unwrap()
-                .iter_output()
-                .for_each(|(wire_id, value)| {
-                    if wire_id == result_wire {
-                        assert_eq!(value, d);
-                    } else if wire_id == carry_wire {
-                        assert_eq!(value, e);
-                    } else {
-                        unreachable!("no output Wire like that {wire_id}")
-                    }
-                });
+            assert_eq!(outputs[0], expected_result);
+            assert_eq!(outputs[1], expected_carry);
         }
     }
 
     #[test]
     fn test_half_subtracter() {
-        let result = [
+        let test_cases = [
             ((false, false), (false, false)),
             ((false, true), (true, true)),
             ((true, false), (true, false)),
             ((true, true), (false, false)),
         ];
 
-        for ((a, b), (c, d)) in result {
-            let mut circuit = Circuit::default();
+        for ((a, b), (expected_result, expected_borrow)) in test_cases {
+            let outputs = CircuitBuilder::streaming_execute((a, b), |circuit, wires| {
+                let (a_wire, b_wire) = *wires;
+                let (result_wire, borrow_wire) = half_subtracter(circuit, a_wire, b_wire);
+                vec![result_wire, borrow_wire]
+            })
+            .output_wires;
 
-            let a_wire = circuit.issue_input_wire();
-            let b_wire = circuit.issue_input_wire();
-
-            let (result_wire, borrow_wire) = half_subtracter(&mut circuit, a_wire, b_wire);
-            circuit.make_wire_output(result_wire);
-            circuit.make_wire_output(borrow_wire);
-
-            circuit
-                .garble(&mut trng())
-                .unwrap()
-                .evaluate(|id| id.eq(&a_wire).then_some(a).or(id.eq(&b_wire).then_some(b)))
-                .unwrap()
-                .iter_output()
-                .for_each(|(wire_id, value)| {
-                    if wire_id == result_wire {
-                        assert_eq!(value, c);
-                    } else if wire_id == borrow_wire {
-                        assert_eq!(value, d);
-                    } else {
-                        unreachable!("no output Wire like that {wire_id}")
-                    }
-                });
+            assert_eq!(outputs[0], expected_result);
+            assert_eq!(outputs[1], expected_borrow);
         }
     }
 
     #[test]
     fn test_full_subtracter() {
-        let result = [
+        let test_cases = [
             ((false, false, false), (false, false)),
             ((false, false, true), (true, true)),
             ((false, true, false), (true, true)),
@@ -283,41 +238,22 @@ mod tests {
             ((true, true, true), (true, true)),
         ];
 
-        for ((a, b, c), (d, e)) in result {
-            let mut circuit = Circuit::default();
+        for ((a, b, c), (expected_result, expected_carry)) in test_cases {
+            let outputs = CircuitBuilder::streaming_execute((a, b, c), |circuit, wires| {
+                let (a_wire, b_wire, c_wire) = *wires;
+                let (result_wire, carry_wire) = full_subtracter(circuit, a_wire, b_wire, c_wire);
+                vec![result_wire, carry_wire]
+            })
+            .output_wires;
 
-            let a_wire = circuit.issue_input_wire();
-            let b_wire = circuit.issue_input_wire();
-            let c_wire = circuit.issue_input_wire();
-
-            let (result_wire, carry_wire) = full_subtracter(&mut circuit, a_wire, b_wire, c_wire);
-            circuit.make_wire_output(result_wire);
-            circuit.make_wire_output(carry_wire);
-
-            let input = [(a_wire, a), (b_wire, b), (c_wire, c)]
-                .into_iter()
-                .collect::<HashMap<WireId, bool>>();
-            circuit
-                .garble(&mut trng())
-                .unwrap()
-                .evaluate(|id| input.get(&id).copied())
-                .unwrap()
-                .iter_output()
-                .for_each(|(wire_id, value)| {
-                    if wire_id == result_wire {
-                        assert_eq!(value, d);
-                    } else if wire_id == carry_wire {
-                        assert_eq!(value, e);
-                    } else {
-                        unreachable!("no output Wire like that {wire_id}")
-                    }
-                });
+            assert_eq!(outputs[0], expected_result);
+            assert_eq!(outputs[1], expected_carry);
         }
     }
 
     #[test]
     fn test_selector() {
-        let result = [
+        let test_cases = [
             ((false, false, false), false),
             ((false, false, true), false),
             ((false, true, false), true),
@@ -328,80 +264,92 @@ mod tests {
             ((true, true, true), true),
         ];
 
-        for ((a, b, c), d) in result {
-            let mut circuit = Circuit::default();
+        for ((a, b, c), expected_result) in test_cases {
+            let output = CircuitBuilder::streaming_execute((a, b, c), |circuit, wires| {
+                let (a_wire, b_wire, c_wire) = *wires;
+                let result_wire = selector(circuit, a_wire, b_wire, c_wire);
+                vec![result_wire]
+            })
+            .output_wires[0];
 
-            let a_wire = circuit.issue_input_wire();
-            let b_wire = circuit.issue_input_wire();
-            let c_wire = circuit.issue_input_wire();
-
-            let result_wire = selector(&mut circuit, a_wire, b_wire, c_wire);
-            circuit.make_wire_output(result_wire);
-
-            let input = [(a_wire, a), (b_wire, b), (c_wire, c)]
-                .into_iter()
-                .collect::<HashMap<WireId, bool>>();
-
-            circuit
-                .garble(&mut trng())
-                .unwrap()
-                .evaluate(|id| input.get(&id).copied())
-                .unwrap()
-                .iter_output()
-                .for_each(|(wire_id, value)| {
-                    if wire_id == result_wire {
-                        assert_eq!(value, d);
-                    } else {
-                        unreachable!("no output Wire like that {wire_id}")
-                    }
-                });
+            assert_eq!(output, expected_result);
         }
     }
 
     #[test]
     fn test_multiplexer() {
         use rand::Rng;
+
+        use crate::circuit::streaming::{CircuitInput, EncodeInput, Execute, modes::CircuitMode};
+
         let mut rng = trng();
 
-        let w = 3;
-        let n = 2_usize.pow(w as u32);
+        // Test with w=3, which means 8 inputs and 3 selector bits
+        // Ad-hoc structure for this test
+        struct MuxInputs {
+            data: [bool; 8],
+            select: [bool; 3],
+        }
 
-        let mut circuit = Circuit::default();
+        struct MuxWires {
+            data: [WireId; 8],
+            select: [WireId; 3],
+        }
 
-        let a: Vec<WireId> = (0..n).map(|_| circuit.issue_input_wire()).collect();
-        let s: Vec<WireId> = (0..w).map(|_| circuit.issue_input_wire()).collect();
+        impl CircuitInput for MuxInputs {
+            type WireRepr = MuxWires;
 
-        let a_values: Vec<bool> = (0..n).map(|_| rng.r#gen()).collect();
-        let s_values: Vec<bool> = (0..w).map(|_| rng.r#gen()).collect();
+            fn allocate<C: CircuitContext>(ctx: &mut C) -> Self::WireRepr {
+                MuxWires {
+                    data: array::from_fn(|_| ctx.issue_wire()),
+                    select: array::from_fn(|_| ctx.issue_wire()),
+                }
+            }
 
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut wires = Vec::new();
+                wires.extend(repr.data.iter().copied());
+                wires.extend(repr.select.iter().copied());
+                wires
+            }
+        }
+
+        impl EncodeInput<Execute> for MuxInputs {
+            fn encode(self, repr: &MuxWires, cache: &mut Execute) {
+                for (i, &value) in self.data.iter().enumerate() {
+                    cache.feed_wire(repr.data[i], value);
+                }
+                for (i, &value) in self.select.iter().enumerate() {
+                    cache.feed_wire(repr.select[i], value);
+                }
+            }
+        }
+
+        // Generate random test values using array::from_fn
+        let data_values: [bool; 8] = array::from_fn(|_| rng.r#gen());
+        let select_values: [bool; 3] = array::from_fn(|_| rng.r#gen());
+
+        // Calculate expected output index
         let mut u = 0;
-        for &value in s_values.iter().rev() {
+        for &value in select_values.iter().rev() {
             u = u * 2 + if value { 1 } else { 0 };
         }
+        let expected = data_values[u];
 
-        let result_wire = multiplexer(&mut circuit, &a, &s, w);
-        circuit.make_wire_output(result_wire);
+        let inputs = MuxInputs {
+            data: data_values,
+            select: select_values,
+        };
 
-        let mut input = HashMap::new();
-        for (i, &wire) in a.iter().enumerate() {
-            input.insert(wire, a_values[i]);
-        }
-        for (i, &wire) in s.iter().enumerate() {
-            input.insert(wire, s_values[i]);
-        }
+        let output = CircuitBuilder::streaming_execute(inputs, |circuit, wires| {
+            let data_wires = wires.data.to_vec();
+            let select_wires = wires.select.to_vec();
 
-        circuit
-            .garble(&mut trng())
-            .unwrap()
-            .evaluate(|id| input.get(&id).copied())
-            .unwrap()
-            .iter_output()
-            .for_each(|(wire_id, value)| {
-                if wire_id == result_wire {
-                    assert_eq!(value, a_values[u]);
-                } else {
-                    unreachable!("no output Wire like that {wire_id}")
-                }
-            });
+            let result_wire = multiplexer(circuit, &data_wires, &select_wires, 3);
+            vec![result_wire]
+        })
+        .output_wires[0];
+
+        assert_eq!(output, expected);
     }
 }
