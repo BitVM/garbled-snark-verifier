@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::{Gate, WireId};
+use crate::{Gate, WireId, core::gate_type::GateCount};
 
 mod into_wire_list;
 pub use into_wire_list::{IntoWireList, IntoWires};
@@ -113,6 +113,7 @@ pub struct CircuitBuilder<M: CircuitMode> {
     stack: Vec<ComponentId>,
     wire_cache: M,
     next_wire_id: usize,
+    gate_count: GateCount,
 }
 
 pub struct StreamingResult<M: CircuitMode, I: CircuitInput> {
@@ -136,6 +137,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             stack: vec![],
             wire_cache,
             next_wire_id: 2, // 0&1 reserved for constants
+            gate_count: GateCount::default(),
         };
 
         let root_id = builder.pool.insert(Component::empty_root());
@@ -210,7 +212,12 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         wire
     }
 
+    pub fn gate_count(&self) -> &GateCount {
+        &self.gate_count
+    }
+
     pub fn add_gate_to_component(&mut self, component_id: ComponentId, gate: Gate) {
+        self.gate_count.handle(gate.gate_type);
         self.wire_cache.evaluate_gate(&gate).unwrap();
 
         self.pool
