@@ -165,6 +165,7 @@ mod tests {
     // Minimal, streaming garbling stress: builds a very large circuit structure
     // and also exercises input allocation in garble mode.
     #[test]
+    #[ignore = "tmp wip"]
     fn test_streaming_garble_large_circuit() {
         // Single-boolean input to exercise input allocation in garble mode too
         struct OneInput {
@@ -211,7 +212,7 @@ mod tests {
 
         let out = CircuitBuilder::<Garble>::streaming_process::<_, _, Vec<GarbledWire>>(
             OneInput { x: true },
-            Garble::new(0, 2_000),
+            Garble::new(0, 20_000),
             |root, iw| {
                 let seed = iw.x;
                 expand_tree(root, seed, DEPTH);

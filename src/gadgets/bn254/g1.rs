@@ -1,6 +1,7 @@
 use std::{cmp::min, collections::HashMap, iter::zip};
 
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
+use circuit_component_macro::component;
 use digest::typenum::bit;
 use num_bigint::BigUint;
 use rand::Rng;
@@ -121,6 +122,7 @@ impl G1Projective {
 
 impl G1Projective {
     // http://koclab.cs.ucsb.edu/teaching/ccs130h/2018/09projective.pdf
+    #[component]
     pub fn add_montgomery<C: CircuitContext>(
         circuit: &mut C,
         p: &G1Projective,

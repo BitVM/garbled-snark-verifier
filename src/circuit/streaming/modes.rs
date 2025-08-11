@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::{array, collections::HashMap};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
 use crate::{
     Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
-    circuit::streaming::WireStack, core::gate::garbling::Blake3Hasher,
+    circuit::streaming::{FALSE_WIRE, TRUE_WIRE, WireStack},
+    core::gate::garbling::Blake3Hasher,
 };
 
 pub trait CircuitMode {
@@ -86,14 +87,22 @@ impl Garble {
     pub fn new(seeds: u64, component_max_live_wires: usize) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seeds);
         let delta = Delta::generate(&mut rng);
-        Garble {
+
+        let mut self_ = Garble {
             rng,
             delta,
             component_max_live_wires,
             wires: vec![GarbledWires::new(component_max_live_wires)],
             garble_table: Default::default(),
             gate_index: 0,
-        }
+        };
+
+        let [false_, true_] = array::from_fn(|_| GarbledWire::random(&mut self_.rng, &self_.delta));
+
+        self_.feed_wire(FALSE_WIRE, false_);
+        self_.feed_wire(TRUE_WIRE, true_);
+
+        self_
     }
     pub fn next_gate_index(&mut self) -> usize {
         let index = self.gate_index;
@@ -125,6 +134,16 @@ impl Garble {
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, GarbledWire)> {
+        if self.wires.len() == 1 {
+            let last = self.wires.last().unwrap();
+
+            return outputs
+                .iter()
+                .copied()
+                .map(|wire_id| (wire_id, last.get(wire_id).unwrap().clone()))
+                .collect();
+        }
+
         let last = self.wires.pop().unwrap();
 
         outputs

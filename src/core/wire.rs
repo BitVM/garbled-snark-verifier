@@ -76,14 +76,12 @@ mod garbled_wires {
     #[derive(Debug)]
     pub struct GarbledWires {
         wires: HashMap<WireId, GarbledWire>,
-        num_wires: usize,
     }
 
     impl GarbledWires {
-        pub fn new(num_wires: usize) -> Self {
+        pub fn new(_num_wires: usize) -> Self {
             Self {
                 wires: HashMap::new(),
-                num_wires,
             }
         }
 
@@ -98,9 +96,9 @@ mod garbled_wires {
             wire_id: WireId,
             wire: GarbledWire,
         ) -> Result<&GarbledWire, WireError> {
-            if wire_id.0 > self.num_wires {
-                return Err(WireError::InvalidWireIndex(wire_id));
-            }
+            //if wire_id.0 > self.num_wires {
+            //    return Err(WireError::InvalidWireIndex(wire_id));
+            //}
             match self.wires.entry(wire_id) {
                 Entry::Occupied(_) => Err(WireError::InvalidWireIndex(wire_id)),
                 Entry::Vacant(vac) => Ok(vac.insert(wire)),

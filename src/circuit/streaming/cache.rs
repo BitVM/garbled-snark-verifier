@@ -34,7 +34,7 @@ impl<T> Frame<T> {
         output_wires
             .iter()
             .map(|&wire_id| {
-                if !seen.insert(wire_id) {
+                if wire_id != TRUE_WIRE && wire_id != FALSE_WIRE && !seen.insert(wire_id) {
                     panic!("Output wire {wire_id:?} appears multiple times");
                 }
 

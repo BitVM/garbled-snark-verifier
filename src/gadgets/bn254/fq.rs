@@ -29,6 +29,12 @@ impl IntoWireList for Fq {
     }
 }
 
+impl IntoWireList for &Fq {
+    fn into_wire_list(self) -> Vec<WireId> {
+        (&self.0).into_wire_list()
+    }
+}
+
 impl Deref for Fq {
     type Target = BigIntWires;
 
@@ -241,7 +247,7 @@ impl Fq {
         Fq(<Self as Fp254Impl>::inverse_montgomery(circuit, &a.0))
     }
 
-    #[component(ignore = "a, exp")]
+    #[component(ignore = "exp")]
     pub fn exp_by_constant_montgomery(
         circuit: &mut impl crate::CircuitContext,
         a: &Fq,
@@ -304,7 +310,7 @@ pub(super) mod tests {
                 CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList,
             },
         },
-        gadgets::bigint::{bits_from_biguint_with_len, BigUint as BigUintOutput},
+        gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,
     };
 
@@ -630,7 +636,7 @@ pub(super) mod tests {
         let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
             input,
             Execute::default(),
-            |ctx, x| Fq::montgomery_reduce(ctx, &x),
+            |ctx, x| Fq::montgomery_reduce(ctx, x),
         );
 
         assert_eq!(result.output_wires.value, expected);
@@ -730,7 +736,7 @@ pub(super) mod tests {
             Execute::default(),
             |ctx, input| {
                 let (a, s) = input;
-                Fq::multiplexer(ctx, &a, &s, w)
+                Fq::multiplexer(ctx, a, s, w)
             },
         );
 

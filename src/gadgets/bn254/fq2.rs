@@ -75,10 +75,7 @@ impl Fq2 {
     }
 
     pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq2 {
-        Fq2::from_components(
-            Fq::new(circuit),
-            Fq::new(circuit),
-        )
+        Fq2::from_components(Fq::new(circuit), Fq::new(circuit))
     }
 
     pub fn get_wire_bits_fn(
@@ -103,7 +100,11 @@ impl Fq2 {
         format!("c0: {c0_mask}, c1: {c1_mask}")
     }
 
-    pub fn equal_constant<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq2) -> WireId {
+    pub fn equal_constant<C: CircuitContext>(
+        circuit: &mut C,
+        a: &Fq2,
+        b: &ark_bn254::Fq2,
+    ) -> WireId {
         let u = Fq::equal_constant(circuit, a.c0(), &b.c0);
         let v = Fq::equal_constant(circuit, a.c1(), &b.c1);
         let w = circuit.issue_wire();
@@ -208,7 +209,11 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_by_constant_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq2) -> Fq2 {
+    pub fn mul_by_constant_montgomery<C: CircuitContext>(
+        circuit: &mut C,
+        a: &Fq2,
+        b: &ark_bn254::Fq2,
+    ) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -240,7 +245,11 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_by_constant_fq_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, b: &ark_bn254::Fq) -> Fq2 {
+    pub fn mul_by_constant_fq_montgomery<C: CircuitContext>(
+        circuit: &mut C,
+        a: &Fq2,
+        b: &ark_bn254::Fq,
+    ) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
@@ -250,7 +259,11 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
-    pub fn mul_constant_by_fq_montgomery<C: CircuitContext>(circuit: &mut C, a: &ark_bn254::Fq2, b: &Fq) -> Fq2 {
+    pub fn mul_constant_by_fq_montgomery<C: CircuitContext>(
+        circuit: &mut C,
+        a: &ark_bn254::Fq2,
+        b: &Fq,
+    ) -> Fq2 {
         assert_eq!(b.len(), Fq::N_BITS);
 
         let c0 = Fq::mul_by_constant_montgomery(circuit, b, &a.c0);
@@ -345,13 +358,16 @@ impl Fq2 {
     // Square root based on the complex method. See paper https://eprint.iacr.org/2012/685.pdf (Algorithm 8, page 15).
     // Assume that the square root exists.
     // Special case: c1 == 0, not used in real case, just for testing
-    pub fn sqrt_c1_zero_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2, is_qr: WireId) -> Fq2 {
+    pub fn sqrt_c1_zero_montgomery<C: CircuitContext>(
+        circuit: &mut C,
+        a: &Fq2,
+        is_qr: WireId,
+    ) -> Fq2 {
         let c0_sqrt = Fq::sqrt_montgomery(circuit, a.c0());
         let c0_neg = Fq::neg(circuit, a.c0());
         let c1_sqrt = Fq::sqrt_montgomery(circuit, &c0_neg);
 
-        let zero =
-            BigIntWires::new_constant(Fq::N_BITS, &num_bigint::BigUint::ZERO).unwrap();
+        let zero = BigIntWires::new_constant(Fq::N_BITS, &num_bigint::BigUint::ZERO).unwrap();
 
         let c0_final = select(circuit, &c0_sqrt, &zero, is_qr);
         let c1_final = select(circuit, &zero, &c1_sqrt, is_qr);
