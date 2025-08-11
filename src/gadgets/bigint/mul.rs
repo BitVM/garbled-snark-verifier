@@ -261,6 +261,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
 
     BigIntWires { bits: result_bits }
 }
+
 #[cfg(test)]
 mod tests {
     use std::{array, collections::HashMap};
