@@ -5,12 +5,14 @@ use std::{
 
 use ark_ff::{Field, PrimeField, UniformRand};
 use bitvec::vec::BitVec;
+use circuit_component_macro::component;
 use num_bigint::BigUint;
 use rand::Rng;
 
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     CircuitContext, WireId,
+    circuit::streaming::IntoWireList,
     gadgets::{
         self,
         bigint::{self, Error},
@@ -20,6 +22,12 @@ use crate::{
 /// BN254 base field Fq implementation
 #[derive(Clone)]
 pub struct Fq(pub BigIntWires);
+
+impl IntoWireList for Fq {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.0.into_wire_list()
+    }
+}
 
 impl Deref for Fq {
     type Target = BigIntWires;
@@ -74,7 +82,6 @@ impl Fq {
     pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq {
         Fq(BigIntWires::new(circuit, Self::N_BITS))
     }
-
 
     pub fn get_wire_bits_fn(
         wires: &Fq,
@@ -153,6 +160,7 @@ impl Fq {
     }
 
     // Check if field element is quadratic non-residue in Montgomery form
+    //
     pub fn is_qnr_montgomery<C: CircuitContext>(circuit: &mut C, x: &Fq) -> WireId {
         // y = x^((p - 1)/2)
         let y = Fq::exp_by_constant_montgomery(
@@ -233,6 +241,7 @@ impl Fq {
         Fq(<Self as Fp254Impl>::inverse_montgomery(circuit, &a.0))
     }
 
+    #[component(ignore = "a, exp")]
     pub fn exp_by_constant_montgomery(
         circuit: &mut impl crate::CircuitContext,
         a: &Fq,
@@ -280,14 +289,63 @@ impl Fq {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use std::collections::HashMap;
+    use std::{array, collections::HashMap};
 
     use ark_ff::AdditiveGroup;
     use rand::Rng;
     use test_log::test;
 
     use super::*;
-    use crate::{CircuitContext, test_utils::trng};
+    use crate::{
+        CircuitContext,
+        circuit::{
+            CircuitBuilder, CircuitInput,
+            streaming::{
+                CircuitMode, ComponentHandle, EncodeInput, Execute, IntoWireList, StreamingResult,
+            },
+        },
+        gadgets::bigint::bits_from_biguint_with_len,
+        test_utils::trng,
+    };
+
+    // Input struct for Fq tests
+    struct FqInput<const N: usize> {
+        values: [ark_bn254::Fq; N],
+    }
+
+    impl<const N: usize> FqInput<N> {
+        fn new(values: [ark_bn254::Fq; N]) -> Self {
+            Self { values }
+        }
+    }
+
+    impl<const N: usize> CircuitInput for FqInput<N> {
+        type WireRepr = [Fq; N];
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            array::from_fn(|_| Fq::new(ctx))
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            repr.iter().flat_map(|fq| fq.0.iter().copied()).collect()
+        }
+    }
+
+    impl<const N: usize> EncodeInput<Execute> for FqInput<N> {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            self.values
+                .iter()
+                .zip(repr.iter())
+                .for_each(|(val, fq_wires)| {
+                    let bits =
+                        bits_from_biguint_with_len(&BigUint::from(val.into_bigint()), Fq::N_BITS)
+                            .unwrap();
+                    fq_wires.0.iter().zip(bits).for_each(|(w, b)| {
+                        cache.feed_wire(*w, b);
+                    });
+                });
+        }
+    }
 
     pub fn rnd() -> ark_bn254::Fq {
         loop {
@@ -317,25 +375,29 @@ pub(super) mod tests {
         (unary $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let c = $op(&mut circuit, &a);
-                c.0.mark_as_output(&mut circuit);
-
                 let a_v = rnd();
                 let expected = $ark_op(a_v);
+                let input = FqInput::new([a_v]);
 
-                let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
-                let actual_c = circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id))
-                    .unwrap()
-                    .collect::<HashMap<WireId, bool>>();
+                let StreamingResult {
+                    output_wires,
+                    output_wires_ids,
+                    ..
+                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+                    let [a] = input;
+                    let c = $op(ctx, a);
+                    c.into_wire_list()
+                });
 
-                assert_eq!(
-                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-                );
+                // Compare output bits directly, using actual output length
+                let expected_bits = bits_from_biguint_with_len(
+                    &BigUint::from(expected.into_bigint()),
+                    output_wires.len(),
+                )
+                .unwrap();
+                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+                    assert_eq!(actual, expected);
+                }
             }
         };
 
@@ -343,29 +405,30 @@ pub(super) mod tests {
         (binary $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let b = Fq::new(&mut circuit, true, false);
-                let c = $op(&mut circuit, &a, &b);
-                c.0.mark_as_output(&mut circuit);
-
                 let a_v = rnd();
                 let b_v = rnd();
                 let expected = $ark_op(a_v, b_v);
+                let input = FqInput::new([a_v, b_v]);
 
-                let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-                let b_input = Fq::get_wire_bits_fn(&b, &b_v).unwrap();
-                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+                let StreamingResult {
+                    output_wires,
+                    output_wires_ids,
+                    ..
+                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+                    let [a, b] = input;
+                    let c = $op(ctx, a, b);
+                    c.into_wire_list()
+                });
 
-                let actual_c = circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
-                    .unwrap()
-                    .collect::<HashMap<WireId, bool>>();
-
-                assert_eq!(
-                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-                );
+                // Compare output bits directly, using actual output length
+                let expected_bits = bits_from_biguint_with_len(
+                    &BigUint::from(expected.into_bigint()),
+                    output_wires.len(),
+                )
+                .unwrap();
+                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+                    assert_eq!(actual, expected);
+                }
             }
         };
 
@@ -373,27 +436,30 @@ pub(super) mod tests {
         (constant $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let b_v = rnd();
-                let c = $op(&mut circuit, &a, &b_v);
-                c.0.mark_as_output(&mut circuit);
-
                 let a_v = rnd();
+                let b_v = rnd();
                 let expected = $ark_op(a_v, b_v);
+                let input = FqInput::new([a_v]);
 
-                let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+                let StreamingResult {
+                    output_wires,
+                    output_wires_ids,
+                    ..
+                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+                    let [a] = input;
+                    let c = $op(ctx, a, &b_v);
+                    c.into_wire_list()
+                });
 
-                let actual_c = circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id))
-                    .unwrap()
-                    .collect::<HashMap<WireId, bool>>();
-
-                assert_eq!(
-                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-                );
+                // Compare output bits directly, using actual output length
+                let expected_bits = bits_from_biguint_with_len(
+                    &BigUint::from(expected.into_bigint()),
+                    output_wires.len(),
+                )
+                .unwrap();
+                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+                    assert_eq!(actual, expected);
+                }
             }
         };
 
@@ -401,26 +467,30 @@ pub(super) mod tests {
         (montgomery_unary $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let c = $op(&mut circuit, &a);
-                c.0.mark_as_output(&mut circuit);
-
                 let a_v = rnd();
                 let a_mont = Fq::as_montgomery(a_v);
                 let expected = Fq::as_montgomery($ark_op(a_v));
+                let input = FqInput::new([a_mont]);
 
-                let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
-                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
-                let actual_c = circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id))
-                    .unwrap()
-                    .collect::<HashMap<WireId, bool>>();
+                let StreamingResult {
+                    output_wires,
+                    output_wires_ids,
+                    ..
+                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+                    let [a] = input;
+                    let c = $op(ctx, a);
+                    c.into_wire_list()
+                });
 
-                assert_eq!(
-                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-                );
+                // Compare output bits directly, using actual output length
+                let expected_bits = bits_from_biguint_with_len(
+                    &BigUint::from(expected.into_bigint()),
+                    output_wires.len(),
+                )
+                .unwrap();
+                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+                    assert_eq!(actual, expected);
+                }
             }
         };
 
@@ -428,31 +498,32 @@ pub(super) mod tests {
         (montgomery_binary $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let b = Fq::new(&mut circuit, true, false);
-                let c = $op(&mut circuit, &a, &b);
-                c.0.mark_as_output(&mut circuit);
-
                 let a_v = rnd();
                 let b_v = rnd();
                 let a_mont = Fq::as_montgomery(a_v);
                 let b_mont = Fq::as_montgomery(b_v);
                 let expected = Fq::as_montgomery($ark_op(a_v, b_v));
+                let input = FqInput::new([a_mont, b_mont]);
 
-                let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
-                let b_input = Fq::get_wire_bits_fn(&b, &b_mont).unwrap();
-                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+                let StreamingResult {
+                    output_wires,
+                    output_wires_ids,
+                    ..
+                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+                    let [a, b] = input;
+                    let c = $op(ctx, a, b);
+                    c.into_wire_list()
+                });
 
-                let actual_c = circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
-                    .unwrap()
-                    .collect::<HashMap<WireId, bool>>();
-
-                assert_eq!(
-                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-                );
+                // Compare output bits directly, using actual output length
+                let expected_bits = bits_from_biguint_with_len(
+                    &BigUint::from(expected.into_bigint()),
+                    output_wires.len(),
+                )
+                .unwrap();
+                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+                    assert_eq!(actual, expected);
+                }
             }
         };
 
@@ -460,29 +531,32 @@ pub(super) mod tests {
         (montgomery_constant $name:ident, $op:expr, $ark_op:expr) => {
             #[test_log::test]
             fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let b_v = rnd();
-                let b_mont = Fq::as_montgomery(b_v);
-                let c = $op(&mut circuit, &a, &b_mont);
-                c.0.mark_as_output(&mut circuit);
-
                 let a_v = rnd();
+                let b_v = rnd();
                 let a_mont = Fq::as_montgomery(a_v);
+                let b_mont = Fq::as_montgomery(b_v);
                 let expected = Fq::as_montgomery($ark_op(a_v, b_v));
+                let input = FqInput::new([a_mont]);
 
-                let a_input = Fq::get_wire_bits_fn(&a, &a_mont).unwrap();
-                let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
+                let StreamingResult {
+                    output_wires,
+                    output_wires_ids,
+                    ..
+                } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+                    let [a] = input;
+                    let c = $op(ctx, a, &b_mont);
+                    c.into_wire_list()
+                });
 
-                let actual_c = circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id))
-                    .unwrap()
-                    .collect::<HashMap<WireId, bool>>();
-
-                assert_eq!(
-                    c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-                    c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-                );
+                // Compare output bits directly, using actual output length
+                let expected_bits = bits_from_biguint_with_len(
+                    &BigUint::from(expected.into_bigint()),
+                    output_wires.len(),
+                )
+                .unwrap();
+                for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+                    assert_eq!(actual, expected);
+                }
             }
         };
 
@@ -507,34 +581,6 @@ pub(super) mod tests {
                     let a = rnd();
                     assert!($property(a));
                 }
-            }
-        };
-
-        // Custom assertion: test_fq!(custom div6, Fq::div6, |a, c| c + c + c + c + c + c == a)
-        (custom $name:ident, $op:expr, $check:expr) => {
-            #[test_log::test]
-            fn $name() {
-                let mut circuit = Circuit::default();
-                let a = Fq::new(&mut circuit, true, false);
-                let c = $op(&mut circuit, &a);
-                c.0.mark_as_output(&mut circuit);
-
-                let a_v = rnd();
-
-                let a_input = Fq::get_wire_bits_fn(&a, &a_v).unwrap();
-
-                circuit
-                    .simple_evaluate(|wire_id| (a_input)(wire_id))
-                    .unwrap()
-                    .for_each(|(wire_id, value)| {
-                        if let Some(c_bit) = circuit.get_wire_value(wire_id) {
-                            let c_wire = Fq(BigIntWires::from_wire_values(&circuit, c_bit));
-                            if let Ok(c_value) = Fq::get_wire_bits_fn(&c_wire, &ark_bn254::Fq::ZERO)
-                            {
-                                assert!($check(a_v /* extracted c value */,));
-                            }
-                        }
-                    });
             }
         };
     }
@@ -575,13 +621,6 @@ pub(super) mod tests {
 
     #[test]
     fn test_fq_montgomery_reduce() {
-        let mut circuit = Circuit::default();
-
-        // Create a 508-bit input (2 * 254 bits) for montgomery_reduce
-        let x = BigIntWires::new(&mut circuit, 2 * Fq::N_BITS, true, false);
-        let result = Fq::montgomery_reduce(&mut circuit, &x);
-        result.0.mark_as_output(&mut circuit);
-
         // Test with a random value multiplied by R (to create valid Montgomery form input)
         let a_v = rnd();
         let b_v = rnd();
@@ -594,27 +633,58 @@ pub(super) mod tests {
         // Expected result is the Montgomery form of the product
         let expected = montgomery_product;
 
-        let x_input = x.get_wire_bits_fn(&input_value).unwrap();
-        let result_output = Fq::get_wire_bits_fn(&result, &expected).unwrap();
+        // Create custom input for BigIntWires
+        struct BigIntInput {
+            len: usize,
+            value: BigUint,
+        }
 
-        let actual_result = circuit
-            .simple_evaluate(x_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
+        impl CircuitInput for BigIntInput {
+            type WireRepr = BigIntWires;
 
-        assert_eq!(
-            result.to_bitmask(|wire_id| result_output(wire_id).unwrap()),
-            result.to_bitmask(|wire_id| *actual_result.get(&wire_id).unwrap())
-        );
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                BigIntWires::new(ctx, self.len)
+            }
+
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                repr.iter().copied().collect()
+            }
+        }
+
+        impl EncodeInput<Execute> for BigIntInput {
+            fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+                let bits = bits_from_biguint_with_len(&self.value, self.len).unwrap();
+                repr.iter().zip(bits).for_each(|(w, b)| {
+                    cache.feed_wire(*w, b);
+                });
+            }
+        }
+
+        let input = BigIntInput {
+            len: 2 * Fq::N_BITS,
+            value: input_value,
+        };
+
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |ctx, x| {
+            let result = Fq::montgomery_reduce(ctx, &x);
+            result.into_wire_list()
+        });
+
+        // Compare output bits directly, using actual output length
+        let expected_bits =
+            bits_from_biguint_with_len(&BigUint::from(expected.into_bigint()), output_wires.len())
+                .unwrap();
+        for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
     fn test_fq_sqrt_montgomery() {
-        let mut circuit = Circuit::default();
-        let aa_wire = Fq::new(&mut circuit, true, false);
-        let c = Fq::sqrt_montgomery(&mut circuit, &aa_wire);
-        c.0.mark_as_output(&mut circuit);
-
         let a_v = rnd();
         let aa_v = a_v * a_v; // Perfect square
         let aa_montgomery = Fq::as_montgomery(aa_v);
@@ -625,36 +695,33 @@ pub(super) mod tests {
             false => Fq::as_montgomery(a_v),
         };
 
-        let aa_input = Fq::get_wire_bits_fn(&aa_wire, &aa_montgomery).unwrap();
-        let c_output = Fq::get_wire_bits_fn(&c, &expected_c).unwrap();
+        let input = FqInput::new([aa_montgomery]);
 
-        let actual_c = circuit
-            .simple_evaluate(aa_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+            let [aa_wire] = input;
+            let c = Fq::sqrt_montgomery(ctx, aa_wire);
+            c.into_wire_list()
+        });
 
-        assert_eq!(
-            c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-            c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-        );
+        // Compare output bits directly, using actual output length
+        let expected_bits = bits_from_biguint_with_len(
+            &BigUint::from(expected_c.into_bigint()),
+            output_wires.len(),
+        )
+        .unwrap();
+        for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+            assert_eq!(actual, expected);
+        }
     }
 
     #[test]
     fn test_fq_multiplexer() {
-        let mut circuit = Circuit::default();
-
         let w = 1;
         let n = 2_usize.pow(w as u32);
-        let a = (0..n)
-            .map(|_| Fq::new(&mut circuit, true, false))
-            .collect::<Vec<_>>();
-        let s = (0..w)
-            .map(|_| circuit.issue_input_wire())
-            .collect::<Vec<_>>();
-        let c = Fq::multiplexer(&mut circuit, &a, &s.clone(), w);
-
-        c.0.mark_as_output(&mut circuit);
-
         let a_val = (0..n).map(|_| random()).collect::<Vec<_>>();
         let s_val = (0..w).map(|_| trng().r#gen()).collect::<Vec<_>>();
 
@@ -664,34 +731,72 @@ pub(super) mod tests {
         }
         let expected = a_val[u];
 
-        let a_input = {
-            let mut map = HashMap::new();
-            for (w, v) in a.iter().zip(a_val.iter()) {
-                let f = Fq::get_wire_bits_fn(w, v).unwrap();
-                for id in w.0.iter().cloned() {
-                    if let Some(b) = f(id) {
-                        map.insert(*id, b);
-                    }
+        // Create custom input for multiplexer
+        struct MultiplexerInput {
+            a_values: Vec<ark_bn254::Fq>,
+            s_values: Vec<bool>,
+            w: usize,
+        }
+
+        impl CircuitInput for MultiplexerInput {
+            type WireRepr = (Vec<Fq>, Vec<WireId>);
+
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                let a = self.a_values.iter().map(|_| Fq::new(ctx)).collect();
+                let s = (0..self.w).map(|_| ctx.issue_wire()).collect();
+                (a, s)
+            }
+
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let (a, s) = repr;
+                a.iter()
+                    .flat_map(|fq| fq.0.iter().copied())
+                    .chain(s.iter().copied())
+                    .collect()
+            }
+        }
+
+        impl EncodeInput<Execute> for MultiplexerInput {
+            fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+                let (a, s) = repr;
+                // Encode a values
+                for (fq_wires, val) in a.iter().zip(self.a_values.iter()) {
+                    let bits =
+                        bits_from_biguint_with_len(&BigUint::from(val.into_bigint()), Fq::N_BITS)
+                            .unwrap();
+                    fq_wires.0.iter().zip(bits).for_each(|(w, b)| {
+                        cache.feed_wire(*w, b);
+                    });
+                }
+                // Encode s values
+                for (wire, val) in s.iter().zip(self.s_values.iter()) {
+                    cache.feed_wire(*wire, *val);
                 }
             }
-            move |wire_id: WireId| map.get(&wire_id).copied()
+        }
+
+        let input = MultiplexerInput {
+            a_values: a_val.clone(),
+            s_values: s_val,
+            w,
         };
 
-        let s_input = {
-            let map: HashMap<WireId, bool> = s.iter().copied().zip(s_val.iter().copied()).collect();
-            move |wire_id: WireId| map.get(&wire_id).copied()
-        };
+        let StreamingResult {
+            output_wires,
+            output_wires_ids,
+            ..
+        } = CircuitBuilder::streaming_execute(input, |ctx, input| {
+            let (a, s) = input;
+            let c = Fq::multiplexer(ctx, &a, &s, w);
+            c.into_wire_list()
+        });
 
-        let c_output = Fq::get_wire_bits_fn(&c, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(move |wire_id: WireId| a_input(wire_id).or(s_input(wire_id)))
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            c.to_bitmask(|wire_id| c_output(wire_id).unwrap()),
-            c.to_bitmask(|wire_id| *actual_c.get(&wire_id).unwrap())
-        );
+        // Compare output bits directly, using actual output length
+        let expected_bits =
+            bits_from_biguint_with_len(&BigUint::from(expected.into_bigint()), output_wires.len())
+                .unwrap();
+        for (actual, expected) in output_wires.iter().zip(expected_bits.iter()) {
+            assert_eq!(actual, expected);
+        }
     }
 }
