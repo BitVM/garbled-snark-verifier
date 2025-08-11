@@ -32,7 +32,7 @@ fn big_chain(ctx: &mut impl CircuitContext, a: WireId) -> WireId {
 
 // Evaluate-mode variant to ensure immediate evaluation is used (avoids trait method dispatch)
 fn big_chain_eval(
-    ctx: &mut crate::circuit::streaming::ComponentHandle<crate::circuit::streaming::Evaluate>,
+    ctx: &mut crate::circuit::streaming::ComponentHandle<crate::circuit::streaming::Execute>,
     a: WireId,
 ) -> WireId {
     let mut cur = a;
@@ -49,9 +49,7 @@ mod tests {
     use super::*;
     use crate::{
         GarbledWire, S,
-        circuit::streaming::{
-            CheckGarbling, CircuitMode, ComponentHandle, Evaluate, Garble, GarbleCache, WireStack,
-        },
+        circuit::streaming::{CircuitMode, ComponentHandle, Execute, Garble},
     };
 
     // Deterministic label helpers for tests
@@ -94,22 +92,22 @@ mod tests {
     fn test_component_macro_basic_evaluate() {
         let inputs = SimpleInputs { a: true, b: false };
 
-        fn and_gate_eval(ctx: &mut ComponentHandle<Evaluate>, a: WireId, b: WireId) -> WireId {
+        fn and_gate_eval(ctx: &mut ComponentHandle<Execute>, a: WireId, b: WireId) -> WireId {
             let c = ctx.issue_wire();
             ctx.add_gate(Gate::and(a, b, c));
             c
         }
 
-        let result = CircuitBuilder::<Evaluate>::streaming_process(
+        let result = CircuitBuilder::<Execute>::streaming_process(
             inputs,
-            Evaluate(WireStack::default()),
+            Execute::default(),
             |root, inputs_wire| {
                 let c = and_gate_eval(root, inputs_wire.a, inputs_wire.b);
                 vec![c]
             },
         );
 
-        assert_eq!(result, vec![false]); // true AND false = false
+        assert_eq!(result.output_wires, vec![false]); // true AND false = false
     }
 
     #[test]
@@ -121,7 +119,7 @@ mod tests {
         };
 
         fn triple_and_eval(
-            ctx: &mut ComponentHandle<Evaluate>,
+            ctx: &mut ComponentHandle<Execute>,
             a: WireId,
             b: WireId,
             c: WireId,
@@ -136,16 +134,16 @@ mod tests {
             res
         }
 
-        let result = CircuitBuilder::<Evaluate>::streaming_process(
+        let result = CircuitBuilder::<Execute>::streaming_process(
             inputs,
-            Evaluate(WireStack::default()),
+            Execute::default(),
             |root, inputs_wire| {
                 let r = triple_and_eval(root, inputs_wire.a, inputs_wire.b, inputs_wire.c);
                 vec![r]
             },
         );
 
-        assert_eq!(result, vec![false]); // (true AND true) AND false = false
+        assert_eq!(result.output_wires, vec![false]); // (true AND true) AND false = false
     }
 
     #[test]
@@ -157,7 +155,7 @@ mod tests {
         };
 
         fn triple_and_eval(
-            ctx: &mut ComponentHandle<Evaluate>,
+            ctx: &mut ComponentHandle<Execute>,
             a: WireId,
             b: WireId,
             c: WireId,
@@ -172,35 +170,16 @@ mod tests {
             res
         }
 
-        let result = CircuitBuilder::<Evaluate>::streaming_process(
+        let result = CircuitBuilder::<Execute>::streaming_process(
             inputs,
-            Evaluate(WireStack::default()),
+            Execute::default(),
             |root, inputs_wire| {
                 let r = triple_and_eval(root, inputs_wire.a, inputs_wire.b, inputs_wire.c);
                 vec![r]
             },
         );
 
-        assert_eq!(result, vec![true]); // (true AND true) AND true = true
-    }
-
-    #[test]
-    fn test_multi_mode_types_exist() {
-        // This test verifies that the new mode types and traits compile
-        // and that the generic design works at the type level
-
-        // We can create instances of the new modes
-        let _garble_mode = Garble(GarbleCache::new(0, 100));
-        let _check_mode = CheckGarbling(crate::circuit::streaming::CheckGarblingCache::default());
-
-        // And their caches
-        let _garble_cache = crate::circuit::streaming::GarbleCache::new(0, 100);
-        let _check_cache = crate::circuit::streaming::CheckGarblingCache::default();
-
-        // The modes implement CircuitMode trait
-        // Note: These now contain data, so size is non-zero
-        assert!(std::mem::size_of::<Garble>() > 0);
-        assert!(std::mem::size_of::<CheckGarbling>() > 0);
+        assert_eq!(result.output_wires, vec![true]); // (true AND true) AND true = true
     }
 
     // Minimal, streaming garbling stress: builds a very large circuit structure
@@ -252,7 +231,7 @@ mod tests {
 
         let out = CircuitBuilder::<Garble>::streaming_process(
             OneInput { x: true },
-            Garble(GarbleCache::new(0, 2_000)),
+            Garble::new(0, 2_000),
             |root, iw| {
                 let seed = iw.x;
                 expand_tree(root, seed, DEPTH);
@@ -261,7 +240,7 @@ mod tests {
             },
         );
         // Ensure we got back the expected pair of labels for the input wire
-        assert_eq!(out, vec![lbl_pair(WireId(2))]);
+        assert_eq!(out.output_wires, vec![lbl_pair(WireId(2))]);
     }
 
     // Evaluate-mode correctness on a smaller tree: big_chain keeps the input value; OR-reduction preserves it
@@ -284,8 +263,8 @@ mod tests {
                 vec![repr.x]
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Evaluate> for OneInput {
-            fn encode(self, repr: &OneInputWire, cache: &mut Evaluate) {
+        impl crate::circuit::streaming::EncodeInput<Execute> for OneInput {
+            fn encode(self, repr: &OneInputWire, cache: &mut Execute) {
                 cache.feed_wire(repr.x, self.x);
             }
         }
@@ -294,7 +273,7 @@ mod tests {
 
         fn or_gate_eval(
             ctx: &mut crate::circuit::streaming::ComponentHandle<
-                crate::circuit::streaming::Evaluate,
+                crate::circuit::streaming::Execute,
             >,
             a: WireId,
             b: WireId,
@@ -305,9 +284,9 @@ mod tests {
         }
 
         for &input in &[false, true] {
-            let out = CircuitBuilder::<Evaluate>::streaming_process(
+            let out = CircuitBuilder::<Execute>::streaming_process(
                 OneInput { x: input },
-                Evaluate(WireStack::default()),
+                Execute::default(),
                 |root, iw| {
                     // Build many big chains and OR them to keep dependency on input
                     let mut acc: Option<WireId> = None;
@@ -321,7 +300,7 @@ mod tests {
                     vec![acc.unwrap()]
                 },
             );
-            assert_eq!(out, vec![input]);
+            assert_eq!(out.output_wires, vec![input]);
         }
     }
 
@@ -346,8 +325,8 @@ mod tests {
                 vec![repr.x]
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Evaluate> for OneInput {
-            fn encode(self, repr: &OneInputWire, cache: &mut Evaluate) {
+        impl crate::circuit::streaming::EncodeInput<Execute> for OneInput {
+            fn encode(self, repr: &OneInputWire, cache: &mut Execute) {
                 cache.feed_wire(repr.x, self.x);
             }
         }
@@ -357,7 +336,7 @@ mod tests {
 
         fn or_gate_eval(
             ctx: &mut crate::circuit::streaming::ComponentHandle<
-                crate::circuit::streaming::Evaluate,
+                crate::circuit::streaming::Execute,
             >,
             a: WireId,
             b: WireId,
@@ -369,7 +348,7 @@ mod tests {
 
         fn expand_tree_eval(
             ctx: &mut crate::circuit::streaming::ComponentHandle<
-                crate::circuit::streaming::Evaluate,
+                crate::circuit::streaming::Execute,
             >,
             seed: WireId,
             depth: usize,
@@ -400,15 +379,15 @@ mod tests {
         }
 
         for &input in &[false, true] {
-            let out = CircuitBuilder::<Evaluate>::streaming_process(
+            let out = CircuitBuilder::<Execute>::streaming_process(
                 OneInput { x: input },
-                Evaluate(WireStack::default()),
+                Execute::default(),
                 |root, iw| {
                     let r = expand_tree_eval(root, iw.x, DEPTH);
                     vec![r]
                 },
             );
-            assert_eq!(out, vec![input]);
+            assert_eq!(out.output_wires, vec![input]);
         }
     }
 }
