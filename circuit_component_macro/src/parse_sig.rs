@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use syn::{Error, FnArg, ItemFn, Lit, Meta, Pat, PatType, Result, Token, punctuated::Punctuated};
 
 pub struct ComponentSignature {
@@ -5,14 +7,15 @@ pub struct ComponentSignature {
     pub original_fn: ItemFn, // TODO #22
     pub context_param: PatType,
     pub input_params: Vec<PatType>,
+    pub ignored_params: Vec<PatType>,
     #[allow(dead_code)]
     pub output_count: usize, // TODO #22
 }
 
 impl ComponentSignature {
     pub fn parse(input_fn: &ItemFn, args: &Punctuated<Meta, Token![,]>) -> Result<Self> {
-        // Parse optional outputs parameter from attribute
-        let output_count = Self::parse_outputs_arg(args)?;
+        // Parse optional outputs and ignore parameters from attribute
+        let (output_count, ignored_names) = Self::parse_args(args)?;
 
         // Validate function signature
         let inputs = &input_fn.sig.inputs;
@@ -42,8 +45,8 @@ impl ComponentSignature {
             None => unreachable!(),
         };
 
-        // Collect input parameters (limit to 16)
-        let input_params: Vec<PatType> = param_iter
+        // Collect all parameters
+        let all_params: Vec<PatType> = param_iter
             .map(|arg| match arg {
                 FnArg::Typed(pat_type) => Ok(pat_type.clone()),
                 FnArg::Receiver(_) => Err(Error::new_spanned(
@@ -53,10 +56,26 @@ impl ComponentSignature {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        // Split parameters into regular and ignored based on names
+        let mut input_params = Vec::new();
+        let mut ignored_params = Vec::new();
+
+        for param in all_params {
+            if let Pat::Ident(ident) = &*param.pat {
+                if ignored_names.contains(&ident.ident.to_string()) {
+                    ignored_params.push(param);
+                } else {
+                    input_params.push(param);
+                }
+            } else {
+                input_params.push(param);
+            }
+        }
+
         if input_params.len() > 16 {
             return Err(Error::new_spanned(
                 &input_fn.sig.inputs,
-                "Component functions cannot have more than 16 input parameters (excluding context)",
+                "Component functions cannot have more than 16 input parameters (excluding context and ignored)",
             ));
         }
 
@@ -64,11 +83,15 @@ impl ComponentSignature {
             original_fn: input_fn.clone(),
             context_param,
             input_params,
+            ignored_params,
             output_count,
         })
     }
 
-    fn parse_outputs_arg(args: &Punctuated<Meta, Token![,]>) -> Result<usize> {
+    fn parse_args(args: &Punctuated<Meta, Token![,]>) -> Result<(usize, HashSet<String>)> {
+        let mut output_count = 1; // Default to 1 output if not specified
+        let mut ignored_names = HashSet::new();
+
         for arg in args {
             match arg {
                 Meta::NameValue(nv) if nv.path.is_ident("outputs") => match &nv.value {
@@ -81,7 +104,7 @@ impl ComponentSignature {
                                     "outputs parameter must be greater than 0",
                                 ));
                             }
-                            return Ok(value);
+                            output_count = value;
                         }
                         _ => {
                             return Err(Error::new_spanned(
@@ -97,17 +120,38 @@ impl ComponentSignature {
                         ));
                     }
                 },
+                Meta::NameValue(nv) if nv.path.is_ident("ignore") => match &nv.value {
+                    syn::Expr::Lit(expr_lit) => match &expr_lit.lit {
+                        Lit::Str(lit_str) => {
+                            // Parse comma-separated list of parameter names
+                            for name in lit_str.value().split(',') {
+                                ignored_names.insert(name.trim().to_string());
+                            }
+                        }
+                        _ => {
+                            return Err(Error::new_spanned(
+                                &expr_lit.lit,
+                                "ignore parameter must be a string literal with comma-separated parameter names",
+                            ));
+                        }
+                    },
+                    _ => {
+                        return Err(Error::new_spanned(
+                            &nv.value,
+                            "ignore parameter must be a string literal with comma-separated parameter names",
+                        ));
+                    }
+                },
                 _ => {
                     return Err(Error::new_spanned(
                         arg,
-                        "Unknown attribute parameter. Only 'outputs' is supported.",
+                        "Unknown attribute parameter. Only 'outputs' and 'ignore' are supported.",
                     ));
                 }
             }
         }
 
-        // Default to 1 output if not specified
-        Ok(1)
+        Ok((output_count, ignored_names))
     }
 
     fn validate_context_param(pat_type: &PatType) -> Result<()> {

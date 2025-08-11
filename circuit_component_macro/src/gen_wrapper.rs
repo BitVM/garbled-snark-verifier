@@ -18,6 +18,14 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         .collect::<Result<Vec<_>>>()?;
     let input_param_types: Vec<_> = sig.input_params.iter().map(|p| &p.ty).collect();
 
+    // Extract ignored parameter information
+    let ignored_param_names: Vec<Ident> = sig
+        .ignored_params
+        .iter()
+        .map(extract_param_name)
+        .collect::<Result<Vec<_>>>()?;
+    let ignored_param_types: Vec<_> = sig.ignored_params.iter().map(|p| &p.ty).collect();
+
     // Generate the function body transformation
     let mut transformed_body = original_fn.block.clone();
     let mut renamer = ContextRenamer {
@@ -49,7 +57,8 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         #(#fn_attrs)*
         #fn_vis fn #fn_name(
             #context_param_name: &mut impl crate::circuit::streaming::CircuitContext,
-            #(#input_param_names: #input_param_types),*
+            #(#input_param_names: #input_param_types,)*
+            #(#ignored_param_names: #ignored_param_types),*
         ) #return_type {
             let input_wires = #input_wire_collection;
 
