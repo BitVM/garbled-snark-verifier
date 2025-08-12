@@ -213,7 +213,6 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Product in Montgomery form
-    #[component]
     fn mul_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -301,7 +300,6 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Single-width (254-bit) result in Montgomery form
-    #[component]
     fn montgomery_reduce<C: CircuitContext>(circuit: &mut C, x: &BigIntWires) -> BigIntWires {
         assert_eq!(x.len(), 2 * Self::N_BITS);
 
@@ -520,7 +518,6 @@ pub trait Fp254Impl {
     }
 
     /// Exponentiation by constant in Montgomery form
-    #[component(ignore = "exp")]
     fn exp_by_constant_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -544,6 +541,7 @@ pub trait Fp254Impl {
         let mut result = a.clone();
         for b_bit in b_bits.iter().rev().skip(len - i) {
             let result_square = Self::square_montgomery(circuit, &result);
+
             if *b_bit {
                 result = Self::mul_montgomery(circuit, a, &result_square);
             } else {

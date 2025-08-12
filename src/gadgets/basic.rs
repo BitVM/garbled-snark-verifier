@@ -4,7 +4,6 @@ use circuit_component_macro::component;
 
 use crate::{CircuitContext, Gate, GateType, WireId};
 
-#[component]
 pub fn half_adder<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId) -> (WireId, WireId) {
     let result = circuit.issue_wire();
     let carry = circuit.issue_wire();
@@ -15,7 +14,6 @@ pub fn half_adder<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId) -> (
     (result, carry)
 }
 
-#[component]
 pub fn full_adder<C: CircuitContext>(
     circuit: &mut C,
     a: WireId,
@@ -33,7 +31,6 @@ pub fn full_adder<C: CircuitContext>(
     (result, carry)
 }
 
-#[component]
 pub fn half_subtracter<C: CircuitContext>(
     circuit: &mut C,
     a: WireId,
@@ -48,7 +45,6 @@ pub fn half_subtracter<C: CircuitContext>(
     (result, borrow)
 }
 
-#[component]
 pub fn full_subtracter<C: CircuitContext>(
     circuit: &mut C,
     a: WireId,
@@ -66,7 +62,6 @@ pub fn full_subtracter<C: CircuitContext>(
     (result, carry)
 }
 
-#[component]
 pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: WireId) -> WireId {
     let [d, f, g] = array::from_fn(|_| circuit.issue_wire());
 

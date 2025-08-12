@@ -247,7 +247,6 @@ impl Fq {
         Fq(<Self as Fp254Impl>::inverse_montgomery(circuit, &a.0))
     }
 
-    #[component(ignore = "exp")]
     pub fn exp_by_constant_montgomery(
         circuit: &mut impl crate::CircuitContext,
         a: &Fq,

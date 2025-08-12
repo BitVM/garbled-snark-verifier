@@ -17,6 +17,7 @@ mod cache;
 pub use cache::WireStack;
 
 pub mod modes;
+use log::info;
 pub use modes::{CircuitMode, Evaluate, Execute, Garble};
 
 pub struct ComponentHandle<'a, M: CircuitMode> {
@@ -49,39 +50,46 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
         input_wires: Vec<WireId>,
         f: impl FnOnce(&mut ComponentHandle<M>) -> O,
     ) -> O {
-        // Create child component
+        self.with_named_child("anon", input_wires, f)
+    }
+
+    fn with_named_child<O: IntoWires>(
+        &mut self,
+        name: &'static str,
+        input_wires: Vec<WireId>,
+        f: impl FnOnce(&mut ComponentHandle<M>) -> O,
+    ) -> O {
         let mut child = Component::empty_root();
+
+        child.name = name;
         child.input_wires = input_wires.clone();
-        // Set internal wire tracking for streaming garbling
         child.internal_wire_offset = self.builder.next_wire_id;
 
-        // Insert child into pool
         let child_id = self.builder.pool.insert(child);
-
-        // Push to stack
         self.builder.stack.push(child_id);
+        self.builder
+            .pool
+            .get_mut(self.id)
+            .actions
+            .push(Action::Call { id: child_id });
 
-        // Prepare inputs for new frame and include mode constants
         let frame_inputs = self.builder.wire_cache.prepare_frame_inputs(&input_wires);
 
-        // Push new frame
-        self.builder.wire_cache.push_frame(frame_inputs);
+        self.builder.wire_cache.push_frame(name, frame_inputs);
 
         let mut child_handle = ComponentHandle {
             id: child_id,
             builder: self.builder,
         };
 
-        // Execute closure to build child and get output wires
         let output_wires = f(&mut child_handle);
 
-        // Update child's output wires and wire count for truncation
         let output_wire_ids = output_wires.get_wires_vec();
+
         let child_component = self.builder.pool.get_mut(child_id);
         child_component.output_wires = output_wire_ids.clone();
         child_component.num_wire = self.builder.next_wire_id - child_component.internal_wire_offset;
 
-        // Pop frame and transfer outputs back to parent frame
         let extracted_outputs = self
             .builder
             .wire_cache
@@ -92,18 +100,18 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
             self.builder.wire_cache.feed_wire(wire_id, value);
         }
 
-        // Pop from stack
         self.builder
             .stack
             .pop()
             .expect("unbalanced component stack");
 
-        // Add call action to parent (for structural representation)
-        self.builder
-            .pool
-            .get_mut(self.id)
-            .actions
-            .push(Action::Call { id: child_id });
+        let component = self.builder.pool.remove(child_id);
+
+        info!(
+            "gate count of {} component is {}",
+            component.name,
+            component.actions.len()
+        );
 
         output_wires
     }
@@ -146,7 +154,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         builder.stack.push(root_id);
 
         // Initialize root frame with mode-specific constants
-        builder.wire_cache.push_frame(vec![]);
+        builder.wire_cache.push_frame("root", vec![]);
 
         let mut root_handle = ComponentHandle {
             id: root_id,

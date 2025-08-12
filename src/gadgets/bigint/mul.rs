@@ -2,7 +2,7 @@ use circuit_component_macro::component;
 use log::debug;
 
 use super::{BigIntWires, BigUint};
-use crate::{CircuitContext, Gate, GateType, WireId};
+use crate::{CircuitContext, Gate, GateType, WireId, circuit::streaming::FALSE_WIRE};
 
 /// Pre-computed Karatsuba vs Generic algorithm decisions
 const fn is_use_karatsuba(len: usize) -> bool {
@@ -24,15 +24,13 @@ pub fn mul_generic<C: CircuitContext>(
     assert_eq!(a.len(), b.len());
     let len = a.len();
 
-    let mut result_bits: Vec<_> = (0..(len * 2)).map(|_| circuit.issue_wire()).collect();
-    for wire in &result_bits {
-        circuit.add_gate(Gate::new(GateType::Nimp, a.bits[0], a.bits[0], *wire));
-    }
+    let mut result_bits = vec![FALSE_WIRE; len * 2];
 
     for (i, &current_bit) in b.iter().enumerate() {
         let addition_wires_0: Vec<WireId> = result_bits[i..i + len].to_vec();
 
         let mut addition_wires_1 = Vec::with_capacity(len);
+
         for &a_bit in a.iter() {
             let wire = circuit.issue_wire();
             circuit.add_gate(Gate::new(GateType::And, a_bit, current_bit, wire));
@@ -155,7 +153,6 @@ pub fn mul_karatsuba<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
-#[component]
 pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let len = a.len();
@@ -179,7 +176,6 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
     }
 }
 
-#[component(ignore = "c")]
 pub fn mul_by_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -188,17 +184,7 @@ pub fn mul_by_constant<C: CircuitContext>(
     let len = a.len();
     let c_bits = super::bits_from_biguint_with_len(c, len).unwrap();
 
-    let mut result_bits = Vec::with_capacity(len * 2);
-    for _ in 0..(len * 2) {
-        let wire = circuit.issue_wire();
-        circuit.add_gate(Gate::new(
-            GateType::Nimp,
-            a.get(0).unwrap(),
-            a.get(0).unwrap(),
-            wire,
-        ));
-        result_bits.push(wire);
-    }
+    let mut result_bits = vec![FALSE_WIRE; len * 2];
 
     for (i, bit) in c_bits.iter().enumerate() {
         if *bit {
@@ -224,7 +210,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     assert!(power < 2 * len);
     let c_bits = super::bits_from_biguint_with_len(c, len).unwrap();
 
-    let mut result_bits = Vec::with_capacity(power);
+    let mut result_bits = vec![FALSE_WIRE; power];
     for _ in 0..power {
         let wire = circuit.issue_wire();
         circuit.add_gate(Gate::new(

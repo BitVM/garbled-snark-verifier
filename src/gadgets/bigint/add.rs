@@ -142,7 +142,7 @@ pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWire
         bits: iter::once(zero_wire).chain(a.iter().copied()).collect(),
     }
 }
-#[component]
+
 pub fn double_without_overflow<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     let a_0 = a.get(0).unwrap();

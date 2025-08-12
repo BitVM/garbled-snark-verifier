@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use log::info;
+
 use crate::{
     WireId,
     circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
@@ -8,12 +10,14 @@ use crate::{
 pub struct Frame<T> {
     // Change to something cache-friendly
     wires: HashMap<WireId, T>,
+    name: &'static str,
 }
 
 impl<T> Frame<T> {
-    fn with_inputs(inputs: impl IntoIterator<Item = (WireId, T)>) -> Self {
+    fn with_inputs(name: &'static str, inputs: impl IntoIterator<Item = (WireId, T)>) -> Self {
         Self {
             wires: inputs.into_iter().collect(),
+            name,
         }
     }
 
@@ -65,12 +69,26 @@ impl<T: Clone> WireStack<T> {
         self.frames.len()
     }
 
-    pub fn push_frame(&mut self, inputs: impl IntoIterator<Item = (WireId, T)>) {
-        self.frames.push(Frame::with_inputs(inputs));
+    pub fn push_frame(
+        &mut self,
+        name: &'static str,
+        inputs: impl IntoIterator<Item = (WireId, T)>,
+    ) {
+        self.frames.push(Frame::with_inputs(name, inputs));
     }
 
     pub fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, T)> {
         if let Some(frame) = self.frames.pop() {
+            if frame.wires.len() < 5 {
+                panic!("Frame {} is too small: {}", frame.name, frame.wires.len());
+            }
+
+            info!(
+                "{} size of frame with name {}",
+                frame.wires.len(),
+                frame.name
+            );
+
             frame.extract_outputs(outputs)
         } else {
             Vec::new()

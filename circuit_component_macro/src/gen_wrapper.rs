@@ -52,6 +52,9 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     // Determine return type based on the original function
     let return_type = &original_fn.sig.output;
 
+    // Convert function name to string literal
+    let fn_name_str = fn_name.to_string();
+
     // Generate the wrapper function
     let wrapper = quote! {
         #(#fn_attrs)*
@@ -62,7 +65,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         ) #return_type {
             let input_wires = #input_wire_collection;
 
-            #context_param_name.with_child(input_wires, |comp| {
+            #context_param_name.with_named_child(concat!(module_path!(), "::", #fn_name_str), input_wires, |comp| {
                 #transformed_body
             })
         }

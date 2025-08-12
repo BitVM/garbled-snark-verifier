@@ -18,7 +18,7 @@ pub trait CircuitMode {
 
     fn size(&self) -> usize;
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, Self::WireValue)>);
+    fn push_frame(&mut self, name: &'static str, inputs: Vec<(WireId, Self::WireValue)>);
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::WireValue)>;
 
@@ -47,8 +47,8 @@ impl CircuitMode for Execute {
         self.0.size()
     }
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, bool)>) {
-        self.0.push_frame(inputs);
+    fn push_frame(&mut self, name: &'static str, inputs: Vec<(WireId, bool)>) {
+        self.0.push_frame(name, inputs);
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
@@ -183,7 +183,7 @@ impl CircuitMode for Garble {
         self.size()
     }
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, GarbledWire)>) {
+    fn push_frame(&mut self, _name: &'static str, inputs: Vec<(WireId, GarbledWire)>) {
         self.push_frame(inputs);
     }
 
@@ -278,7 +278,7 @@ impl CircuitMode for Evaluate {
         self.size()
     }
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, EvaluatedWire)>) {
+    fn push_frame(&mut self, _name: &'static str, inputs: Vec<(WireId, EvaluatedWire)>) {
         self.push_frame(inputs);
     }
 

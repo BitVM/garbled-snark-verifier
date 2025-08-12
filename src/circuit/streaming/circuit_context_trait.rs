@@ -23,4 +23,11 @@ pub trait CircuitContext {
         input_wires: Vec<WireId>,
         f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
     ) -> O;
+
+    fn with_named_child<O: IntoWires>(
+        &mut self,
+        name: &'static str,
+        input_wires: Vec<WireId>,
+        f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
+    ) -> O;
 }
