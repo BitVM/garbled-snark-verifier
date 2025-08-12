@@ -6,6 +6,7 @@
 //! This module provides circuit-based implementations of field operations
 //! for the BN254 (alt_bn128) elliptic curve, commonly used in zero-knowledge proofs.
 
+pub mod final_exponentiation;
 pub mod fp254impl;
 pub mod fq;
 pub mod fq12;
@@ -17,6 +18,7 @@ pub mod g2;
 pub mod montgomery;
 pub mod pairing;
 
+pub use final_exponentiation::final_exponentiation;
 pub use fp254impl::Fp254Impl;
 pub use fq::Fq;
 //pub use fq2::Fq2;
@@ -26,4 +28,4 @@ pub use fq12::Fq12;
 pub use g1::G1Projective;
 pub use g2::G2Projective;
 pub use montgomery::Montgomery;
-pub use pairing::ell_coeffs;
+pub use pairing::{ell_coeffs, miller_loop_const_q, multi_miller_loop_const_q};

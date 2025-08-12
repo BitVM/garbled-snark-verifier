@@ -64,6 +64,10 @@ impl Fq2 {
     pub fn from_components(c0: Fq, c1: Fq) -> Self {
         Fq2([c0, c1])
     }
+
+    pub fn len(&self) -> usize {
+        self.0.iter().map(|fq| fq.len()).sum()
+    }
 }
 
 impl Fq2 {
@@ -281,8 +285,11 @@ impl Fq2 {
     ) -> Fq2 {
         assert_eq!(b.len(), Fq::N_BITS);
 
-        let c0 = Fq::mul_by_constant_montgomery(circuit, b, &a.c0);
-        let c1 = Fq::mul_by_constant_montgomery(circuit, b, &a.c1);
+        // Convert constant components to Montgomery so the result stays in Montgomery form
+        let a0_m = Fq::as_montgomery(a.c0);
+        let a1_m = Fq::as_montgomery(a.c1);
+        let c0 = Fq::mul_by_constant_montgomery(circuit, b, &a0_m);
+        let c1 = Fq::mul_by_constant_montgomery(circuit, b, &a1_m);
 
         Fq2::from_components(c0, c1)
     }

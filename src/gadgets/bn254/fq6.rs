@@ -375,6 +375,7 @@ impl Fq6 {
         let wires_6 = Fq2::mul_by_nonresidue(circuit, &wires_5);
         let wires_7 = Fq2::add(circuit, &wires_6, &wires_1);
         let wires_8 = Fq2::add(circuit, a_c0, a_c1);
+        // Add constant c1 converted to Montgomery to match wire representation
         let wires_9 = Fq2::add_constant(circuit, c0, c1);
         let wires_10 = Fq2::mul_montgomery(circuit, &wires_8, &wires_9);
         let wires_11 = Fq2::sub(circuit, &wires_10, &wires_1);
@@ -490,6 +491,9 @@ impl Fq6 {
             frobenius_a_c1_updated,
             frobenius_a_c2_updated,
         )
+    }
+    pub fn len(&self) -> usize {
+        self.0.iter().map(|fq2| fq2.len()).sum()
     }
 }
 

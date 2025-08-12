@@ -52,6 +52,10 @@ impl Fq12 {
     pub fn from_components(c0: Fq6, c1: Fq6) -> Self {
         Fq12([c0, c1])
     }
+
+    pub fn len(&self) -> usize {
+        self.0.iter().map(|fq6| fq6.len()).sum()
+    }
 }
 
 impl Fq12 {
@@ -191,17 +195,15 @@ impl Fq12 {
     pub fn mul_by_34_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &Fq12,
-        c3: &Pair<BigIntWires>,
-        c4: &Pair<BigIntWires>,
+        c3: &Fq2,
+        c4: &Fq2,
     ) -> Fq12 {
-        let c3_fq2 = Fq2([Fq(c3.0.clone()), Fq(c3.1.clone())]);
-        let c4_fq2 = Fq2([Fq(c4.0.clone()), Fq(c4.1.clone())]);
-        let w1 = Fq6::mul_by_01_montgomery(circuit, a.c1(), &c3_fq2, &c4_fq2);
+        let w1 = Fq6::mul_by_01_montgomery(circuit, a.c1(), c3, c4);
         let w2 = Fq6::mul_by_nonresidue(circuit, &w1);
         let new_c0 = Fq6::add(circuit, &w2, a.c0());
         let w3 = Fq6::add(circuit, a.c0(), a.c1());
-        let w4 = Fq2::add_constant(circuit, &c3_fq2, &Fq2::as_montgomery(ark_bn254::Fq2::ONE));
-        let w5 = Fq6::mul_by_01_montgomery(circuit, &w3, &w4, &c4_fq2);
+        let w4 = Fq2::add_constant(circuit, c3, &Fq2::as_montgomery(ark_bn254::Fq2::ONE));
+        let w5 = Fq6::mul_by_01_montgomery(circuit, &w3, &w4, c4);
         let w6 = Fq6::add(circuit, &w1, a.c0());
         let new_c1 = Fq6::sub(circuit, &w5, &w6);
         Fq12::from_components(new_c0, new_c1)
@@ -232,18 +234,20 @@ impl Fq12 {
     pub fn mul_by_034_constant4_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &Fq12,
-        c0: &Pair<BigIntWires>,
-        c3: &Pair<BigIntWires>,
+        c0: &Fq2,
+        c3: &Fq2,
         c4: &ark_bn254::Fq2,
     ) -> Fq12 {
-        let c0_fq2 = Fq2([Fq(c0.0.clone()), Fq(c0.1.clone())]);
-        let c3_fq2 = Fq2([Fq(c3.0.clone()), Fq(c3.1.clone())]);
-        let w1 = Fq6::mul_by_01_constant1_montgomery(circuit, a.c1(), &c3_fq2, c4);
+        assert_eq!(a.len(), Self::N_BITS);
+        assert_eq!(c0.len(), Fq2::N_BITS);
+        assert_eq!(c3.len(), Fq2::N_BITS);
+
+        let w1 = Fq6::mul_by_01_constant1_montgomery(circuit, a.c1(), c3, c4);
         let w2 = Fq6::mul_by_nonresidue(circuit, &w1);
-        let w3 = Fq6::mul_by_fq2_montgomery(circuit, a.c0(), &c0_fq2);
+        let w3 = Fq6::mul_by_fq2_montgomery(circuit, a.c0(), c0);
         let new_c0 = Fq6::add(circuit, &w2, &w3);
         let w4 = Fq6::add(circuit, a.c0(), a.c1());
-        let w5 = Fq2::add(circuit, &c3_fq2, &c0_fq2);
+        let w5 = Fq2::add(circuit, c3, c0);
         let w6 = Fq6::mul_by_01_constant1_montgomery(circuit, &w4, &w5, c4);
         let w7 = Fq6::add(circuit, &w1, &w3);
         let new_c1 = Fq6::sub(circuit, &w6, &w7);
@@ -260,6 +264,7 @@ impl Fq12 {
         let w7 = Fq6::add(circuit, &w4, &w6);
         let c0 = Fq6::sub(circuit, &w5, &w7);
         let c1 = Fq6::double(circuit, &w4);
+
         Fq12::from_components(c0, c1)
     }
 
@@ -672,8 +677,8 @@ mod tests {
     #[test]
     fn test_fq12_mul_by_34_montgomery() {
         let a = random();
-        let c3 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
-        let c4 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c3 = Fq2::random(&mut trng());
+        let c4 = Fq2::random(&mut trng());
 
         // Custom input type for this complex test
         struct MulBy34Input {
@@ -683,16 +688,16 @@ mod tests {
         }
         struct MulBy34Wire {
             a: Fq12,
-            c3: crate::gadgets::bn254::fq2::Fq2,
-            c4: crate::gadgets::bn254::fq2::Fq2,
+            c3: Fq2,
+            c4: Fq2,
         }
         impl CircuitInput for MulBy34Input {
             type WireRepr = MulBy34Wire;
             fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
                 MulBy34Wire {
                     a: Fq12::new(ctx),
-                    c3: crate::gadgets::bn254::fq2::Fq2::new(ctx),
-                    c4: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c3: Fq2::new(ctx),
+                    c4: Fq2::new(ctx),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -710,8 +715,8 @@ mod tests {
                 encode_fq6_to_wires(&a_m.c1, &repr.a.0[1], cache);
 
                 // Encode c3, c4 (Fq2) in montgomery form
-                let c3_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(self.c3);
-                let c4_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(self.c4);
+                let c3_m = Fq2::as_montgomery(self.c3);
+                let c4_m = Fq2::as_montgomery(self.c4);
 
                 let c3_c0_bits = bits_from_biguint_with_len(
                     &BigUintOutput::from(c3_m.c0.into_bigint()),
@@ -765,11 +770,7 @@ mod tests {
         let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
             input,
             Execute::default(),
-            |ctx, input| {
-                let c3_pair = (input.c3.0[0].0.clone(), input.c3.0[1].0.clone());
-                let c4_pair = (input.c4.0[0].0.clone(), input.c4.0[1].0.clone());
-                Fq12::mul_by_34_montgomery(ctx, &input.a, &c3_pair, &c4_pair)
-            },
+            |ctx, input| Fq12::mul_by_34_montgomery(ctx, &input.a, &input.c3, &input.c4),
         );
 
         assert_eq!(result.output_wires.value, expected);
@@ -778,9 +779,9 @@ mod tests {
     #[test]
     fn test_fq12_mul_by_034_montgomery() {
         let a = random();
-        let c0 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
-        let c3 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
-        let c4 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c0 = Fq2::random(&mut trng());
+        let c3 = Fq2::random(&mut trng());
+        let c4 = Fq2::random(&mut trng());
 
         // Custom input type for this complex test
         struct MulBy034Input {
@@ -791,18 +792,18 @@ mod tests {
         }
         struct MulBy034Wire {
             a: Fq12,
-            c0: crate::gadgets::bn254::fq2::Fq2,
-            c3: crate::gadgets::bn254::fq2::Fq2,
-            c4: crate::gadgets::bn254::fq2::Fq2,
+            c0: Fq2,
+            c3: Fq2,
+            c4: Fq2,
         }
         impl CircuitInput for MulBy034Input {
             type WireRepr = MulBy034Wire;
             fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
                 MulBy034Wire {
                     a: Fq12::new(ctx),
-                    c0: crate::gadgets::bn254::fq2::Fq2::new(ctx),
-                    c3: crate::gadgets::bn254::fq2::Fq2::new(ctx),
-                    c4: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c0: Fq2::new(ctx),
+                    c3: Fq2::new(ctx),
+                    c4: Fq2::new(ctx),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -826,7 +827,7 @@ mod tests {
                     (self.c3, &repr.c3),
                     (self.c4, &repr.c4),
                 ] {
-                    let val_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(val);
+                    let val_m = Fq2::as_montgomery(val);
                     let c0_bits = bits_from_biguint_with_len(
                         &BigUintOutput::from(val_m.c0.into_bigint()),
                         Fq::N_BITS,
@@ -873,9 +874,10 @@ mod tests {
     #[test]
     fn test_fq12_mul_by_034_constant4_montgomery() {
         let a = random();
-        let c0 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
-        let c3 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
-        let c4 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let mut rng = trng();
+        let c0 = Fq2::random(&mut rng);
+        let c3 = Fq2::random(&mut rng);
+        let c4 = Fq2::random(&mut rng);
 
         // Custom input type for this test (c0, c3 are wires, c4 is constant)
         struct MulBy034Const4Input {
@@ -885,16 +887,16 @@ mod tests {
         }
         struct MulBy034Const4Wire {
             a: Fq12,
-            c0: crate::gadgets::bn254::fq2::Fq2,
-            c3: crate::gadgets::bn254::fq2::Fq2,
+            c0: Fq2,
+            c3: Fq2,
         }
         impl CircuitInput for MulBy034Const4Input {
             type WireRepr = MulBy034Const4Wire;
             fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
                 MulBy034Const4Wire {
                     a: Fq12::new(ctx),
-                    c0: crate::gadgets::bn254::fq2::Fq2::new(ctx),
-                    c3: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c0: Fq2::new(ctx),
+                    c3: Fq2::new(ctx),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -913,7 +915,7 @@ mod tests {
 
                 // Encode c0, c3 (Fq2) in montgomery form
                 for (val, wires) in [(self.c0, &repr.c0), (self.c3, &repr.c3)] {
-                    let val_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(val);
+                    let val_m = Fq2::as_montgomery(val);
                     let c0_bits = bits_from_biguint_with_len(
                         &BigUintOutput::from(val_m.c0.into_bigint()),
                         Fq::N_BITS,
@@ -947,14 +949,12 @@ mod tests {
             input,
             Execute::default(),
             |ctx, input| {
-                let c0_pair = (input.c0.0[0].0.clone(), input.c0.0[1].0.clone());
-                let c3_pair = (input.c3.0[0].0.clone(), input.c3.0[1].0.clone());
                 Fq12::mul_by_034_constant4_montgomery(
                     ctx,
                     &input.a,
-                    &c0_pair,
-                    &c3_pair,
-                    &crate::gadgets::bn254::fq2::Fq2::as_montgomery(c4),
+                    &input.c0,
+                    &input.c3,
+                    &Fq2::as_montgomery(c4),
                 )
             },
         );
