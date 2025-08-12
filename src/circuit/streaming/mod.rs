@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::array;
+use std::{array, time::Instant};
 
 use crate::{Gate, WireId, core::gate_type::GateCount};
 
@@ -75,6 +75,9 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
 
         let frame_inputs = self.builder.wire_cache.prepare_frame_inputs(&input_wires);
 
+        // Track parent cache size and start time for tracing
+        let start_time = Instant::now();
+
         self.builder.wire_cache.push_frame(name, frame_inputs);
 
         let mut child_handle = ComponentHandle {
@@ -89,6 +92,11 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
         let child_component = self.builder.pool.get_mut(child_id);
         child_component.output_wires = output_wire_ids.clone();
         child_component.num_wire = self.builder.next_wire_id - child_component.internal_wire_offset;
+
+        // Capture current frame cache usage before popping the frame
+        let child_cache_entries = self.builder.wire_cache.current_size();
+
+        let total_cahce_size = self.builder.wire_cache.total_size();
 
         let extracted_outputs = self
             .builder
@@ -107,10 +115,23 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
 
         let component = self.builder.pool.remove(child_id);
 
+        // Count actions separately: gates and nested calls
+        let gates = component
+            .actions
+            .iter()
+            .filter(|a| matches!(a, Action::Gate(_)))
+            .count();
+        let calls = component
+            .actions
+            .iter()
+            .filter(|a| matches!(a, Action::Call { .. }))
+            .count();
+
+        let duration_ms = start_time.elapsed().as_nanos();
+
         info!(
-            "gate count of {} component is {}",
-            component.name,
-            component.actions.len()
+            "component_metrics name={} gates={gates} calls={calls} cache_entries={child_cache_entries} total_cache={total_cahce_size} duration_ns={duration_ms}",
+            component.name
         );
 
         output_wires

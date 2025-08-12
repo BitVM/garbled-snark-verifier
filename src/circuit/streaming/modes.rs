@@ -16,7 +16,8 @@ pub trait CircuitMode {
 
     fn feed_wire(&mut self, wire: WireId, value: Self::WireValue);
 
-    fn size(&self) -> usize;
+    fn total_size(&self) -> usize;
+    fn current_size(&self) -> usize;
 
     fn push_frame(&mut self, name: &'static str, inputs: Vec<(WireId, Self::WireValue)>);
 
@@ -43,8 +44,12 @@ impl CircuitMode for Execute {
         self.0.feed_wire(wire, value);
     }
 
-    fn size(&self) -> usize {
-        self.0.size()
+    fn total_size(&self) -> usize {
+        self.0.total_size()
+    }
+
+    fn current_size(&self) -> usize {
+        self.0.current_size()
     }
 
     fn push_frame(&mut self, name: &'static str, inputs: Vec<(WireId, bool)>) {
@@ -179,8 +184,12 @@ impl CircuitMode for Garble {
         self.feed_wire(wire, value);
     }
 
-    fn size(&self) -> usize {
+    fn total_size(&self) -> usize {
         self.size()
+    }
+
+    fn current_size(&self) -> usize {
+        self.wires.last().map(|w| w.size()).unwrap_or_default()
     }
 
     fn push_frame(&mut self, _name: &'static str, inputs: Vec<(WireId, GarbledWire)>) {
@@ -232,7 +241,7 @@ impl Evaluate {
     }
 
     fn size(&self) -> usize {
-        self.wires.len()
+        self.wires.iter().map(|w| w.len()).sum()
     }
 
     fn push_frame(&mut self, inputs: Vec<(WireId, EvaluatedWire)>) {
@@ -274,8 +283,12 @@ impl CircuitMode for Evaluate {
         self.feed_wire(wire, value);
     }
 
-    fn size(&self) -> usize {
+    fn total_size(&self) -> usize {
         self.size()
+    }
+
+    fn current_size(&self) -> usize {
+        self.wires.last().map(|w| w.len()).unwrap_or_default()
     }
 
     fn push_frame(&mut self, _name: &'static str, inputs: Vec<(WireId, EvaluatedWire)>) {

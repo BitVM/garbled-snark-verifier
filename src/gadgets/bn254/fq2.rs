@@ -13,12 +13,12 @@ use num_traits::Zero;
 use rand::Rng;
 
 use crate::{
+    CircuitContext, Gate, WireId,
     circuit::streaming::IntoWireList,
     gadgets::{
-        bigint::{self, select, BigIntWires},
+        bigint::{self, BigIntWires, select},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
     },
-    CircuitContext, Gate, WireId,
 };
 
 /// Type alias for a pair of values, used to represent Fq2 components
@@ -392,6 +392,7 @@ impl Fq2 {
     }
 
     // General case: c1 != 0
+    #[component]
     pub fn sqrt_general_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         let alpha = Self::norm_montgomery(circuit, a.c0(), a.c1()); // c0² + c1²
         let alpha_sqrt = Fq::sqrt_montgomery(circuit, &alpha); // sqrt(norm)
@@ -424,12 +425,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        circuit::streaming::{
-            modes::CircuitMode, CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList,
-        },
-        gadgets::bigint::{bits_from_biguint_with_len, BigUint as BigUintOutput},
-        test_utils::trng,
         CircuitContext,
+        circuit::streaming::{
+            CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList, modes::CircuitMode,
+        },
+        gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+        test_utils::trng,
     };
 
     fn random() -> ark_bn254::Fq2 {

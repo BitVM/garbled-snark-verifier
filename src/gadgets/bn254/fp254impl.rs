@@ -8,13 +8,13 @@ use num_traits::{One, Zero};
 
 use super::super::bigint::{self, BigIntWires};
 use crate::{
+    CircuitContext, Gate, WireId,
     circuit::{
-        streaming::{IntoWireList, FALSE_WIRE, TRUE_WIRE},
         CircuitInput,
+        streaming::{FALSE_WIRE, IntoWireList, TRUE_WIRE},
     },
     gadgets::bigint::select,
     math::montgomery::calculate_montgomery_constants,
-    CircuitContext, Gate, WireId,
 };
 
 /// Core trait for BN254 field implementation with 254-bit prime field arithmetic
@@ -623,6 +623,7 @@ pub trait Fp254Impl {
     }
 
     /// Exponentiation by constant in Montgomery form
+    #[component(ignore = "exp")]
     fn exp_by_constant_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,

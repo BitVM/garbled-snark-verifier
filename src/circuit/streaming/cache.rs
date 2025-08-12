@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use bitvec::prelude::*;
 use itertools::Itertools;
-use log::info;
+use log::debug;
 
 use crate::{
     WireId,
@@ -184,7 +184,12 @@ impl WireStack {
             //    panic!("Frame {} is too small: {}", frame.name, frame.size());
             //}
 
-            info!("{} size of frame with name {}", frame.size(), frame.name);
+            // Standardized (debug-level) frame log; per-child metrics are emitted at component exit
+            debug!(
+                "component_frame name={} cache_entries={}",
+                frame.name(),
+                frame.size()
+            );
 
             frame.extract_outputs(outputs)
         } else {
@@ -204,8 +209,15 @@ impl WireStack {
         self.frames.last()?.get(wire_id)
     }
 
-    pub fn size(&self) -> usize {
+    pub fn total_size(&self) -> usize {
         self.frames.iter().map(|frame| frame.size()).sum()
+    }
+
+    pub fn current_size(&self) -> usize {
+        self.frames
+            .last()
+            .map(|frame| frame.size())
+            .unwrap_or_default()
     }
 
     fn current_frame_mut(&mut self) -> Option<&mut BooleanFrame> {
