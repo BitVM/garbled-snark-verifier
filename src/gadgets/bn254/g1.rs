@@ -8,6 +8,7 @@ use rand::Rng;
 
 use crate::{
     CircuitContext, WireId,
+    circuit::streaming::IntoWireList,
     gadgets::{
         bigint::{self, BigIntWires, Error},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
@@ -19,6 +20,26 @@ pub struct G1Projective {
     pub x: Fq,
     pub y: Fq,
     pub z: Fq,
+}
+
+impl IntoWireList for G1Projective {
+    fn into_wire_list(self) -> Vec<WireId> {
+        let mut wires = Vec::new();
+        wires.extend(self.x.into_wire_list());
+        wires.extend(self.y.into_wire_list());
+        wires.extend(self.z.into_wire_list());
+        wires
+    }
+}
+
+impl IntoWireList for &G1Projective {
+    fn into_wire_list(self) -> Vec<WireId> {
+        let mut wires = Vec::new();
+        wires.extend((&self.x).into_wire_list());
+        wires.extend((&self.y).into_wire_list());
+        wires.extend((&self.z).into_wire_list());
+        wires
+    }
 }
 
 impl G1Projective {
@@ -50,7 +71,6 @@ impl G1Projective {
             z: Fq::from_bits(bits3.clone()),
         }
     }
-
 
     pub fn to_bitmask(&self, get_val: impl Fn(WireId) -> bool) -> String {
         let to_char = |wire_id: &WireId| if (get_val)(*wire_id) { '1' } else { '0' };
@@ -200,17 +220,6 @@ impl G1Projective {
         G1Projective { x, y, z }
     }
 
-    /*
-    pub fn add_evaluate_montgomery(p: Wires, q: Wires) -> (Wires, GateCount) {
-        let circuit = Self::add_montgomery(p, q);
-        let n = circuit.gate_counts();
-        for mut gate in circuit.1 {
-            gate.evaluate();
-        }
-        (circuit.0, n)
-    }
-    */
-
     pub fn double_montgomery<C: CircuitContext>(circuit: &mut C, p: &G1Projective) -> G1Projective {
         assert_eq!(p.x.len(), Fq::N_BITS);
         assert_eq!(p.y.len(), Fq::N_BITS);
@@ -281,72 +290,6 @@ impl G1Projective {
         }
     }
 
-    // pub fn multiplexer_evaluate(a: Vec<Wires>, s: Wires, w: usize) -> (Wires, GateCount) {
-    //     let circuit = Self::multiplexer(a, s, w);
-    //     let n = circuit.gate_counts();
-    //     for mut gate in circuit.1 {
-    //         gate.evaluate();
-    //     }
-    //     (circuit.0, n)
-    // }
-    // pub fn scalar_mul_by_constant_base_evaluate_montgomery<const W: usize>(
-    //     s: Wires,
-    //     base: ark_bn254::G1Projective,
-    // ) -> (Wires, GateCount) {
-    //     assert_eq!(s.len(), Fr::N_BITS);
-    //     let mut gate_count = GateCount::zero();
-    //     let n = 2_usize.pow(W as u32);
-
-    //     let mut bases = Vec::new();
-    //     let mut p = ark_bn254::G1Projective::default();
-
-    //     for _ in 0..n {
-    //         bases.push(p);
-    //         p += base;
-    //     }
-
-    //     let mut bases_wires = bases
-    //         .iter()
-    //         .map(|p| G1Projective::wires_set_montgomery(*p))
-    //         .collect::<Vec<Wires>>();
-
-    //     let mut to_be_added = Vec::new();
-
-    //     let mut index = 0;
-    //     while index < Fr::N_BITS {
-    //         let w = min(W, Fr::N_BITS - index);
-    //         let m = 2_usize.pow(w as u32);
-    //         let selector = s[index..(index + w)].to_vec();
-    //         let (result, gc) =
-    //             Self::multiplexer_evaluate(bases_wires.clone()[0..m].to_vec(), selector, w);
-    //         gate_count += gc;
-    //         to_be_added.push(result);
-    //         index += W;
-    //         let mut new_bases = Vec::new();
-    //         for b in bases {
-    //             let mut new_b = b;
-    //             for _ in 0..w {
-    //                 new_b = new_b + new_b;
-    //             }
-    //             new_bases.push(new_b);
-    //         }
-    //         bases = new_bases;
-    //         bases_wires = bases
-    //             .iter()
-    //             .map(|p| G1Projective::wires_set_montgomery(*p))
-    //             .collect::<Vec<Wires>>();
-    //     }
-
-    //     let mut acc = to_be_added[0].clone();
-    //     for add in to_be_added.iter().skip(1) {
-    //         let (new_acc, gc) = Self::add_evaluate_montgomery(acc, add.clone());
-    //         gate_count += gc;
-    //         acc = new_acc;
-    //     }
-
-    //     (acc, gate_count)
-    // }
-
     pub fn scalar_mul_by_constant_base_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
         s: &Fr,
@@ -402,30 +345,6 @@ impl G1Projective {
         acc
     }
 
-    // pub fn msm_with_constant_bases_evaluate_montgomery<const W: usize>(
-    //     scalars: Vec<Wires>,
-    //     bases: Vec<ark_bn254::G1Projective>,
-    // ) -> (Wires, GateCount) {
-    //     assert_eq!(scalars.len(), bases.len());
-    //     let mut gate_count = GateCount::zero();
-    //     let mut to_be_added = Vec::new();
-    //     for (s, base) in zip(scalars, bases) {
-    //         let (result, gc) =
-    //             Self::scalar_mul_by_constant_base_evaluate_montgomery::<W>(s, base);
-    //         to_be_added.push(result);
-    //         gate_count += gc;
-    //     }
-
-    //     let mut acc = to_be_added[0].clone();
-    //     for add in to_be_added.iter().skip(1) {
-    //         let (new_acc, gc) = Self::add_evaluate_montgomery(acc, add.clone());
-    //         gate_count += gc;
-    //         acc = new_acc;
-    //     }
-
-    //     (acc, gate_count)
-    // }
-
     pub fn msm_with_constant_bases_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
         scalars: &Vec<Fr>,
@@ -445,6 +364,15 @@ impl G1Projective {
         }
         acc
     }
+
+    #[component]
+    pub fn neg<C: CircuitContext>(circuit: &mut C, p: &G1Projective) -> G1Projective {
+        G1Projective {
+            x: p.x.clone(),
+            y: Fq::neg(circuit, &p.y),
+            z: p.z.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -456,7 +384,118 @@ mod tests {
     use rand::SeedableRng;
 
     use super::*;
-    use crate::{CircuitContext, circuit::streaming::{CircuitBuilder, Execute, modes::CircuitMode}, test_utils::trng};
+    use crate::{
+        CircuitContext,
+        circuit::streaming::{
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, modes::CircuitMode,
+        },
+        gadgets::bigint::BigUint as BigUintOutput,
+        test_utils::trng,
+    };
+
+    // Standardized input/output structures for G1 tests
+    pub struct G1Input<const N: usize> {
+        pub points: [ark_bn254::G1Projective; N],
+    }
+
+    pub struct G1InputWire<const N: usize> {
+        pub points: [G1Projective; N],
+    }
+
+    impl<const N: usize> CircuitInput for G1Input<N> {
+        type WireRepr = G1InputWire<N>;
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            G1InputWire {
+                points: std::array::from_fn(|_| G1Projective::new(ctx)),
+            }
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            let mut wires = Vec::new();
+            for point in &repr.points {
+                wires.extend(point.into_wire_list());
+            }
+            wires
+        }
+    }
+
+    impl<const N: usize> EncodeInput<Execute> for G1Input<N> {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            for (point_wire, point_val) in repr.points.iter().zip(self.points.iter()) {
+                let point_fn = G1Projective::get_wire_bits_fn(point_wire, point_val).unwrap();
+                for &wire_id in point_wire
+                    .x
+                    .iter()
+                    .chain(point_wire.y.iter())
+                    .chain(point_wire.z.iter())
+                {
+                    if let Some(bit) = point_fn(wire_id) {
+                        cache.feed_wire(wire_id, bit);
+                    }
+                }
+            }
+        }
+    }
+
+    pub struct ScalarInput<const N: usize> {
+        pub scalars: [ark_bn254::Fr; N],
+    }
+
+    pub struct ScalarInputWire<const N: usize> {
+        pub scalars: [Fr; N],
+    }
+
+    impl<const N: usize> CircuitInput for ScalarInput<N> {
+        type WireRepr = ScalarInputWire<N>;
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            ScalarInputWire {
+                scalars: std::array::from_fn(|_| Fr::new(ctx)),
+            }
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            let mut wires = Vec::new();
+            for scalar in &repr.scalars {
+                wires.extend(scalar.iter().cloned());
+            }
+            wires
+        }
+    }
+
+    impl<const N: usize> EncodeInput<Execute> for ScalarInput<N> {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            for (scalar_wire, scalar_val) in repr.scalars.iter().zip(self.scalars.iter()) {
+                let scalar_fn = Fr::get_wire_bits_fn(scalar_wire, scalar_val).unwrap();
+                for &wire_id in scalar_wire.iter() {
+                    if let Some(bit) = scalar_fn(wire_id) {
+                        cache.feed_wire(wire_id, bit);
+                    }
+                }
+            }
+        }
+    }
+
+    pub struct G1Output {
+        pub point: ark_bn254::G1Projective,
+    }
+
+    impl CircuitOutput<Execute> for G1Output {
+        type WireRepr = G1Projective;
+
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            let x = BigUintOutput::decode(wires.x.0, cache);
+            let y = BigUintOutput::decode(wires.y.0, cache);
+            let z = BigUintOutput::decode(wires.z.0, cache);
+            let point = ark_bn254::G1Projective {
+                x: ark_bn254::Fq::from(x),
+                y: ark_bn254::Fq::from(y),
+                z: ark_bn254::Fq::from(z),
+            };
+            G1Output { point }
+        }
+    }
 
     fn rnd() -> ark_bn254::G1Projective {
         use ark_ec::PrimeGroup;
@@ -508,12 +547,24 @@ mod tests {
             fn encode(self, repr: &TwoG1InputsWire, cache: &mut Execute) {
                 let a_fn = G1Projective::get_wire_bits_fn(&repr.a, &self.a).unwrap();
                 let b_fn = G1Projective::get_wire_bits_fn(&repr.b, &self.b).unwrap();
-                for &wire_id in repr.a.x.iter().chain(repr.a.y.iter()).chain(repr.a.z.iter()) {
+                for &wire_id in repr
+                    .a
+                    .x
+                    .iter()
+                    .chain(repr.a.y.iter())
+                    .chain(repr.a.z.iter())
+                {
                     if let Some(bit) = a_fn(wire_id) {
                         cache.feed_wire(wire_id, bit);
                     }
                 }
-                for &wire_id in repr.b.x.iter().chain(repr.b.y.iter()).chain(repr.b.z.iter()) {
+                for &wire_id in repr
+                    .b
+                    .x
+                    .iter()
+                    .chain(repr.b.y.iter())
+                    .chain(repr.b.z.iter())
+                {
                     if let Some(bit) = b_fn(wire_id) {
                         cache.feed_wire(wire_id, bit);
                     }
@@ -521,7 +572,10 @@ mod tests {
             }
         }
 
-        let inputs = TwoG1Inputs { a: a_mont, b: b_mont };
+        let inputs = TwoG1Inputs {
+            a: a_mont,
+            b: b_mont,
+        };
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
             let result_wires = G1Projective::add_montgomery(root, &inputs_wire.a, &inputs_wire.b);
             let mut output_ids = Vec::new();
@@ -531,9 +585,7 @@ mod tests {
             output_ids
         });
 
-        let actual_result = G1Projective::from_bits_unchecked(
-            result.output_wires.clone()
-        );
+        let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, c_mont);
     }
 
@@ -572,7 +624,13 @@ mod tests {
         impl crate::circuit::streaming::EncodeInput<Execute> for OneG1Input {
             fn encode(self, repr: &OneG1InputWire, cache: &mut Execute) {
                 let a_fn = G1Projective::get_wire_bits_fn(&repr.a, &self.a).unwrap();
-                for &wire_id in repr.a.x.iter().chain(repr.a.y.iter()).chain(repr.a.z.iter()) {
+                for &wire_id in repr
+                    .a
+                    .x
+                    .iter()
+                    .chain(repr.a.y.iter())
+                    .chain(repr.a.z.iter())
+                {
                     if let Some(bit) = a_fn(wire_id) {
                         cache.feed_wire(wire_id, bit);
                     }
@@ -590,26 +648,9 @@ mod tests {
             output_ids
         });
 
-        let actual_result = G1Projective::from_bits_unchecked(
-            result.output_wires.clone()
-        );
+        let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, c_mont);
     }
-
-    // #[test]
-    // fn test_g1_projective_to_affine_montgomery() {
-    //     let p_projective = G1Projective::random().double();
-    //     assert_ne!(p_projective.z, ark_bn254::Fq::ONE);
-    //     let p_affine = p_projective.into_affine();
-    //     let circuit =
-    //         projective_to_affine_montgomery(G1Projective::wires_set_montgomery(p_projective));
-    //     circuit.gate_counts().print();
-    //     for mut gate in circuit.1 {
-    //         gate.evaluate();
-    //     }
-    //     let p_affine2 = G1Affine::from_montgomery_wires_unchecked(circuit.0);
-    //     assert_eq!(p_affine, p_affine2);
-    // }
 
     #[test]
     fn test_g1p_multiplexer() {
@@ -658,7 +699,12 @@ mod tests {
             fn encode(self, repr: &MultiplexerInputsWire, cache: &mut Execute) {
                 for (g1_wire, g1_val) in repr.a.iter().zip(self.a.iter()) {
                     let g1_fn = G1Projective::get_wire_bits_fn(g1_wire, g1_val).unwrap();
-                    for &wire_id in g1_wire.x.iter().chain(g1_wire.y.iter()).chain(g1_wire.z.iter()) {
+                    for &wire_id in g1_wire
+                        .x
+                        .iter()
+                        .chain(g1_wire.y.iter())
+                        .chain(g1_wire.z.iter())
+                    {
                         if let Some(bit) = g1_fn(wire_id) {
                             cache.feed_wire(wire_id, bit);
                         }
@@ -672,7 +718,8 @@ mod tests {
 
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::multiplexer(root, &inputs_wire.a, inputs_wire.s.clone(), w);
+            let result_wires =
+                G1Projective::multiplexer(root, &inputs_wire.a, inputs_wire.s.clone(), w);
             let mut output_ids = Vec::new();
             output_ids.extend(result_wires.x.iter());
             output_ids.extend(result_wires.y.iter());
@@ -680,9 +727,7 @@ mod tests {
             output_ids
         });
 
-        let actual_result = G1Projective::from_bits_unchecked(
-            result.output_wires.clone()
-        );
+        let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, expected);
     }
 
@@ -702,9 +747,7 @@ mod tests {
         impl crate::circuit::streaming::CircuitInput for ScalarInput {
             type WireRepr = ScalarInputWire;
             fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                ScalarInputWire {
-                    s: Fr::new(ctx),
-                }
+                ScalarInputWire { s: Fr::new(ctx) }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
                 repr.s.iter().cloned().collect()
@@ -722,18 +765,21 @@ mod tests {
         }
 
         let inputs = ScalarInput { s };
-        let circuit_result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::scalar_mul_by_constant_base_montgomery::<10, _>(root, &inputs_wire.s, &p);
-            let mut output_ids = Vec::new();
-            output_ids.extend(result_wires.x.iter());
-            output_ids.extend(result_wires.y.iter());
-            output_ids.extend(result_wires.z.iter());
-            output_ids
-        });
+        let circuit_result =
+            CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+                let result_wires = G1Projective::scalar_mul_by_constant_base_montgomery::<10, _>(
+                    root,
+                    &inputs_wire.s,
+                    &p,
+                );
+                let mut output_ids = Vec::new();
+                output_ids.extend(result_wires.x.iter());
+                output_ids.extend(result_wires.y.iter());
+                output_ids.extend(result_wires.z.iter());
+                output_ids
+            });
 
-        let actual_result = G1Projective::from_bits_unchecked(
-            circuit_result.output_wires.clone()
-        );
+        let actual_result = G1Projective::from_bits_unchecked(circuit_result.output_wires.clone());
         assert_eq!(actual_result, G1Projective::as_montgomery(result));
     }
 
@@ -762,7 +808,10 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                repr.scalars.iter().flat_map(|fr| fr.iter().cloned()).collect()
+                repr.scalars
+                    .iter()
+                    .flat_map(|fr| fr.iter().cloned())
+                    .collect()
             }
         }
         impl crate::circuit::streaming::EncodeInput<Execute> for MsmInputs {
@@ -779,22 +828,41 @@ mod tests {
         }
 
         let inputs = MsmInputs { scalars };
-        let circuit_result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::msm_with_constant_bases_montgomery::<10, _>(
-                root,
-                &inputs_wire.scalars,
-                &bases,
-            );
-            let mut output_ids = Vec::new();
-            output_ids.extend(result_wires.x.iter());
-            output_ids.extend(result_wires.y.iter());
-            output_ids.extend(result_wires.z.iter());
-            output_ids
+        let circuit_result =
+            CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+                let result_wires = G1Projective::msm_with_constant_bases_montgomery::<10, _>(
+                    root,
+                    &inputs_wire.scalars,
+                    &bases,
+                );
+                let mut output_ids = Vec::new();
+                output_ids.extend(result_wires.x.iter());
+                output_ids.extend(result_wires.y.iter());
+                output_ids.extend(result_wires.z.iter());
+                output_ids
+            });
+
+        let actual_result = G1Projective::from_bits_unchecked(circuit_result.output_wires.clone());
+        assert_eq!(actual_result, G1Projective::as_montgomery(result));
+    }
+
+    #[test]
+    fn test_g1p_neg() {
+        // Generate random G1 point
+        let a = G1Projective::random(&mut trng());
+        let neg_a = -a;
+
+        // Convert to Montgomery form
+        let a_mont = G1Projective::as_montgomery(a);
+        let neg_a_mont = G1Projective::as_montgomery(neg_a);
+
+        let inputs = G1Input { points: [a_mont] };
+        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+            let result_wires = G1Projective::neg(root, &inputs_wire.points[0]);
+            result_wires.into_wire_list()
         });
 
-        let actual_result = G1Projective::from_bits_unchecked(
-            circuit_result.output_wires.clone()
-        );
-        assert_eq!(actual_result, G1Projective::as_montgomery(result));
+        let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
+        assert_eq!(actual_result, neg_a_mont);
     }
 }
