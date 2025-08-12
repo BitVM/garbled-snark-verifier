@@ -30,7 +30,7 @@ pub trait CircuitMode {
 }
 
 #[derive(Default)]
-pub struct Execute(WireStack<bool>);
+pub struct Execute(WireStack);
 
 impl CircuitMode for Execute {
     type WireValue = bool;

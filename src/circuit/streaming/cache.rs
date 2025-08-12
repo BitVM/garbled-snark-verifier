@@ -1,70 +1,171 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
+use bitvec::prelude::*;
+use itertools::Itertools;
 use log::info;
 
 use crate::{
     WireId,
     circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
-};
+}; // BitVec<Lsb0, usize>
 
-pub struct Frame<T> {
-    // Change to something cache-friendly
-    wires: HashMap<WireId, T>,
+pub struct BooleanFrame {
     name: &'static str,
+    ids: Vec<WireId>,
+    vals: BitVec<usize, Lsb0>,
+    cursor: usize,
 }
 
-impl<T> Frame<T> {
-    fn with_inputs(name: &'static str, inputs: impl IntoIterator<Item = (WireId, T)>) -> Self {
+impl BooleanFrame {
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.ids.len()
+    }
+
+    pub fn with_inputs(
+        name: &'static str,
+        inputs: impl IntoIterator<Item = (WireId, bool)>,
+    ) -> Self {
+        let mut ids = Vec::with_capacity(512);
+        let mut vals: BitVec<usize, Lsb0> = BitVec::with_capacity(512);
+
+        let mut prev: Option<WireId> = None;
+
+        for (id, v) in inputs.into_iter().sorted_by(|(lw, _), (rw, _)| lw.cmp(rw)) {
+            if id == TRUE_WIRE || id == FALSE_WIRE {
+                continue;
+            }
+
+            if let Some(p) = prev {
+                // allow non-decreasing; coalesce consecutive dup
+                assert!(id >= p, "with_inputs: WireId {id:?} < previous {p:?}");
+                if id == p {
+                    // update last bit (coalesce consecutive duplicate)
+                    let last = vals.len() - 1;
+                    vals.set(last, v);
+                    continue;
+                }
+            }
+            prev = Some(id);
+            ids.push(id);
+            vals.push(v);
+        }
+
         Self {
-            wires: inputs.into_iter().collect(),
+            ids,
+            vals,
+            cursor: 0,
             name,
         }
     }
 
-    fn insert(&mut self, wire_id: WireId, value: T) {
-        self.wires.insert(wire_id, value);
+    /// Upsert: update if exists; else insert at sorted position.
+    #[inline]
+    pub fn insert(&mut self, wire_id: WireId, value: bool) {
+        if wire_id == TRUE_WIRE || wire_id == FALSE_WIRE {
+            return;
+        }
+
+        match self.ids.last().copied() {
+            None => {
+                self.ids.push(wire_id);
+                self.vals.push(value);
+                self.cursor = 0;
+            }
+            Some(last) if wire_id > last => {
+                self.ids.push(wire_id);
+                self.vals.push(value);
+                self.cursor = self.ids.len() - 1;
+            }
+            Some(last) if wire_id == last => {
+                let idx = self.ids.len() - 1;
+                self.vals.set(idx, value); // update last
+                self.cursor = idx;
+            }
+            _ => {
+                // pos = first index with id >= wire_id
+                let pos = self.ids.partition_point(|&x| x < wire_id);
+                if pos < self.ids.len() && self.ids[pos] == wire_id {
+                    // update existing
+                    self.vals.set(pos, value);
+                    self.cursor = pos;
+                } else {
+                    // insert new (keep lockstep)
+                    self.ids.insert(pos, wire_id);
+                    self.vals.insert(pos, value);
+                    if pos <= self.cursor {
+                        self.cursor += 1;
+                    }
+                }
+            }
+        }
     }
 
-    fn get(&self, wire_id: WireId) -> Option<&T> {
-        self.wires.get(&wire_id)
+    /// Returns &true / &false (static) for uniform API without exposing storage.
+    #[inline]
+    pub fn get(&self, wire_id: WireId) -> Option<&bool> {
+        match wire_id {
+            TRUE_WIRE => return Some(&true),
+            FALSE_WIRE => return Some(&false),
+            _ => {}
+        }
+
+        // cursor fast-paths
+        if self.cursor < self.ids.len() && self.ids[self.cursor] == wire_id {
+            return Some(if self.vals[self.cursor] {
+                &true
+            } else {
+                &false
+            });
+        }
+        if self.cursor + 1 < self.ids.len() && self.ids[self.cursor + 1] == wire_id {
+            return Some(if self.vals[self.cursor + 1] {
+                &true
+            } else {
+                &false
+            });
+        }
+
+        // binary search
+        match self.ids.binary_search_by_key(&wire_id, |&x| x) {
+            Ok(i) => Some(if self.vals[i] { &true } else { &false }),
+            Err(_) => None,
+        }
     }
 
-    fn extract_outputs(&self, output_wires: &[WireId]) -> Vec<(WireId, T)>
-    where
-        T: Clone,
-    {
-        let mut seen = HashSet::new();
-
+    pub fn extract_outputs(&self, output_wires: &[WireId]) -> Vec<(WireId, bool)> {
+        let mut seen = HashSet::with_capacity(output_wires.len());
         output_wires
             .iter()
-            .map(|&wire_id| {
-                if wire_id != TRUE_WIRE && wire_id != FALSE_WIRE && !seen.insert(wire_id) {
-                    panic!("Output wire {wire_id:?} appears multiple times");
+            .map(|&wire_id| match wire_id {
+                TRUE_WIRE => (TRUE_WIRE, true),
+                FALSE_WIRE => (FALSE_WIRE, false),
+                id => {
+                    if !seen.insert(id) {
+                        panic!("Output wire {id:?} appears multiple times");
+                    }
+                    let v = self
+                        .get(id)
+                        .unwrap_or_else(|| panic!("Output wire {id:?} not present in frame"));
+                    (id, *v)
                 }
-
-                let value = self
-                    .wires
-                    .get(&wire_id)
-                    .unwrap_or_else(
-                        || panic!("Output wire {wire_id:?} not present in child frame",),
-                    )
-                    .clone();
-                (wire_id, value)
             })
+            .sorted()
             .collect()
     }
 
-    fn size(&self) -> usize {
-        self.wires.len()
+    #[inline]
+    pub fn name(&self) -> &'static str {
+        self.name
     }
 }
 
 #[derive(Default)]
-pub struct WireStack<T> {
-    frames: Vec<Frame<T>>,
+pub struct WireStack {
+    frames: Vec<BooleanFrame>,
 }
 
-impl<T: Clone> WireStack<T> {
+impl WireStack {
     pub fn frames_len(&self) -> usize {
         self.frames.len()
     }
@@ -72,22 +173,18 @@ impl<T: Clone> WireStack<T> {
     pub fn push_frame(
         &mut self,
         name: &'static str,
-        inputs: impl IntoIterator<Item = (WireId, T)>,
+        inputs: impl IntoIterator<Item = (WireId, bool)>,
     ) {
-        self.frames.push(Frame::with_inputs(name, inputs));
+        self.frames.push(BooleanFrame::with_inputs(name, inputs));
     }
 
-    pub fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, T)> {
+    pub fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
         if let Some(frame) = self.frames.pop() {
-            if frame.wires.len() < 5 {
-                panic!("Frame {} is too small: {}", frame.name, frame.wires.len());
-            }
+            //if frame.size() < 5 {
+            //    panic!("Frame {} is too small: {}", frame.name, frame.size());
+            //}
 
-            info!(
-                "{} size of frame with name {}",
-                frame.wires.len(),
-                frame.name
-            );
+            info!("{} size of frame with name {}", frame.size(), frame.name);
 
             frame.extract_outputs(outputs)
         } else {
@@ -95,7 +192,7 @@ impl<T: Clone> WireStack<T> {
         }
     }
 
-    pub fn insert(&mut self, wire_id: WireId, value: T) {
+    pub fn insert(&mut self, wire_id: WireId, value: bool) {
         if let Some(frame) = self.frames.last_mut() {
             frame.insert(wire_id, value);
         } else {
@@ -103,7 +200,7 @@ impl<T: Clone> WireStack<T> {
         }
     }
 
-    pub fn get(&self, wire_id: WireId) -> Option<&T> {
+    pub fn get(&self, wire_id: WireId) -> Option<&bool> {
         self.frames.last()?.get(wire_id)
     }
 
@@ -111,12 +208,12 @@ impl<T: Clone> WireStack<T> {
         self.frames.iter().map(|frame| frame.size()).sum()
     }
 
-    fn current_frame_mut(&mut self) -> Option<&mut Frame<T>> {
+    fn current_frame_mut(&mut self) -> Option<&mut BooleanFrame> {
         self.frames.last_mut()
     }
 }
 
-impl WireStack<bool> {
+impl WireStack {
     pub fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
         match wire {
             FALSE_WIRE => Some(&false),

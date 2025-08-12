@@ -114,6 +114,10 @@ impl BigIntWires {
         self.bits.iter()
     }
 
+    pub fn into_iter(self) -> impl IntoIterator<Item = WireId> {
+        self.bits.into_iter()
+    }
+
     pub fn pop(&mut self) -> Option<WireId> {
         self.bits.pop()
     }

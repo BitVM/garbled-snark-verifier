@@ -2,7 +2,10 @@ use circuit_component_macro::component;
 use log::debug;
 
 use super::{BigIntWires, BigUint};
-use crate::{CircuitContext, Gate, GateType, WireId, circuit::streaming::FALSE_WIRE};
+use crate::{
+    CircuitContext, Gate, GateType, WireId,
+    circuit::streaming::{FALSE_WIRE, IntoWireList},
+};
 
 /// Pre-computed Karatsuba vs Generic algorithm decisions
 const fn is_use_karatsuba(len: usize) -> bool {
@@ -176,27 +179,57 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
     }
 }
 
+#[component(ignore = "c")]
 pub fn mul_by_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
     c: &BigUint,
 ) -> BigIntWires {
+    const PER_CHUNK: usize = 8;
+
     let len = a.len();
-    let c_bits = super::bits_from_biguint_with_len(c, len).unwrap();
 
-    let mut result_bits = vec![FALSE_WIRE; len * 2];
+    // Collect indices of 1-bits only; zeros do nothing and don't need to be in any chunk.
+    let ones: Vec<usize> = super::bits_from_biguint_with_len(c, len)
+        .expect("constant must fit into `len` bits")
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, bit)| if bit { Some(i) } else { None })
+        .collect();
 
-    for (i, bit) in c_bits.iter().enumerate() {
-        if *bit {
-            let addition_wires = BigIntWires {
-                bits: result_bits[i..(i + len)].to_vec(),
-            };
-            let new_bits = super::add::add_generic(circuit, a, &addition_wires);
-            result_bits[i..(i + len + 1)].copy_from_slice(&new_bits.bits);
-        }
+    // Running accumulator: 2*len bits, starts at zero.
+    let mut acc = vec![FALSE_WIRE; len * 2];
+
+    if ones.is_empty() {
+        return BigIntWires { bits: acc };
     }
 
-    BigIntWires { bits: result_bits }
+    // We artificially chunk the function to reduce the `Frame` size
+    for chunk in ones.chunks(PER_CHUNK) {
+        let acc_in = acc;
+        let mut input = a.into_wire_list();
+        input.extend_from_slice(&acc_in);
+
+        acc = circuit.with_named_child("mul_by_const_chunk", input, move |ctx| {
+            let mut res = acc_in;
+
+            for &i in chunk {
+                let new_bits = super::add::add_generic(
+                    ctx,
+                    a,
+                    &BigIntWires {
+                        bits: res[i..(i + len)].to_vec(),
+                    },
+                );
+                // Write back len+1 bits (carry can spill one bit).
+                res[i..(i + len + 1)].copy_from_slice(&new_bits.bits);
+            }
+
+            res
+        });
+    }
+
+    BigIntWires { bits: acc }
 }
 
 #[component(ignore = "c,power")]
@@ -206,43 +239,67 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     c: &BigUint,
     power: usize,
 ) -> BigIntWires {
-    let len = a.len();
-    assert!(power < 2 * len);
-    let c_bits = super::bits_from_biguint_with_len(c, len).unwrap();
+    const PER_CHUNK: usize = 8;
 
+    let len = a.len();
+    assert!(power < 2 * len, "power must be < 2*len");
+
+    // Collect indices of 1-bits, but only those that can affect the lower `power` bits.
+    let ones: Vec<usize> = super::bits_from_biguint_with_len(c, len)
+        .expect("constant must fit into `len` bits")
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, bit)| (i < power && bit).then_some(i))
+        .collect();
+
+    // Running accumulator of size `power` (we work modulo 2^power).
     let mut result_bits = vec![FALSE_WIRE; power];
-    for _ in 0..power {
-        let wire = circuit.issue_wire();
-        circuit.add_gate(Gate::new(
-            GateType::Nimp,
-            a.get(0).unwrap(),
-            a.get(0).unwrap(),
-            wire,
-        ));
-        result_bits.push(wire);
+
+    if ones.is_empty() {
+        return BigIntWires { bits: result_bits };
     }
 
-    for (i, bit) in c_bits.iter().enumerate() {
-        if i == power {
-            break;
-        }
-        if *bit {
-            let number_of_bits = (power - i).min(len);
-            let addition_wires = BigIntWires {
-                bits: result_bits[i..(i + number_of_bits)].to_vec(),
-            };
-            let a_slice = BigIntWires {
-                bits: a.bits[0..number_of_bits].to_vec(),
-            };
-            let new_bits = super::add::add_generic(circuit, &a_slice, &addition_wires);
+    // Process the 1-bits in chunks to keep each child frame small.
+    for chunk in ones.chunks(PER_CHUNK) {
+        // Move current accumulator into the child and also pass `a` wires.
+        let prev = result_bits;
+        let mut input = a.into_wire_list();
+        input.extend_from_slice(&prev);
 
-            if i + number_of_bits < power {
-                result_bits[i..(i + number_of_bits + 1)].copy_from_slice(&new_bits.bits);
-            } else {
-                result_bits[i..(i + number_of_bits)]
-                    .copy_from_slice(&new_bits.bits[..number_of_bits]);
+        // Own the chunk indices to avoid lifetime fuss.
+        let chunk_indices: Vec<usize> = chunk.to_vec();
+
+        result_bits = circuit.with_named_child("mul_by_const_mod_2p", input, move |ctx| {
+            let mut res = prev;
+
+            for &i in &chunk_indices {
+                // We can only add as many bits as fit before `power`.
+                let number_of_bits = (power - i).min(len);
+                if number_of_bits == 0 {
+                    continue; // nothing contributes beyond power
+                }
+
+                // Add low `number_of_bits` of `a` into res[i..] (i.e. (a & ((1<<nb)-1)) << i)
+                let a_slice = BigIntWires {
+                    bits: a.bits[0..number_of_bits].to_vec(),
+                };
+                let addition_wires = BigIntWires {
+                    bits: res[i..(i + number_of_bits)].to_vec(),
+                };
+
+                let new_bits = super::add::add_generic(ctx, &a_slice, &addition_wires);
+
+                // Write back; carry may spill one extra bit if it still lies under `power`.
+                if i + number_of_bits < power {
+                    res[i..(i + number_of_bits + 1)].copy_from_slice(&new_bits.bits);
+                } else {
+                    // The +1 would exceed `power`; drop the final carry bit.
+                    res[i..(i + number_of_bits)].copy_from_slice(&new_bits.bits[..number_of_bits]);
+                }
             }
-        }
+
+            res
+        });
     }
 
     BigIntWires { bits: result_bits }
