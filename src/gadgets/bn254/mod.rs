@@ -13,6 +13,7 @@ pub mod fq2;
 pub mod fq6;
 pub mod fr;
 pub mod g1;
+pub mod g2;
 pub mod montgomery;
 
 pub use fp254impl::Fp254Impl;
@@ -22,4 +23,5 @@ pub use fq::Fq;
 pub use fq12::Fq12;
 //pub use fr::Fr;
 pub use g1::G1Projective;
+pub use g2::G2Projective;
 pub use montgomery::Montgomery;

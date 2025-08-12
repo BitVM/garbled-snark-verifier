@@ -26,6 +26,12 @@ impl IntoWireList for Vec<WireId> {
     }
 }
 
+impl IntoWireList for &Vec<WireId> {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.to_vec()
+    }
+}
+
 impl<const N: usize> IntoWireList for [WireId; N] {
     fn into_wire_list(self) -> Vec<WireId> {
         self.to_vec()

@@ -1,10 +1,12 @@
 use ark_ff::{AdditiveGroup, Field, Fp6Config, Fp12Config, PrimeField, UniformRand};
+use circuit_component_macro::component;
 use num_traits::Zero;
 use rand::Rng;
 
 use super::fq6::Fq6Components;
 use crate::{
     CircuitContext, Gate, WireId,
+    circuit::streaming::IntoWireList,
     gadgets::{
         bigint::{self, BigIntWires, select},
         bn254::{
@@ -17,9 +19,23 @@ use crate::{
 
 pub type Fq12Element<T> = (Fq6Components<T>, Fq6Components<T>);
 
-
 #[derive(Clone)]
 pub struct Fq12(pub [Fq6; 2]);
+
+impl IntoWireList for Fq12 {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.0
+            .into_iter()
+            .flat_map(|fq6| fq6.into_wire_list())
+            .collect()
+    }
+}
+
+impl IntoWireList for &Fq12 {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.0.iter().flat_map(|fq6| fq6.into_wire_list()).collect()
+    }
+}
 
 impl Fq12 {
     /// Access c0 component (first Fq6)
@@ -36,7 +52,6 @@ impl Fq12 {
     pub fn from_components(c0: Fq6, c1: Fq6) -> Self {
         Fq12([c0, c1])
     }
-
 }
 
 impl Fq12 {
@@ -63,10 +78,7 @@ impl Fq12 {
     }
 
     pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq12 {
-        Fq12([
-            Fq6::new(circuit),
-            Fq6::new(circuit),
-        ])
+        Fq12([Fq6::new(circuit), Fq6::new(circuit)])
     }
 
     pub fn get_wire_bits_fn(
@@ -85,7 +97,11 @@ impl Fq12 {
         format!("c0: ({c0_mask}), c1: ({c1_mask})")
     }
 
-    pub fn equal_constant<C: CircuitContext>(circuit: &mut C, a: &Fq12, b: &ark_bn254::Fq12) -> WireId {
+    pub fn equal_constant<C: CircuitContext>(
+        circuit: &mut C,
+        a: &Fq12,
+        b: &ark_bn254::Fq12,
+    ) -> WireId {
         let u = Fq6::equal_constant(circuit, a.c0(), &b.c0);
         let v = Fq6::equal_constant(circuit, a.c1(), &b.c1);
         let w = circuit.issue_wire();
@@ -100,7 +116,7 @@ impl Fq12 {
         Fq12::from_components(c0, c1)
     }
 
-    pub fn neg<C: CircuitContext>(circuit: &mut C, a: Fq12) -> Fq12 {
+    pub fn neg<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
         Fq12::from_components(
             Fq6::neg(circuit, a.0[0].clone()),
             Fq6::neg(circuit, a.0[1].clone()),
@@ -301,15 +317,15 @@ impl Fq12 {
         let z3 = Fq2::add(circuit, &w2, &t4);
 
         let t5_beta = Fq2::mul_by_nonresidue(circuit, &t5);
-        let w1 = Fq2::sub(circuit, &t5_beta, &c3);
+        let w1 = Fq2::add(circuit, &t5_beta, &c3);
         let w2 = Fq2::double(circuit, &w1);
         let z2 = Fq2::add(circuit, &w2, &t5_beta);
 
-        let w1 = Fq2::sub(circuit, &t1, &c4);
+        let w1 = Fq2::add(circuit, &t1, &c4);
         let w2 = Fq2::double(circuit, &w1);
         let z1 = Fq2::add(circuit, &w2, &t1);
 
-        let w1 = Fq2::sub(circuit, &t3, &c5);
+        let w1 = Fq2::add(circuit, &t3, &c5);
         let w2 = Fq2::double(circuit, &w1);
         let z5 = Fq2::add(circuit, &w2, &t3);
         Fq12::from_components(Fq6([z0, z4, z3]), Fq6([z2, z1, z5]))
@@ -334,24 +350,22 @@ impl Fq12 {
     //     circuit
     // }
 
-    // pub fn inverse_montgomery(a: Wires) -> Circuit {
-    //     assert_eq!(a.len(), Self::N_BITS);
-    //     let mut circuit = Circuit::empty();
-    //     let a_c0 = a[0..Fq6::N_BITS].to_vec();
-    //     let a_c1 = a[Fq6::N_BITS..2 * Fq6::N_BITS].to_vec();
-    //     let a_c0_square = circuit.extend(Fq6::square_montgomery(a_c0.clone()));
-    //     let a_c1_square = circuit.extend(Fq6::square_montgomery(a_c1.clone()));
-    //     let a_c1_square_beta = circuit.extend(Fq6::mul_by_nonresidue(a_c1_square.clone()));
-    //     let norm = circuit.extend(Fq6::sub(a_c0_square, a_c1_square_beta));
-    //     let inverse_norm = circuit.extend(Fq6::inverse_montgomery(norm));
-    //     let res_c0 = circuit.extend(Fq6::mul_montgomery(a_c0, inverse_norm.clone()));
-    //     let neg_a_c1 = circuit.extend(Fq6::neg(a_c1));
-    //     let res_c1 = circuit.extend(Fq6::mul_montgomery(inverse_norm, neg_a_c1));
+    #[component]
+    pub fn inverse_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
+        // For (a0 + a1*v)^-1 where v is the Fq6 nonresidue
+        // Compute norm = a0^2 - a1^2 * v (where v is nonresidue for Fq12/Fq6)
+        let a_c0_square = Fq6::square_montgomery(circuit, a.c0());
+        let a_c1_square = Fq6::square_montgomery(circuit, a.c1());
+        let a_c1_square_beta = Fq6::mul_by_nonresidue(circuit, &a_c1_square);
+        let norm = Fq6::sub(circuit, &a_c0_square, &a_c1_square_beta);
+        let inverse_norm = Fq6::inverse_montgomery(circuit, &norm);
 
-    //     circuit.add_wires(res_c0);
-    //     circuit.add_wires(res_c1);
-    //     circuit
-    // }
+        let res_c0 = Fq6::mul_montgomery(circuit, a.c0(), &inverse_norm);
+        let neg_a_c1 = Fq6::neg(circuit, a.c1().clone());
+        let res_c1 = Fq6::mul_montgomery(circuit, &inverse_norm, &neg_a_c1);
+
+        Fq12::from_components(res_c0, res_c1)
+    }
 
     pub fn frobenius_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq12, i: usize) -> Fq12 {
         let frobenius_a_c0 = Fq6::frobenius_montgomery(circuit, a.c0(), i);
@@ -375,16 +389,158 @@ impl Fq12 {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, str::FromStr};
+    use std::{array, collections::HashMap, str::FromStr};
 
     use ark_ff::CyclotomicMultSubgroup;
     use num_bigint::BigUint;
+    use test_log::test;
 
     use super::*;
-    use crate::{circuit, gadgets::bn254::Fp254Impl, test_utils::trng};
+    use crate::{
+        CircuitContext,
+        circuit::streaming::{
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList,
+            modes::CircuitMode,
+        },
+        gadgets::{
+            bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+            bn254::{Fp254Impl, fq::Fq},
+        },
+        test_utils::trng,
+    };
 
     fn random() -> ark_bn254::Fq12 {
         Fq12::random(&mut trng())
+    }
+
+    // Input struct for Fq12 tests
+    struct Fq12Input<const N: usize> {
+        values: [ark_bn254::Fq12; N],
+    }
+
+    impl<const N: usize> Fq12Input<N> {
+        fn new(values: [ark_bn254::Fq12; N]) -> Self {
+            Self { values }
+        }
+    }
+
+    impl<const N: usize> CircuitInput for Fq12Input<N> {
+        type WireRepr = [Fq12; N];
+
+        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            array::from_fn(|_| Fq12::new(ctx))
+        }
+
+        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+            repr.iter().flat_map(|fq12| fq12.into_wire_list()).collect()
+        }
+    }
+
+    impl<const N: usize> EncodeInput<Execute> for Fq12Input<N> {
+        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+            self.values
+                .iter()
+                .zip(repr.iter())
+                .for_each(|(val, wires)| {
+                    let v = val;
+                    // encode c0 (Fq6)
+                    encode_fq6_to_wires(&v.c0, &wires.0[0], cache);
+                    // encode c1 (Fq6)
+                    encode_fq6_to_wires(&v.c1, &wires.0[1], cache);
+                });
+        }
+    }
+
+    fn encode_fq6_to_wires(val: &ark_bn254::Fq6, wires: &Fq6, cache: &mut Execute) {
+        // c0
+        let c0_c0_bits =
+            bits_from_biguint_with_len(&BigUintOutput::from(val.c0.c0.into_bigint()), Fq::N_BITS)
+                .unwrap();
+        let c0_c1_bits =
+            bits_from_biguint_with_len(&BigUintOutput::from(val.c0.c1.into_bigint()), Fq::N_BITS)
+                .unwrap();
+        wires.0[0].0[0]
+            .0
+            .iter()
+            .zip(c0_c0_bits)
+            .for_each(|(w, b)| cache.feed_wire(*w, b));
+        wires.0[0].0[1]
+            .0
+            .iter()
+            .zip(c0_c1_bits)
+            .for_each(|(w, b)| cache.feed_wire(*w, b));
+
+        // c1
+        let c1_c0_bits =
+            bits_from_biguint_with_len(&BigUintOutput::from(val.c1.c0.into_bigint()), Fq::N_BITS)
+                .unwrap();
+        let c1_c1_bits =
+            bits_from_biguint_with_len(&BigUintOutput::from(val.c1.c1.into_bigint()), Fq::N_BITS)
+                .unwrap();
+        wires.0[1].0[0]
+            .0
+            .iter()
+            .zip(c1_c0_bits)
+            .for_each(|(w, b)| cache.feed_wire(*w, b));
+        wires.0[1].0[1]
+            .0
+            .iter()
+            .zip(c1_c1_bits)
+            .for_each(|(w, b)| cache.feed_wire(*w, b));
+
+        // c2
+        let c2_c0_bits =
+            bits_from_biguint_with_len(&BigUintOutput::from(val.c2.c0.into_bigint()), Fq::N_BITS)
+                .unwrap();
+        let c2_c1_bits =
+            bits_from_biguint_with_len(&BigUintOutput::from(val.c2.c1.into_bigint()), Fq::N_BITS)
+                .unwrap();
+        wires.0[2].0[0]
+            .0
+            .iter()
+            .zip(c2_c0_bits)
+            .for_each(|(w, b)| cache.feed_wire(*w, b));
+        wires.0[2].0[1]
+            .0
+            .iter()
+            .zip(c2_c1_bits)
+            .for_each(|(w, b)| cache.feed_wire(*w, b));
+    }
+
+    // Output struct for Fq12 tests
+    struct Fq12Output {
+        value: ark_bn254::Fq12,
+    }
+
+    impl CircuitOutput<Execute> for Fq12Output {
+        type WireRepr = Fq12;
+
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            let c0 = decode_fq6_from_wires(&wires.0[0], cache);
+            let c1 = decode_fq6_from_wires(&wires.0[1], cache);
+            let value = ark_bn254::Fq12::new(c0, c1);
+            Self { value }
+        }
+    }
+
+    fn decode_fq6_from_wires(wires: &Fq6, cache: &Execute) -> ark_bn254::Fq6 {
+        let c0_c0 =
+            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[0].0.clone(), cache);
+        let c0_c1 =
+            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[1].0.clone(), cache);
+        let c1_c0 =
+            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0[0].0.clone(), cache);
+        let c1_c1 =
+            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0[1].0.clone(), cache);
+        let c2_c0 =
+            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[2].0[0].0.clone(), cache);
+        let c2_c1 =
+            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[2].0[1].0.clone(), cache);
+
+        let c0 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c0_c0), ark_bn254::Fq::from(c0_c1));
+        let c1 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c1_c0), ark_bn254::Fq::from(c1_c1));
+        let c2 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c2_c0), ark_bn254::Fq::from(c2_c1));
+        ark_bn254::Fq6::new(c0, c1, c2)
     }
 
     #[test]
@@ -399,369 +555,514 @@ mod tests {
 
     #[test]
     fn test_fq12_add() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let b_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::add(&mut circuit, &a_wires.clone(), &b_wires.clone());
+        let a = random();
+        let b = random();
+        let expected = a + b;
 
-
-        let a_val = random();
-        let b_val = random();
-        let expected = a_val + b_val;
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &a_val).unwrap();
-        let b_input = Fq12::get_wire_bits_fn(&b_wires, &b_val).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a, b]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a, b] = input;
+                Fq12::add(ctx, a, b)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_neg() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::neg(&mut circuit, a_wires.clone());
+        let a = random();
+        let expected = -a;
 
-
-        let a_val = random();
-        let expected = -a_val;
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &a_val).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::neg(ctx, a)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_sub() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let b_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::sub(&mut circuit, &a_wires, &b_wires);
+        let a = random();
+        let b = random();
+        let expected = a - b;
 
-
-        let a_val = random();
-        let b_val = random();
-        let expected = a_val - b_val;
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &a_val).unwrap();
-        let b_input = Fq12::get_wire_bits_fn(&b_wires, &b_val).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a, b]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a, b] = input;
+                Fq12::sub(ctx, a, b)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
+    }
+
+    #[test]
+    fn test_fq12_double() {
+        let a = random();
+        let expected = a + a;
+
+        let input = Fq12Input::new([a]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::double(ctx, a)
+            },
+        );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_mul_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let b_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::mul_montgomery(&mut circuit, &a_wires, &b_wires);
+        let a = random();
+        let b = random();
+        let a_m = Fq12::as_montgomery(a);
+        let b_m = Fq12::as_montgomery(b);
+        let expected = Fq12::as_montgomery(a * b);
 
-
-        let a_val = random();
-        let b_val = random();
-        let expected = Fq12::as_montgomery(a_val * b_val);
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let b_input = Fq12::get_wire_bits_fn(&b_wires, &Fq12::as_montgomery(b_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(|wire_id| (a_input)(wire_id).or((b_input)(wire_id)))
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a_m, b_m]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a, b] = input;
+                Fq12::mul_montgomery(ctx, a, b)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_mul_by_constant_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
+        let a = random();
+        let b = random();
+        let a_m = Fq12::as_montgomery(a);
+        let b_m = Fq12::as_montgomery(b);
+        let expected = Fq12::as_montgomery(a * b);
 
-        let a_val = random();
-        let b_val = random();
-        let c_wires =
-            Fq12::mul_by_constant_montgomery(&mut circuit, &a_wires, &Fq12::as_montgomery(b_val));
-
-
-        let expected = Fq12::as_montgomery(a_val * b_val);
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a_m]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::mul_by_constant_montgomery(ctx, a, &b_m)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_mul_by_34_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c3_wires = Fq2::new(&mut circuit);
-        let c4_wires = Fq2::new(&mut circuit);
-        let c3_pair = (c3_wires.c0().0.clone(), c3_wires.c1().0.clone());
-        let c4_pair = (c4_wires.c0().0.clone(), c4_wires.c1().0.clone());
-        let c_wires = Fq12::mul_by_34_montgomery(&mut circuit, &a_wires, &c3_pair, &c4_pair);
+        let a = random();
+        let c3 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c4 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
 
+        // Custom input type for this complex test
+        struct MulBy34Input {
+            a: ark_bn254::Fq12,
+            c3: ark_bn254::Fq2,
+            c4: ark_bn254::Fq2,
+        }
+        struct MulBy34Wire {
+            a: Fq12,
+            c3: crate::gadgets::bn254::fq2::Fq2,
+            c4: crate::gadgets::bn254::fq2::Fq2,
+        }
+        impl CircuitInput for MulBy34Input {
+            type WireRepr = MulBy34Wire;
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                MulBy34Wire {
+                    a: Fq12::new(ctx),
+                    c3: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c4: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = IntoWireList::into_wire_list(&repr.a);
+                ids.extend(IntoWireList::into_wire_list(&repr.c3));
+                ids.extend(IntoWireList::into_wire_list(&repr.c4));
+                ids
+            }
+        }
+        impl EncodeInput<Execute> for MulBy34Input {
+            fn encode(self, repr: &MulBy34Wire, cache: &mut Execute) {
+                // Encode a (Fq12) in montgomery form
+                let a_m = Fq12::as_montgomery(self.a);
+                encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
+                encode_fq6_to_wires(&a_m.c1, &repr.a.0[1], cache);
 
-        let a_val = random();
-        let c3_val = Fq2::random(&mut trng());
-        let c4_val = Fq2::random(&mut trng());
+                // Encode c3, c4 (Fq2) in montgomery form
+                let c3_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(self.c3);
+                let c4_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(self.c4);
 
-        let mut b = a_val;
-        b.mul_by_034(&ark_bn254::Fq2::ONE, &c3_val, &c4_val);
-        let expected = Fq12::as_montgomery(b);
+                let c3_c0_bits = bits_from_biguint_with_len(
+                    &BigUintOutput::from(c3_m.c0.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let c3_c1_bits = bits_from_biguint_with_len(
+                    &BigUintOutput::from(c3_m.c1.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                repr.c3.0[0]
+                    .0
+                    .iter()
+                    .zip(c3_c0_bits)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.c3.0[1]
+                    .0
+                    .iter()
+                    .zip(c3_c1_bits)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
 
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let c3_input = Fq2::get_wire_bits_fn(&c3_wires, &Fq2::as_montgomery(c3_val)).unwrap();
-        let c4_input = Fq2::get_wire_bits_fn(&c4_wires, &Fq2::as_montgomery(c4_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
+                let c4_c0_bits = bits_from_biguint_with_len(
+                    &BigUintOutput::from(c4_m.c0.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let c4_c1_bits = bits_from_biguint_with_len(
+                    &BigUintOutput::from(c4_m.c1.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                repr.c4.0[0]
+                    .0
+                    .iter()
+                    .zip(c4_c0_bits)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.c4.0[1]
+                    .0
+                    .iter()
+                    .zip(c4_c1_bits)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+            }
+        }
 
-        let actual_c = circuit
-            .simple_evaluate(|wire_id| {
-                (a_input)(wire_id)
-                    .or((c3_input)(wire_id))
-                    .or((c4_input)(wire_id))
-            })
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
+        let mut expected_a = a;
+        expected_a.mul_by_034(&ark_bn254::Fq2::ONE, &c3, &c4);
+        let expected = Fq12::as_montgomery(expected_a);
 
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = MulBy34Input { a, c3, c4 };
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let c3_pair = (input.c3.0[0].0.clone(), input.c3.0[1].0.clone());
+                let c4_pair = (input.c4.0[0].0.clone(), input.c4.0[1].0.clone());
+                Fq12::mul_by_34_montgomery(ctx, &input.a, &c3_pair, &c4_pair)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_mul_by_034_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c0_wires = Fq2::new(&mut circuit);
-        let c3_wires = Fq2::new(&mut circuit);
-        let c4_wires = Fq2::new(&mut circuit);
-        let c0_pair = (c0_wires.c0().0.clone(), c0_wires.c1().0.clone());
-        let c3_pair = (c3_wires.c0().0.clone(), c3_wires.c1().0.clone());
-        let c4_pair = (c4_wires.c0().0.clone(), c4_wires.c1().0.clone());
-        let c_wires =
-            Fq12::mul_by_034_montgomery(&mut circuit, &a_wires, &c0_pair, &c3_pair, &c4_pair);
+        let a = random();
+        let c0 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c3 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c4 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
 
+        // Custom input type for this complex test
+        struct MulBy034Input {
+            a: ark_bn254::Fq12,
+            c0: ark_bn254::Fq2,
+            c3: ark_bn254::Fq2,
+            c4: ark_bn254::Fq2,
+        }
+        struct MulBy034Wire {
+            a: Fq12,
+            c0: crate::gadgets::bn254::fq2::Fq2,
+            c3: crate::gadgets::bn254::fq2::Fq2,
+            c4: crate::gadgets::bn254::fq2::Fq2,
+        }
+        impl CircuitInput for MulBy034Input {
+            type WireRepr = MulBy034Wire;
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                MulBy034Wire {
+                    a: Fq12::new(ctx),
+                    c0: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c3: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c4: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = IntoWireList::into_wire_list(&repr.a);
+                ids.extend(IntoWireList::into_wire_list(&repr.c0));
+                ids.extend(IntoWireList::into_wire_list(&repr.c3));
+                ids.extend(IntoWireList::into_wire_list(&repr.c4));
+                ids
+            }
+        }
+        impl EncodeInput<Execute> for MulBy034Input {
+            fn encode(self, repr: &MulBy034Wire, cache: &mut Execute) {
+                // Encode a (Fq12) in montgomery form
+                let a_m = Fq12::as_montgomery(self.a);
+                encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
+                encode_fq6_to_wires(&a_m.c1, &repr.a.0[1], cache);
 
-        let a_val = random();
-        let c0_val = Fq2::random(&mut trng());
-        let c3_val = Fq2::random(&mut trng());
-        let c4_val = Fq2::random(&mut trng());
+                // Encode c0, c3, c4 (Fq2) in montgomery form
+                for (val, wires) in [
+                    (self.c0, &repr.c0),
+                    (self.c3, &repr.c3),
+                    (self.c4, &repr.c4),
+                ] {
+                    let val_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(val);
+                    let c0_bits = bits_from_biguint_with_len(
+                        &BigUintOutput::from(val_m.c0.into_bigint()),
+                        Fq::N_BITS,
+                    )
+                    .unwrap();
+                    let c1_bits = bits_from_biguint_with_len(
+                        &BigUintOutput::from(val_m.c1.into_bigint()),
+                        Fq::N_BITS,
+                    )
+                    .unwrap();
+                    wires.0[0]
+                        .0
+                        .iter()
+                        .zip(c0_bits)
+                        .for_each(|(w, b)| cache.feed_wire(*w, b));
+                    wires.0[1]
+                        .0
+                        .iter()
+                        .zip(c1_bits)
+                        .for_each(|(w, b)| cache.feed_wire(*w, b));
+                }
+            }
+        }
 
-        let mut b = a_val;
-        b.mul_by_034(&c0_val, &c3_val, &c4_val);
-        let expected = Fq12::as_montgomery(b);
+        let mut expected_a = a;
+        expected_a.mul_by_034(&c0, &c3, &c4);
+        let expected = Fq12::as_montgomery(expected_a);
 
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let c0_input = Fq2::get_wire_bits_fn(&c0_wires, &Fq2::as_montgomery(c0_val)).unwrap();
-        let c3_input = Fq2::get_wire_bits_fn(&c3_wires, &Fq2::as_montgomery(c3_val)).unwrap();
-        let c4_input = Fq2::get_wire_bits_fn(&c4_wires, &Fq2::as_montgomery(c4_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(|wire_id| {
-                (a_input)(wire_id)
-                    .or((c0_input)(wire_id))
-                    .or((c3_input)(wire_id))
-                    .or((c4_input)(wire_id))
-            })
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = MulBy034Input { a, c0, c3, c4 };
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let c0_pair = (input.c0.0[0].0.clone(), input.c0.0[1].0.clone());
+                let c3_pair = (input.c3.0[0].0.clone(), input.c3.0[1].0.clone());
+                let c4_pair = (input.c4.0[0].0.clone(), input.c4.0[1].0.clone());
+                Fq12::mul_by_034_montgomery(ctx, &input.a, &c0_pair, &c3_pair, &c4_pair)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_mul_by_034_constant4_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c0_wires = Fq2::new(&mut circuit);
-        let c3_wires = Fq2::new(&mut circuit);
-        let c4_val = Fq2::random(&mut trng());
-        let c0_pair = (c0_wires.c0().0.clone(), c0_wires.c1().0.clone());
-        let c3_pair = (c3_wires.c0().0.clone(), c3_wires.c1().0.clone());
-        let c_wires = Fq12::mul_by_034_constant4_montgomery(
-            &mut circuit,
-            &a_wires,
-            &c0_pair,
-            &c3_pair,
-            &Fq2::as_montgomery(c4_val),
+        let a = random();
+        let c0 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c3 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+        let c4 = crate::gadgets::bn254::fq2::Fq2::random(&mut trng());
+
+        // Custom input type for this test (c0, c3 are wires, c4 is constant)
+        struct MulBy034Const4Input {
+            a: ark_bn254::Fq12,
+            c0: ark_bn254::Fq2,
+            c3: ark_bn254::Fq2,
+        }
+        struct MulBy034Const4Wire {
+            a: Fq12,
+            c0: crate::gadgets::bn254::fq2::Fq2,
+            c3: crate::gadgets::bn254::fq2::Fq2,
+        }
+        impl CircuitInput for MulBy034Const4Input {
+            type WireRepr = MulBy034Const4Wire;
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                MulBy034Const4Wire {
+                    a: Fq12::new(ctx),
+                    c0: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                    c3: crate::gadgets::bn254::fq2::Fq2::new(ctx),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = IntoWireList::into_wire_list(&repr.a);
+                ids.extend(IntoWireList::into_wire_list(&repr.c0));
+                ids.extend(IntoWireList::into_wire_list(&repr.c3));
+                ids
+            }
+        }
+        impl EncodeInput<Execute> for MulBy034Const4Input {
+            fn encode(self, repr: &MulBy034Const4Wire, cache: &mut Execute) {
+                // Encode a (Fq12) in montgomery form
+                let a_m = Fq12::as_montgomery(self.a);
+                encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
+                encode_fq6_to_wires(&a_m.c1, &repr.a.0[1], cache);
+
+                // Encode c0, c3 (Fq2) in montgomery form
+                for (val, wires) in [(self.c0, &repr.c0), (self.c3, &repr.c3)] {
+                    let val_m = crate::gadgets::bn254::fq2::Fq2::as_montgomery(val);
+                    let c0_bits = bits_from_biguint_with_len(
+                        &BigUintOutput::from(val_m.c0.into_bigint()),
+                        Fq::N_BITS,
+                    )
+                    .unwrap();
+                    let c1_bits = bits_from_biguint_with_len(
+                        &BigUintOutput::from(val_m.c1.into_bigint()),
+                        Fq::N_BITS,
+                    )
+                    .unwrap();
+                    wires.0[0]
+                        .0
+                        .iter()
+                        .zip(c0_bits)
+                        .for_each(|(w, b)| cache.feed_wire(*w, b));
+                    wires.0[1]
+                        .0
+                        .iter()
+                        .zip(c1_bits)
+                        .for_each(|(w, b)| cache.feed_wire(*w, b));
+                }
+            }
+        }
+
+        let mut expected_a = a;
+        expected_a.mul_by_034(&c0, &c3, &c4);
+        let expected = Fq12::as_montgomery(expected_a);
+
+        let input = MulBy034Const4Input { a, c0, c3 };
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let c0_pair = (input.c0.0[0].0.clone(), input.c0.0[1].0.clone());
+                let c3_pair = (input.c3.0[0].0.clone(), input.c3.0[1].0.clone());
+                Fq12::mul_by_034_constant4_montgomery(
+                    ctx,
+                    &input.a,
+                    &c0_pair,
+                    &c3_pair,
+                    &crate::gadgets::bn254::fq2::Fq2::as_montgomery(c4),
+                )
+            },
         );
 
-
-        let a_val = random();
-        let c0_val = Fq2::random(&mut trng());
-        let c3_val = Fq2::random(&mut trng());
-
-        let mut b = a_val;
-        b.mul_by_034(&c0_val, &c3_val, &c4_val);
-        let expected = Fq12::as_montgomery(b);
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let c0_input = Fq2::get_wire_bits_fn(&c0_wires, &Fq2::as_montgomery(c0_val)).unwrap();
-        let c3_input = Fq2::get_wire_bits_fn(&c3_wires, &Fq2::as_montgomery(c3_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(|wire_id| {
-                (a_input)(wire_id)
-                    .or((c0_input)(wire_id))
-                    .or((c3_input)(wire_id))
-            })
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
-        );
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_square_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::square_montgomery(&mut circuit, &a_wires);
+        let a = random();
+        let a_m = Fq12::as_montgomery(a);
+        let expected = Fq12::as_montgomery(a * a);
 
-
-        let a_val = random();
-        let expected = Fq12::as_montgomery(a_val * a_val);
-
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a_m]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::square_montgomery(ctx, a)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_cyclotomic_square_montgomery() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::square_montgomery(&mut circuit, &a_wires);
-
-
         let p = Fq::modulus_as_biguint();
         let u = (p.pow(6) - BigUint::from_str("1").unwrap())
             * (p.pow(2) + BigUint::from_str("1").unwrap());
-        let a_val = Fq12::random(&mut trng()).pow(u.to_u64_digits());
-        let mut b = a_val;
-        b.cyclotomic_square_in_place();
-        let expected = Fq12::as_montgomery(b);
+        let a = Fq12::random(&mut trng()).pow(u.to_u64_digits());
+        let a_m = Fq12::as_montgomery(a);
+        let mut expected_a = a;
+        expected_a.cyclotomic_square_in_place();
+        let expected = Fq12::as_montgomery(expected_a);
 
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a_m]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::cyclotomic_square_montgomery(ctx, a)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 
     #[test]
     fn test_fq12_frobenius_montgomery() {
         for i in [0, 1, 2, 3] {
-            let mut circuit = circuit::structure::Circuit::default();
-            let a_wires = Fq12::new(&mut circuit);
-            let c_wires = Fq12::frobenius_montgomery(&mut circuit, &a_wires, i);
-
-    
-            let a_val = random();
-            let mut expected = a_val;
+            let a = random();
+            let a_m = Fq12::as_montgomery(a);
+            let mut expected = a;
             expected.frobenius_map_in_place(i);
+            let expected_m = Fq12::as_montgomery(expected);
 
-            let a_input = Fq12::get_wire_bits_fn(&a_wires, &Fq12::as_montgomery(a_val)).unwrap();
-            let c_output =
-                Fq12::get_wire_bits_fn(&c_wires, &Fq12::as_montgomery(expected)).unwrap();
-
-            let actual_c = circuit
-                .simple_evaluate(a_input)
-                .unwrap()
-                .collect::<HashMap<WireId, bool>>();
-
-            assert_eq!(
-                Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-                Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+            let input = Fq12Input::new([a_m]);
+            let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+                input,
+                Execute::default(),
+                |ctx, input| {
+                    let [a] = input;
+                    Fq12::frobenius_montgomery(ctx, a, i)
+                },
             );
+
+            assert_eq!(result.output_wires.value, expected_m);
         }
     }
 
     #[test]
+    fn test_fq12_inverse_montgomery() {
+        let a = random();
+        let a_m = Fq12::as_montgomery(a);
+        let expected = Fq12::as_montgomery(a.inverse().unwrap());
+
+        let input = Fq12Input::new([a_m]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::inverse_montgomery(ctx, a)
+            },
+        );
+
+        assert_eq!(result.output_wires.value, expected);
+    }
+
+    #[test]
     fn test_fq12_conjugate() {
-        let mut circuit = circuit::structure::Circuit::default();
-        let a_wires = Fq12::new(&mut circuit);
-        let c_wires = Fq12::conjugate(&mut circuit, &a_wires);
-
-
-        let a_val = random();
-        let mut expected = a_val;
+        let a = random();
+        let mut expected = a;
         expected.conjugate_in_place();
 
-        let a_input = Fq12::get_wire_bits_fn(&a_wires, &a_val).unwrap();
-        let c_output = Fq12::get_wire_bits_fn(&c_wires, &expected).unwrap();
-
-        let actual_c = circuit
-            .simple_evaluate(a_input)
-            .unwrap()
-            .collect::<HashMap<WireId, bool>>();
-
-        assert_eq!(
-            Fq12::to_bitmask(&c_wires, |wire_id| c_output(wire_id).unwrap()),
-            Fq12::to_bitmask(&c_wires, |wire_id| *actual_c.get(&wire_id).unwrap())
+        let input = Fq12Input::new([a]);
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            input,
+            Execute::default(),
+            |ctx, input| {
+                let [a] = input;
+                Fq12::conjugate(ctx, a)
+            },
         );
+
+        assert_eq!(result.output_wires.value, expected);
     }
 }
