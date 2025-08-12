@@ -8,6 +8,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     let fn_name = &original_fn.sig.ident;
     let fn_vis = &original_fn.vis;
     let fn_attrs = &original_fn.attrs;
+    let fn_generics = &original_fn.sig.generics;
 
     // Extract parameter information
     let context_param_name = extract_param_name(&sig.context_param)?;
@@ -55,14 +56,19 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     // Convert function name to string literal
     let fn_name_str = fn_name.to_string();
 
-    // Generate the wrapper function
+    // Generate the wrapper function with generics
+    let (impl_generics, _ty_generics, where_clause) = fn_generics.split_for_impl();
+
+    // Use the original context parameter type from the signature
+    let context_param_type = &sig.context_param.ty;
+
     let wrapper = quote! {
         #(#fn_attrs)*
-        #fn_vis fn #fn_name(
-            #context_param_name: &mut impl crate::circuit::streaming::CircuitContext,
+        #fn_vis fn #fn_name #impl_generics(
+            #context_param_name: #context_param_type,
             #(#input_param_names: #input_param_types,)*
             #(#ignored_param_names: #ignored_param_types),*
-        ) #return_type {
+        ) #return_type #where_clause {
             let input_wires = #input_wire_collection;
 
             #context_param_name.with_named_child(concat!(module_path!(), "::", #fn_name_str), input_wires, |comp| {

@@ -185,10 +185,6 @@ impl G2Projective {
 
         Ok(move |wire_id: WireId| bits.get(&wire_id).copied())
     }
-
-    pub fn random(rng: &mut impl Rng) -> ark_bn254::G2Projective {
-        ark_bn254::G2Projective::default() * Fr::random(rng)
-    }
 }
 
 impl G2Projective {
@@ -426,6 +422,7 @@ impl G2Projective {
         }
     }
 
+    #[component(ignore = "base")]
     pub fn scalar_mul_by_constant_base_montgomery<C: CircuitContext, const W: usize>(
         circuit: &mut C,
         s: &Fr,
@@ -518,6 +515,7 @@ mod tests {
     use ark_ec::{CurveGroup, VariableBaseMSM};
     use ark_ff::BigInt;
     use rand::SeedableRng;
+    use rand_chacha::ChaCha20Rng;
 
     use super::*;
     use crate::{
@@ -528,6 +526,15 @@ mod tests {
         gadgets::bigint::BigUint as BigUintOutput,
         test_utils::trng,
     };
+
+    pub fn rnd_fr(rng: &mut impl Rng) -> ark_bn254::Fr {
+        let mut prng = ChaCha20Rng::seed_from_u64(rng.r#gen());
+        ark_bn254::Fr::rand(&mut prng)
+    }
+
+    pub fn rnd_g2(rng: &mut impl Rng) -> ark_bn254::G2Projective {
+        ark_bn254::G2Projective::default() * rnd_fr(rng)
+    }
 
     // Standardized input/output structures for G2 tests
     pub struct G2Input<const N: usize> {
@@ -651,8 +658,8 @@ mod tests {
     #[test]
     fn test_g2p_add_montgomery() {
         // Generate random G2 points
-        let a = G2Projective::random(&mut trng());
-        let b = G2Projective::random(&mut trng());
+        let a = rnd_g2(&mut trng());
+        let b = rnd_g2(&mut trng());
         let c = a + b;
 
         // Convert to Montgomery form
@@ -696,7 +703,7 @@ mod tests {
     #[test]
     fn test_g2p_neg() {
         // Generate random G2 point
-        let a = G2Projective::random(&mut trng());
+        let a = rnd_g2(&mut trng());
         let neg_a = -a;
 
         // Convert to Montgomery form
@@ -718,7 +725,7 @@ mod tests {
         let w = 2;
         let n = 2_usize.pow(w as u32);
         let a_val = (0..n)
-            .map(|_| G2Projective::as_montgomery(G2Projective::random(&mut trng())))
+            .map(|_| G2Projective::as_montgomery(rnd_g2(&mut trng())))
             .collect::<Vec<_>>();
         let s_val = (0..w).map(|_| trng().r#gen()).collect::<Vec<_>>();
 
@@ -791,8 +798,8 @@ mod tests {
 
     #[test]
     fn test_g2p_scalar_mul_with_constant_base_montgomery() {
-        let s = Fr::random(&mut trng());
-        let p = G2Projective::random(&mut trng());
+        let s = rnd_fr(&mut trng());
+        let p = rnd_g2(&mut trng());
         let result = p * s;
 
         let inputs = ScalarInput { scalars: [s] };
@@ -813,10 +820,8 @@ mod tests {
     #[test]
     fn test_msm_with_constant_bases_montgomery() {
         let n = 1;
-        let scalars = (0..n).map(|_| Fr::random(&mut trng())).collect::<Vec<_>>();
-        let bases = (0..n)
-            .map(|_| G2Projective::random(&mut trng()))
-            .collect::<Vec<_>>();
+        let scalars = (0..n).map(|_| rnd_fr(&mut trng())).collect::<Vec<_>>();
+        let bases = (0..n).map(|_| rnd_g2(&mut trng())).collect::<Vec<_>>();
         let bases_affine = bases.iter().map(|g| g.into_affine()).collect::<Vec<_>>();
         let result = ark_bn254::G2Projective::msm(&bases_affine, &scalars).unwrap();
 

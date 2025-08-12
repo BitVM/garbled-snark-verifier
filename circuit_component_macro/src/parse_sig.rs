@@ -1,6 +1,9 @@
 use std::collections::HashSet;
 
-use syn::{Error, FnArg, ItemFn, Lit, Meta, Pat, PatType, Result, Token, punctuated::Punctuated};
+use syn::{
+    Error, FnArg, GenericParam, ItemFn, Lit, Meta, Pat, PatType, Result, Token,
+    punctuated::Punctuated,
+};
 
 pub struct ComponentSignature {
     #[allow(dead_code)]
@@ -9,6 +12,8 @@ pub struct ComponentSignature {
     pub input_params: Vec<PatType>,
     pub ignored_params: Vec<PatType>,
     #[allow(dead_code)]
+    pub generics: Vec<GenericParam>, // Used for future extensions
+    #[allow(dead_code)]
     pub output_count: usize, // TODO #22
 }
 
@@ -16,6 +21,9 @@ impl ComponentSignature {
     pub fn parse(input_fn: &ItemFn, args: &Punctuated<Meta, Token![,]>) -> Result<Self> {
         // Parse optional outputs and ignore parameters from attribute
         let (output_count, ignored_names) = Self::parse_args(args)?;
+
+        // Extract generic parameters (including const generics)
+        let generics: Vec<GenericParam> = input_fn.sig.generics.params.iter().cloned().collect();
 
         // Validate function signature
         let inputs = &input_fn.sig.inputs;
@@ -84,6 +92,7 @@ impl ComponentSignature {
             context_param,
             input_params,
             ignored_params,
+            generics,
             output_count,
         })
     }

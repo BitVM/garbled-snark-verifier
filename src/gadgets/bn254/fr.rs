@@ -21,6 +21,7 @@ use rand_chacha::ChaCha20Rng;
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
     CircuitContext, WireId,
+    circuit::streaming::IntoWireList,
     core::wire,
     gadgets::{
         self,
@@ -34,6 +35,18 @@ use crate::{
 /// This is the field used for private keys and exponents in BN254 operations.
 #[derive(Clone)]
 pub struct Fr(pub BigIntWires);
+
+impl IntoWireList for Fr {
+    fn into_wire_list(self) -> Vec<WireId> {
+        self.0.into_wire_list()
+    }
+}
+
+impl IntoWireList for &Fr {
+    fn into_wire_list(self) -> Vec<WireId> {
+        (&self.0).into_wire_list()
+    }
+}
 
 impl Deref for Fr {
     type Target = BigIntWires;
@@ -71,18 +84,6 @@ impl Fp254Impl for Fr {
 }
 
 impl Fr {
-    /// Generate a random scalar field element
-    ///
-    /// # Arguments
-    /// * `rng` - Random number generator
-    ///
-    /// # Returns
-    /// Random field element in the BN254 scalar field
-    pub fn random(rng: &mut impl Rng) -> ark_bn254::Fr {
-        let mut prng = ChaCha20Rng::seed_from_u64(rng.r#gen());
-        ark_bn254::Fr::rand(&mut prng)
-    }
-
     /// Create constant field element wires from a known value
     ///
     /// # Arguments
@@ -171,10 +172,6 @@ impl Fr {
             u = u.clone() + u.clone() + if *bit { one.clone() } else { zero.clone() };
         }
         ark_bn254::Fr::from(u)
-    }
-
-    pub fn wires<C: CircuitContext>(circuit: &mut C) -> Fr {
-        Fr(BigIntWires::new(circuit, Self::N_BITS))
     }
 
     // Field arithmetic methods (directly using Fp254Impl trait methods)
