@@ -15,6 +15,7 @@ pub mod fr;
 pub mod g1;
 pub mod g2;
 pub mod montgomery;
+pub mod pairing;
 
 pub use fp254impl::Fp254Impl;
 pub use fq::Fq;
@@ -25,3 +26,4 @@ pub use fq12::Fq12;
 pub use g1::G1Projective;
 pub use g2::G2Projective;
 pub use montgomery::Montgomery;
+pub use pairing::ell_coeffs;
