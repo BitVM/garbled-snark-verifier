@@ -103,7 +103,6 @@ impl Fr {
         Fr(BigIntWires::new(circuit, Self::N_BITS))
     }
 
-
     pub fn get_wire_bits_fn(
         wires: &Fr,
         value: &ark_bn254::Fr,
@@ -230,8 +229,7 @@ impl Fr {
     ) -> Fr {
         let b_mont = Self::as_montgomery(*b);
         let b_wires =
-            BigIntWires::new_constant(Self::N_BITS, &BigUint::from(b_mont.into_bigint()))
-                .unwrap();
+            BigIntWires::new_constant(Self::N_BITS, &BigUint::from(b_mont.into_bigint())).unwrap();
         Fr(<Self as Fp254Impl>::mul_montgomery(circuit, &a.0, &b_wires))
     }
 
