@@ -8,16 +8,17 @@
 //! in the tower construction leading to Fq12 for pairing operations.
 
 use ark_ff::{Field, Fp2Config, PrimeField, UniformRand};
+use circuit_component_macro::component;
 use num_traits::Zero;
 use rand::Rng;
 
 use crate::{
-    CircuitContext, Gate, WireId,
     circuit::streaming::IntoWireList,
     gadgets::{
-        bigint::{self, BigIntWires, select},
+        bigint::{self, select, BigIntWires},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
     },
+    CircuitContext, Gate, WireId,
 };
 
 /// Type alias for a pair of values, used to represent Fq2 components
@@ -318,6 +319,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
+    #[component]
     pub fn inverse_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
@@ -422,12 +424,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        CircuitContext,
         circuit::streaming::{
-            CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList, modes::CircuitMode,
+            modes::CircuitMode, CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList,
         },
-        gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+        gadgets::bigint::{bits_from_biguint_with_len, BigUint as BigUintOutput},
         test_utils::trng,
+        CircuitContext,
     };
 
     fn random() -> ark_bn254::Fq2 {
