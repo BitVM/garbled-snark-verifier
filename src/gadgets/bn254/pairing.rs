@@ -1,8 +1,11 @@
-//! BN254 pairing helpers (off-circuit)
+//! BN254 pairing helpers (constant-Q)
 //!
-//! Implements precomputation of G2 line coefficients for the ATE/Miller loop.
-//! This operates on arkworks types and returns constants to be used by
-//! on-circuit gadgets that evaluate the lines against G1 inputs.
+//! - Off-circuit: precompute G2 line coefficients for the ATE/Miller loop.
+//! - On-circuit: evaluate lines against variable G1 inputs and compose
+//!   Miller loop + final exponentiation for a full pairing result.
+//!
+//! Note: These helpers assume G2 inputs are constants (host-provided arkworks
+//! `G2Affine`), while G1 inputs are circuit wires (`G1Projective`).
 
 /// Line coefficient triple used during Miller loop line evaluations.
 /// Matches arkworks' internal representation order for BN254.
@@ -14,7 +17,10 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext,
-    gadgets::bn254::{fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12, g1::G1Projective},
+    gadgets::bn254::{
+        final_exponentiation::final_exponentiation, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
+        g1::G1Projective,
+    },
 };
 
 /// Compute BN254 G2 line coefficients for the ATE loop given a constant `Q`.
@@ -185,6 +191,28 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
 }
 
 // Final exponentiation logic has moved to gadgets::bn254::final_exponentiation
+
+/// Full pairing with constant `Q`: Miller loop followed by final exponentiation.
+#[component(ignore = "q")]
+pub fn pairing_const_q<C: CircuitContext>(
+    circuit: &mut C,
+    p: &G1Projective,
+    q: &ark_bn254::G2Affine,
+) -> Fq12 {
+    let f = miller_loop_const_q(circuit, p, q);
+    final_exponentiation(circuit, &f)
+}
+
+/// Multi-pairing aggregation with constant `Q_i` and variable `P_i`.
+#[component(ignore = "qs")]
+pub fn multi_pairing_const_q<C: CircuitContext>(
+    circuit: &mut C,
+    ps: &[G1Projective],
+    qs: &[ark_bn254::G2Affine],
+) -> Fq12 {
+    let f = multi_miller_loop_const_q(circuit, ps, qs);
+    final_exponentiation(circuit, &f)
+}
 
 #[cfg(test)]
 mod tests {
@@ -536,6 +564,248 @@ mod tests {
             input,
             Execute::default(),
             |ctx, input| ell_eval_const(ctx, &input.f, &coeff, &input.p),
+        );
+
+        assert_eq!(result.output_wires.value, expected_m);
+    }
+
+    #[test]
+    fn test_miller_loop_const_q_matches_ark_single() {
+        use ark_ec::pairing::Pairing;
+        let mut rng = ChaCha20Rng::seed_from_u64(11);
+        let p_aff = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let p = p_aff.into_group();
+        let q = random_g2_affine(&mut rng);
+
+        let expected_ml = ark_bn254::Bn254::multi_miller_loop([p_aff], [q]).0;
+        let expected_m = Fq12::as_montgomery(expected_ml);
+
+        struct In {
+            p: ark_bn254::G1Projective,
+        }
+        struct W {
+            p: G1Projective,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                W {
+                    p: G1Projective::new(ctx),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
+                (&repr.p).into_wire_list()
+            }
+        }
+        impl EncodeInput<Execute> for In {
+            fn encode(self, repr: &W, cache: &mut Execute) {
+                // Encode p (G1Projective) in Montgomery form
+                let p_m = G1Projective::as_montgomery(self.p);
+                let bits_x = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.x.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let bits_y = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.y.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let bits_z = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.z.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                repr.p
+                    .x
+                    .0
+                    .iter()
+                    .zip(bits_x)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.p
+                    .y
+                    .0
+                    .iter()
+                    .zip(bits_y)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.p
+                    .z
+                    .0
+                    .iter()
+                    .zip(bits_z)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+            }
+        }
+
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            In { p },
+            Execute::default(),
+            |ctx, input| miller_loop_const_q(ctx, &input.p, &q),
+        );
+
+        assert_eq!(result.output_wires.value, expected_m);
+    }
+
+    #[test]
+    fn test_pairing_const_q_matches_ark_single() {
+        use ark_ec::pairing::Pairing;
+        let mut rng = ChaCha20Rng::seed_from_u64(12);
+        let p_aff = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let p = p_aff.into_group();
+        let q = random_g2_affine(&mut rng);
+
+        let expected = ark_bn254::Bn254::pairing(p_aff, q);
+        let expected_m = Fq12::as_montgomery(expected.0);
+
+        struct In {
+            p: ark_bn254::G1Projective,
+        }
+        struct W {
+            p: G1Projective,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                W {
+                    p: G1Projective::new(ctx),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
+                (&repr.p).into_wire_list()
+            }
+        }
+        impl EncodeInput<Execute> for In {
+            fn encode(self, repr: &W, cache: &mut Execute) {
+                // Encode p (G1Projective) in Montgomery form
+                let p_m = G1Projective::as_montgomery(self.p);
+                let bits_x = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.x.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let bits_y = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.y.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let bits_z = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.z.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                repr.p
+                    .x
+                    .0
+                    .iter()
+                    .zip(bits_x)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.p
+                    .y
+                    .0
+                    .iter()
+                    .zip(bits_y)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.p
+                    .z
+                    .0
+                    .iter()
+                    .zip(bits_z)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+            }
+        }
+
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            In { p },
+            Execute::default(),
+            |ctx, input| pairing_const_q(ctx, &input.p, &q),
+        );
+
+        assert_eq!(result.output_wires.value, expected_m);
+    }
+
+    #[test]
+    fn test_multi_pairing_const_q_matches_ark_n3() {
+        use ark_ec::pairing::Pairing;
+        let mut rng = ChaCha20Rng::seed_from_u64(13);
+        let p0_aff = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let p1_aff = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let p2_aff = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let p0 = p0_aff.into_group();
+        let p1 = p1_aff.into_group();
+        let p2 = p2_aff.into_group();
+        let q0 = random_g2_affine(&mut rng);
+        let q1 = random_g2_affine(&mut rng);
+        let q2 = random_g2_affine(&mut rng);
+
+        let expected = ark_bn254::Bn254::multi_pairing([p0_aff, p1_aff, p2_aff], [q0, q1, q2]);
+        let expected_m = Fq12::as_montgomery(expected.0);
+
+        struct In {
+            p0: ark_bn254::G1Projective,
+            p1: ark_bn254::G1Projective,
+            p2: ark_bn254::G1Projective,
+        }
+        struct W {
+            p0: G1Projective,
+            p1: G1Projective,
+            p2: G1Projective,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+                W {
+                    p0: G1Projective::new(ctx),
+                    p1: G1Projective::new(ctx),
+                    p2: G1Projective::new(ctx),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
+                let mut ids = Vec::new();
+                ids.extend((&repr.p0).into_wire_list());
+                ids.extend((&repr.p1).into_wire_list());
+                ids.extend((&repr.p2).into_wire_list());
+                ids
+            }
+        }
+        fn encode_p(p: ark_bn254::G1Projective, w: &G1Projective, cache: &mut Execute) {
+            let p_m = G1Projective::as_montgomery(p);
+            let bits_x =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.x.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_y =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.y.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_z =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.z.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            w.x.0
+                .iter()
+                .zip(bits_x)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.y.0
+                .iter()
+                .zip(bits_y)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.z.0
+                .iter()
+                .zip(bits_z)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+        }
+        impl EncodeInput<Execute> for In {
+            fn encode(self, repr: &W, cache: &mut Execute) {
+                encode_p(self.p0, &repr.p0, cache);
+                encode_p(self.p1, &repr.p1, cache);
+                encode_p(self.p2, &repr.p2, cache);
+            }
+        }
+
+        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            In { p0, p1, p2 },
+            Execute::default(),
+            |ctx, input| {
+                let ps = [input.p0.clone(), input.p1.clone(), input.p2.clone()];
+                multi_pairing_const_q(ctx, &ps, &[q0, q1, q2])
+            },
         );
 
         assert_eq!(result.output_wires.value, expected_m);
