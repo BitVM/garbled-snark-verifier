@@ -12,20 +12,30 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
 
     // Extract parameter information
     let context_param_name = extract_param_name(&sig.context_param)?;
-    let input_param_names: Vec<Ident> = sig
-        .input_params
-        .iter()
-        .map(extract_param_name)
-        .collect::<Result<Vec<_>>>()?;
-    let input_param_types: Vec<_> = sig.input_params.iter().map(|p| &p.ty).collect();
 
-    // Extract ignored parameter information
-    let ignored_param_names: Vec<Ident> = sig
+    // Build a set of ignored parameter names for quick lookup
+    let ignored_param_names_set: std::collections::HashSet<String> = sig
         .ignored_params
         .iter()
-        .map(extract_param_name)
-        .collect::<Result<Vec<_>>>()?;
-    let ignored_param_types: Vec<_> = sig.ignored_params.iter().map(|p| &p.ty).collect();
+        .map(|p| extract_param_name(p).map(|id| id.to_string()))
+        .collect::<Result<_>>()?;
+
+    // Collect parameters after the context in their original order from the source function
+    let mut ordered_param_idents: Vec<Ident> = Vec::new();
+    let mut ordered_param_types: Vec<&syn::Type> = Vec::new();
+
+    for arg in original_fn.sig.inputs.iter().skip(1) {
+        if let syn::FnArg::Typed(pat_type) = arg {
+            let ident = extract_param_name(pat_type)?;
+            ordered_param_idents.push(ident);
+            ordered_param_types.push(&pat_type.ty);
+        } else {
+            return Err(Error::new_spanned(
+                arg,
+                "Component functions cannot have 'self' parameter",
+            ));
+        }
+    }
 
     // Generate the function body transformation
     let mut transformed_body = original_fn.block.clone();
@@ -35,15 +45,27 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     };
     renamer.visit_block_mut(&mut transformed_body);
 
-    // Generate input wire collection
-    let input_wire_collection = if input_param_names.is_empty() {
+    // Prepare a filtered list of parameters that contribute input wires
+    let included_param_idents: Vec<Ident> = ordered_param_idents
+        .iter()
+        .filter(|id| !ignored_param_names_set.contains(&id.to_string()))
+        .cloned()
+        .collect();
+
+    // Generate input wire collection in the original parameter order,
+    // skipping any parameters marked as ignored. Ignored params must not
+    // appear in the generated code path invoking IntoWireList to avoid
+    // trait requirements on non-wire types.
+    let input_wire_collection = if included_param_idents.is_empty() {
         quote! { Vec::new() }
     } else {
+        let idents_for_wires = included_param_idents;
+
         quote! {
             {
                 let mut input_wires = Vec::new();
                 #(
-                    input_wires.extend(crate::circuit::streaming::IntoWireList::into_wire_list(#input_param_names));
+                    input_wires.extend(crate::circuit::streaming::IntoWireList::into_wire_list(#idents_for_wires));
                 )*
                 input_wires
             }
@@ -66,8 +88,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         #(#fn_attrs)*
         #fn_vis fn #fn_name #impl_generics(
             #context_param_name: #context_param_type,
-            #(#input_param_names: #input_param_types,)*
-            #(#ignored_param_names: #ignored_param_types),*
+            #(#ordered_param_idents: #ordered_param_types),*
         ) #return_type #where_clause {
             let input_wires = #input_wire_collection;
 

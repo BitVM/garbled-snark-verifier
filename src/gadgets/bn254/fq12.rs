@@ -209,28 +209,27 @@ impl Fq12 {
         Fq12::from_components(new_c0, new_c1)
     }
 
+    #[component]
     pub fn mul_by_034_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &Fq12,
-        c0: &Pair<BigIntWires>,
-        c3: &Pair<BigIntWires>,
-        c4: &Pair<BigIntWires>,
+        c0: &Fq2,
+        c3: &Fq2,
+        c4: &Fq2,
     ) -> Fq12 {
-        let c0_fq2 = Fq2([Fq(c0.0.clone()), Fq(c0.1.clone())]);
-        let c3_fq2 = Fq2([Fq(c3.0.clone()), Fq(c3.1.clone())]);
-        let c4_fq2 = Fq2([Fq(c4.0.clone()), Fq(c4.1.clone())]);
-        let w1 = Fq6::mul_by_01_montgomery(circuit, a.c1(), &c3_fq2, &c4_fq2);
+        let w1 = Fq6::mul_by_01_montgomery(circuit, a.c1(), c3, c4);
         let w2 = Fq6::mul_by_nonresidue(circuit, &w1);
-        let w3 = Fq6::mul_by_fq2_montgomery(circuit, a.c0(), &c0_fq2);
+        let w3 = Fq6::mul_by_fq2_montgomery(circuit, a.c0(), c0);
         let new_c0 = Fq6::add(circuit, &w2, &w3);
         let w4 = Fq6::add(circuit, a.c0(), a.c1());
-        let w5 = Fq2::add(circuit, &c3_fq2, &c0_fq2);
-        let w6 = Fq6::mul_by_01_montgomery(circuit, &w4, &w5, &c4_fq2);
+        let w5 = Fq2::add(circuit, c3, c0);
+        let w6 = Fq6::mul_by_01_montgomery(circuit, &w4, &w5, c4);
         let w7 = Fq6::add(circuit, &w1, &w3);
         let new_c1 = Fq6::sub(circuit, &w6, &w7);
         Fq12::from_components(new_c0, new_c1)
     }
 
+    #[component(ignore = "c4")]
     pub fn mul_by_034_constant4_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &Fq12,
@@ -254,6 +253,7 @@ impl Fq12 {
         Fq12::from_components(new_c0, new_c1)
     }
 
+    #[component]
     pub fn square_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
         let w1 = Fq6::add(circuit, a.c0(), a.c1());
         let w2 = Fq6::mul_by_nonresidue(circuit, a.c1());
@@ -861,10 +861,7 @@ mod tests {
             input,
             Execute::default(),
             |ctx, input| {
-                let c0_pair = (input.c0.0[0].0.clone(), input.c0.0[1].0.clone());
-                let c3_pair = (input.c3.0[0].0.clone(), input.c3.0[1].0.clone());
-                let c4_pair = (input.c4.0[0].0.clone(), input.c4.0[1].0.clone());
-                Fq12::mul_by_034_montgomery(ctx, &input.a, &c0_pair, &c3_pair, &c4_pair)
+                Fq12::mul_by_034_montgomery(ctx, &input.a, &input.c0, &input.c3, &input.c4)
             },
         );
 

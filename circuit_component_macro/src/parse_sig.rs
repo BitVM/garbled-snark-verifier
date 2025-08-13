@@ -6,24 +6,17 @@ use syn::{
 };
 
 pub struct ComponentSignature {
-    #[allow(dead_code)]
-    pub original_fn: ItemFn, // TODO #22
     pub context_param: PatType,
-    pub input_params: Vec<PatType>,
     pub ignored_params: Vec<PatType>,
-    #[allow(dead_code)]
-    pub generics: Vec<GenericParam>, // Used for future extensions
-    #[allow(dead_code)]
-    pub output_count: usize, // TODO #22
 }
 
 impl ComponentSignature {
     pub fn parse(input_fn: &ItemFn, args: &Punctuated<Meta, Token![,]>) -> Result<Self> {
         // Parse optional outputs and ignore parameters from attribute
-        let (output_count, ignored_names) = Self::parse_args(args)?;
+        let (_output_count, ignored_names) = Self::parse_args(args)?;
 
         // Extract generic parameters (including const generics)
-        let generics: Vec<GenericParam> = input_fn.sig.generics.params.iter().cloned().collect();
+        let _generics: Vec<GenericParam> = input_fn.sig.generics.params.iter().cloned().collect();
 
         // Validate function signature
         let inputs = &input_fn.sig.inputs;
@@ -65,22 +58,22 @@ impl ComponentSignature {
             .collect::<Result<Vec<_>>>()?;
 
         // Split parameters into regular and ignored based on names
-        let mut input_params = Vec::new();
         let mut ignored_params = Vec::new();
+        let mut included_count = 0usize;
 
         for param in all_params {
             if let Pat::Ident(ident) = &*param.pat {
                 if ignored_names.contains(&ident.ident.to_string()) {
                     ignored_params.push(param);
                 } else {
-                    input_params.push(param);
+                    included_count += 1;
                 }
             } else {
-                input_params.push(param);
+                included_count += 1;
             }
         }
 
-        if input_params.len() > 16 {
+        if included_count > 16 {
             return Err(Error::new_spanned(
                 &input_fn.sig.inputs,
                 "Component functions cannot have more than 16 input parameters (excluding context and ignored)",
@@ -88,12 +81,8 @@ impl ComponentSignature {
         }
 
         Ok(ComponentSignature {
-            original_fn: input_fn.clone(),
             context_param,
-            input_params,
             ignored_params,
-            generics,
-            output_count,
         })
     }
 
