@@ -254,10 +254,11 @@ impl G1Projective {
         G1Projective { x: xr, y: yr, z }
     }
 
+    #[component(ignore = "w")]
     pub fn multiplexer<C: CircuitContext>(
         circuit: &mut C,
         a: &[G1Projective],
-        s: Vec<WireId>,
+        s: &[WireId],
         w: usize,
     ) -> G1Projective {
         let n = 2_usize.pow(w.try_into().unwrap());
@@ -268,24 +269,25 @@ impl G1Projective {
             x: Fq::multiplexer(
                 circuit,
                 &a.iter().map(|p| p.x.clone()).collect::<Vec<_>>(),
-                &s,
+                s,
                 w,
             ),
             y: Fq::multiplexer(
                 circuit,
                 &a.iter().map(|p| p.y.clone()).collect::<Vec<_>>(),
-                &s,
+                s,
                 w,
             ),
             z: Fq::multiplexer(
                 circuit,
                 &a.iter().map(|p| p.z.clone()).collect::<Vec<_>>(),
-                &s,
+                s,
                 w,
             ),
         }
     }
 
+    #[component(ignore = "base")]
     pub fn scalar_mul_by_constant_base_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
         s: &Fr,
@@ -313,8 +315,8 @@ impl G1Projective {
         while index < Fr::N_BITS {
             let w = min(W, Fr::N_BITS - index);
             let m = 2_usize.pow(w as u32);
-            let selector = s.iter().skip(index).take(w).copied().collect();
-            let result = Self::multiplexer(circuit, &bases_wires[0..m], selector, w);
+            let selector = s.iter().skip(index).take(w).copied().collect::<Vec<_>>();
+            let result = Self::multiplexer(circuit, &bases_wires[0..m], &selector, w);
             to_be_added.push(result);
             index += W;
             let mut new_bases = Vec::new();
@@ -341,10 +343,11 @@ impl G1Projective {
         acc
     }
 
+    #[component(ignore = "bases")]
     pub fn msm_with_constant_bases_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
-        scalars: &Vec<Fr>,
-        bases: &Vec<ark_bn254::G1Projective>,
+        scalars: &[Fr],
+        bases: &[ark_bn254::G1Projective],
     ) -> G1Projective {
         assert_eq!(scalars.len(), bases.len());
         let mut to_be_added = Vec::new();
@@ -724,8 +727,7 @@ mod tests {
 
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires =
-                G1Projective::multiplexer(root, &inputs_wire.a, inputs_wire.s.clone(), w);
+            let result_wires = G1Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
             let mut output_ids = Vec::new();
             output_ids.extend(result_wires.x.iter());
             output_ids.extend(result_wires.y.iter());

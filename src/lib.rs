@@ -14,6 +14,7 @@ pub use core::{
 
 pub use circuit::{CircuitContext, CircuitError};
 pub use circuit_component_macro::component;
+pub use gadgets::{groth16_verify, groth16_verify_compressed};
 pub use math::*;
 
 #[cfg(test)]

@@ -6,6 +6,7 @@
 
 use ark_ec::bn::BnConfig;
 use ark_ff::{BitIteratorBE, CyclotomicMultSubgroup, Field, PrimeField};
+use circuit_component_macro::component;
 
 use crate::{
     CircuitContext,
@@ -64,6 +65,7 @@ pub fn final_exponentiation_native(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     y19 * y17
 }
 
+#[component]
 fn exp_by_u_cyclotomic<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
     use ark_ff::BitIteratorBE;
 
@@ -125,6 +127,7 @@ fn exp_by_neg_x<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
     Fq12::conjugate(circuit, &e)
 }
 
+#[component]
 pub fn final_exponentiation<C: CircuitContext>(circuit: &mut C, f: &Fq12) -> Fq12 {
     // Easy part
     let f_inv = Fq12::inverse_montgomery(circuit, f);
