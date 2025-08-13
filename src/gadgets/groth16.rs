@@ -28,6 +28,7 @@ use crate::{
 /// - `vk`: verifying key with constant elements (host-provided arkworks types).
 ///
 /// Returns a boolean wire that is 1 iff the proof verifies.
+#[component(ignore = "proof_b, vk")]
 pub fn groth16_verify<C: CircuitContext>(
     circuit: &mut C,
     public: &[Fr],
@@ -41,11 +42,12 @@ pub fn groth16_verify<C: CircuitContext>(
     scalars.push(Fr::new_constant(&ark_bn254::Fr::ONE).expect("const one"));
     scalars.extend_from_slice(public);
 
-    // Align bases to scalars
-    let mut bases: Vec<ark_bn254::G1Projective> = Vec::with_capacity(scalars.len());
-    for g in &vk.gamma_abc_g1[0..scalars.len()] {
-        bases.push(g.into_group());
-    }
+    let bases: Vec<_> = vk
+        .gamma_abc_g1
+        .iter()
+        .take(scalars.len())
+        .map(|g| g.into_group())
+        .collect();
 
     // Windowed MSM with constant bases
     let msm = G1Projective::msm_with_constant_bases_montgomery::<10, _>(circuit, &scalars, &bases);

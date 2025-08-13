@@ -32,6 +32,7 @@ ark-snark = "0.5.0"
 sha2 = "0.10"
 test-log = "0.2.8"
 trybuild = "1.0"
+env_logger = "0.11"
 
 # Install Git hooks via cargo-husky
 [dev-dependencies.cargo-husky]
