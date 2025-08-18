@@ -1,10 +1,10 @@
-use circuit_component_macro::component;
+use circuit_component_macro::{bn_component, component};
 use num_bigint::BigUint;
 
 use super::BigIntWires;
 use crate::{CircuitContext, Gate, WireId, gadgets::bigint::bits_from_biguint_with_len};
 
-#[component]
+#[bn_component(arity = "a.len()")]
 pub fn self_or_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, s: WireId) -> BigIntWires {
     BigIntWires {
         bits: a
@@ -19,7 +19,7 @@ pub fn self_or_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, s: Wire
 }
 
 //s is inverted
-#[component]
+#[bn_component(arity = "a.len()")]
 pub fn self_or_zero_inv<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -151,7 +151,7 @@ pub fn less_than_constant<C: CircuitContext>(
     sum.last().unwrap()
 }
 
-#[component]
+#[bn_component(arity = "a.len()")]
 pub fn select<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -169,7 +169,7 @@ pub fn select<C: CircuitContext>(
     }
 }
 
-#[component(ignore = "w")]
+#[bn_component(arity = "a[0].len()", ignore = "w")]
 pub fn multiplexer<C: CircuitContext>(
     circuit: &mut C,
     a: &[BigIntWires],

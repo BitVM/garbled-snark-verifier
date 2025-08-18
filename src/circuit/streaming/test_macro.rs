@@ -201,11 +201,15 @@ mod tests {
                 let _ = big_chain(ctx, seed);
             } else {
                 for _ in 0..FANOUT {
-                    ctx.with_child(vec![seed], |child| {
-                        expand_tree(child, seed, depth - 1);
-                        // Return no outputs to keep garble extraction minimal
-                        Vec::<WireId>::new()
-                    });
+                    ctx.with_child(
+                        vec![seed],
+                        |child| {
+                            expand_tree(child, seed, depth - 1);
+                            // Return no outputs to keep garble extraction minimal
+                            Vec::<WireId>::new()
+                        },
+                        || 0,
+                    );
                 }
             }
         }
@@ -335,17 +339,21 @@ mod tests {
             } else {
                 let mut acc: Option<WireId> = None;
                 for _ in 0..FANOUT {
-                    let w = ctx.with_child(vec![seed], |child| {
-                        let out = expand_tree_eval(child, seed, depth - 1);
-                        // Return a bridged value present in the child frame
-                        let bridged = child.issue_wire();
-                        child.add_gate(Gate::and(
-                            out,
-                            crate::circuit::streaming::TRUE_WIRE,
-                            bridged,
-                        ));
-                        vec![bridged]
-                    })[0];
+                    let w = ctx.with_child(
+                        vec![seed],
+                        |child| {
+                            let out = expand_tree_eval(child, seed, depth - 1);
+                            // Return a bridged value present in the child frame
+                            let bridged = child.issue_wire();
+                            child.add_gate(Gate::and(
+                                out,
+                                crate::circuit::streaming::TRUE_WIRE,
+                                bridged,
+                            ));
+                            vec![bridged]
+                        },
+                        || 1,
+                    )[0];
                     acc = Some(match acc {
                         Some(prev) => or_gate_eval(ctx, prev, w),
                         None => w,

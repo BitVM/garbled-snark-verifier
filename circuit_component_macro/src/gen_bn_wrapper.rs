@@ -1,10 +1,14 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Error, Ident, ItemFn, Pat, Result, visit_mut::VisitMut};
+use syn::{Error, Expr, Ident, ItemFn, Pat, Result, visit_mut::VisitMut};
 
 use crate::parse_sig::ComponentSignature;
 
-pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Result<TokenStream> {
+pub fn generate_bn_wrapper(
+    sig: &ComponentSignature,
+    original_fn: &ItemFn,
+    arity_expr: &Expr,
+) -> Result<TokenStream> {
     let fn_name = &original_fn.sig.ident;
     let fn_vis = &original_fn.vis;
     let fn_attrs = &original_fn.attrs;
@@ -75,15 +79,6 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     // Determine return type based on the original function
     let return_type = &original_fn.sig.output;
 
-    // Generate arity expression based on return type
-    let arity_expr = match return_type {
-        syn::ReturnType::Default => quote! { || 0 },
-        syn::ReturnType::Type(_, ty) => {
-            // For now, assume all non-BigIntWires types have WiresArity
-            quote! { || <#ty as crate::circuit::streaming::WiresArity>::ARITY }
-        }
-    };
-
     // Convert function name to string literal
     let fn_name_str = fn_name.to_string();
 
@@ -93,6 +88,9 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     // Use the original context parameter type from the signature
     let context_param_type = &sig.context_param.ty;
 
+    // The arity expression should be evaluated in context to get the actual length
+    let arity_closure = arity_expr;
+
     let wrapper = quote! {
         #(#fn_attrs)*
         #fn_vis fn #fn_name #impl_generics(
@@ -100,10 +98,11 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
             #(#ordered_param_idents: #ordered_param_types),*
         ) #return_type #where_clause {
             let input_wires = #input_wire_collection;
+            let arity_fn = || #arity_closure;
 
             #context_param_name.with_named_child(concat!(module_path!(), "::", #fn_name_str), input_wires, |comp| {
                 #transformed_body
-            }, #arity_expr)
+            }, arity_fn)
         }
     };
 
@@ -122,7 +121,7 @@ fn extract_param_name(pat_type: &syn::PatType) -> Result<Ident> {
 
 struct ContextRenamer {
     old_name: Ident,
-    #[allow(dead_code)] // TODO #22
+    #[allow(dead_code)]
     new_name: TokenStream,
 }
 

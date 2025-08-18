@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use ark_ff::{AdditiveGroup, Field, PrimeField};
-use circuit_component_macro::component;
+use circuit_component_macro::{bn_component, component};
 use itertools::Itertools;
 use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Zero};
@@ -11,7 +11,7 @@ use crate::{
     CircuitContext, Gate, WireId,
     circuit::{
         CircuitInput,
-        streaming::{FALSE_WIRE, IntoWireList, TRUE_WIRE},
+        streaming::{FALSE_WIRE, IntoWireList, TRUE_WIRE, WiresObject},
     },
     gadgets::bigint::select,
     math::montgomery::calculate_montgomery_constants,
@@ -96,7 +96,7 @@ pub trait Fp254Impl {
         bigint::equal_constant(circuit, a, &BigUint::from(b.into_bigint()))
     }
 
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn add<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
@@ -116,7 +116,7 @@ pub trait Fp254Impl {
         bigint::select(circuit, &wires1, &wires2, s)
     }
 
-    #[component(ignore = "b")]
+    #[bn_component(arity = "Self::N_BITS", ignore = "b")]
     fn add_constant<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -143,7 +143,7 @@ pub trait Fp254Impl {
     }
 
     /// Field subtraction: (a - b) mod p
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn sub<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
@@ -153,7 +153,7 @@ pub trait Fp254Impl {
     }
 
     /// Field negation: (-a) mod p
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn neg<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
@@ -170,7 +170,7 @@ pub trait Fp254Impl {
     }
 
     /// Field doubling: (2 * a) mod p
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
@@ -193,7 +193,7 @@ pub trait Fp254Impl {
     }
 
     /// Field halving: (a / 2) mod p
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn half<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
@@ -253,7 +253,7 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Product in Montgomery form
-    #[component(ignore = "b")]
+    #[bn_component(arity = "Self::N_BITS", ignore = "b")]
     fn mul_by_constant_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -304,7 +304,7 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Single-width (254-bit) result in Montgomery form
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn montgomery_reduce<C: CircuitContext>(circuit: &mut C, x: &BigIntWires) -> BigIntWires {
         assert_eq!(x.len(), 2 * Self::N_BITS);
 
@@ -335,7 +335,7 @@ pub trait Fp254Impl {
     }
 
     /// Modular inverse using extended Euclidean algorithm
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn inverse<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
@@ -358,6 +358,29 @@ pub trait Fp254Impl {
                     .chain(s.into_iter())
                     .chain(k.into_iter())
                     .collect()
+            }
+        }
+
+        impl WiresObject for IterationContext {
+            fn get_wires_vec(&self) -> Vec<WireId> {
+                self.clone().into_wire_list()
+            }
+
+            fn from_wires(wires: &[WireId]) -> Option<Self> {
+                if wires.len() % 5 != 0 {
+                    return None;
+                }
+
+                let part_size = wires.len() / 5;
+
+                // Split wires into 5 equal parts
+                let u = BigIntWires::from_bits(wires[0..part_size].iter().copied());
+                let v = BigIntWires::from_bits(wires[part_size..2 * part_size].iter().copied());
+                let r = BigIntWires::from_bits(wires[2 * part_size..3 * part_size].iter().copied());
+                let s = BigIntWires::from_bits(wires[3 * part_size..4 * part_size].iter().copied());
+                let k = BigIntWires::from_bits(wires[4 * part_size..5 * part_size].iter().copied());
+
+                Some(Self { u, v, r, s, k })
             }
         }
 
@@ -514,6 +537,7 @@ pub trait Fp254Impl {
 
                     IterationContext { u, v, r, s, k }
                 },
+                || 5 * Self::N_BITS, // IterationContext has 5 BigIntWires fields
             );
         }
 
@@ -555,11 +579,13 @@ pub trait Fp254Impl {
 
                             (s, even_part)
                         },
+                        || 2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
                     );
                 }
 
                 s
             },
+            || Self::N_BITS, // Returns single BigIntWires
         );
 
         circuit.with_named_child(
@@ -586,11 +612,13 @@ pub trait Fp254Impl {
 
                             (s, k)
                         },
+                        || 2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
                     );
                 }
 
                 s
             },
+            || Self::N_BITS, // Returns single BigIntWires
         )
     }
 
@@ -623,7 +651,7 @@ pub trait Fp254Impl {
     }
 
     /// Exponentiation by constant in Montgomery form
-    #[component(ignore = "exp")]
+    #[bn_component(arity = "Self::N_BITS", ignore = "exp")]
     fn exp_by_constant_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -658,14 +686,14 @@ pub trait Fp254Impl {
         result
     }
 
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn triple<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         let a_2 = Self::double(circuit, a);
         Self::add(circuit, &a_2, a)
     }
 
-    #[component]
+    #[bn_component(arity = "Self::N_BITS")]
     fn div6<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 

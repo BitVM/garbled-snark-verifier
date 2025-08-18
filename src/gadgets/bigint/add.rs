@@ -1,11 +1,11 @@
 use std::iter;
 
-use circuit_component_macro::component;
+use circuit_component_macro::bn_component;
 
 use super::{BigIntWires, BigUint, select};
 use crate::{CircuitContext, Gate, WireId, circuit::streaming::FALSE_WIRE, gadgets::basic};
 
-#[component]
+#[bn_component(arity = "a.len() + 1")]
 pub fn add_generic<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -39,7 +39,7 @@ pub fn add_without_carry<C: CircuitContext>(
     c
 }
 
-#[component(ignore = "b")]
+#[bn_component(arity = "a.len() + 1", ignore = "b")]
 pub fn add_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -95,7 +95,7 @@ pub fn add_constant_without_carry<C: CircuitContext>(
     c
 }
 
-#[component]
+#[bn_component(arity = "a.len() + 1")]
 pub fn sub_generic<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -121,7 +121,7 @@ pub fn sub_generic<C: CircuitContext>(
     BigIntWires { bits }
 }
 
-#[component]
+#[bn_component(arity = "a.len()")]
 pub fn sub_generic_without_borrow<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -132,7 +132,7 @@ pub fn sub_generic_without_borrow<C: CircuitContext>(
     BigIntWires { bits }
 }
 
-#[component]
+#[bn_component(arity = "a.len() + 1")]
 pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     let a_0 = a.get(0).unwrap();
@@ -143,6 +143,7 @@ pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWire
     }
 }
 
+#[bn_component(arity = "a.len()")]
 pub fn double_without_overflow<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
     let zero_wire = circuit.issue_wire();
     let a_0 = a.get(0).unwrap();
@@ -273,7 +274,14 @@ mod tests {
         } = CircuitBuilder::streaming_execute(input, |root, input| {
             let [a, b] = input;
             let result = operation(root, a, b);
-            assert_eq!(result.bits.len(), n_bits + 1);
+            // ARITY CHECK: Verify that add/sub operations return n_bits + 1 wires
+            assert_eq!(
+                result.bits.len(),
+                n_bits + 1,
+                "Arity check failed: expected {} wires, got {}",
+                n_bits + 1,
+                result.bits.len()
+            );
 
             result.into_wire_list()
         });
@@ -423,7 +431,14 @@ mod tests {
             let [a] = input;
 
             let result = operation(root, a);
-            assert_eq!(result.bits.len(), n_bits);
+            // ARITY CHECK: Verify that half operation returns n_bits wires
+            assert_eq!(
+                result.bits.len(),
+                n_bits,
+                "Arity check failed: expected {} wires, got {}",
+                n_bits,
+                result.bits.len()
+            );
 
             result.into_wire_list()
         });

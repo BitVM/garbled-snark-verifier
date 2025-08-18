@@ -1,4 +1,4 @@
-use circuit_component_macro::component;
+use circuit_component_macro::bn_component;
 use log::debug;
 
 use super::{BigIntWires, BigUint};
@@ -18,7 +18,7 @@ fn extend_with_zero<C: CircuitContext>(circuit: &mut C, bits: &mut Vec<WireId>) 
     bits.push(zero_wire);
 }
 
-#[component]
+#[bn_component(arity = "a.len() * 2")]
 pub fn mul_generic<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -56,7 +56,7 @@ pub fn mul_generic<C: CircuitContext>(
     BigIntWires { bits: result_bits }
 }
 
-#[component]
+#[bn_component(arity = "a.len() * 2")]
 pub fn mul_karatsuba<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -179,7 +179,7 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
     }
 }
 
-#[component(ignore = "c")]
+#[bn_component(arity = "a.len() * 2", ignore = "c")]
 pub fn mul_by_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -210,29 +210,35 @@ pub fn mul_by_constant<C: CircuitContext>(
         let mut input = a.into_wire_list();
         input.extend_from_slice(&acc_in);
 
-        acc = circuit.with_named_child("mul_by_const_chunk", input, move |ctx| {
-            let mut res = acc_in;
+        acc = circuit.with_named_child(
+            "mul_by_const_chunk",
+            input,
+            move |ctx| {
+                let mut res = acc_in;
 
-            for &i in chunk {
-                let new_bits = super::add::add_generic(
-                    ctx,
-                    a,
-                    &BigIntWires {
-                        bits: res[i..(i + len)].to_vec(),
-                    },
-                );
-                // Write back len+1 bits (carry can spill one bit).
-                res[i..(i + len + 1)].copy_from_slice(&new_bits.bits);
-            }
+                for &i in chunk {
+                    let new_bits = super::add::add_generic(
+                        ctx,
+                        a,
+                        &BigIntWires {
+                            bits: res[i..(i + len)].to_vec(),
+                        },
+                    );
 
-            res
-        });
+                    // Write back len+1 bits (carry can spill one bit).
+                    res[i..(i + len + 1)].copy_from_slice(&new_bits.bits);
+                }
+
+                res
+            },
+            || len * 2,
+        );
     }
 
     BigIntWires { bits: acc }
 }
 
-#[component(ignore = "c,power")]
+#[bn_component(arity = "power", ignore = "c,power")]
 pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -269,37 +275,43 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
         // Own the chunk indices to avoid lifetime fuss.
         let chunk_indices: Vec<usize> = chunk.to_vec();
 
-        result_bits = circuit.with_named_child("mul_by_const_mod_2p", input, move |ctx| {
-            let mut res = prev;
+        result_bits = circuit.with_named_child(
+            "mul_by_const_mod_2p",
+            input,
+            move |ctx| {
+                let mut res = prev;
 
-            for &i in &chunk_indices {
-                // We can only add as many bits as fit before `power`.
-                let number_of_bits = (power - i).min(len);
-                if number_of_bits == 0 {
-                    continue; // nothing contributes beyond power
+                for &i in &chunk_indices {
+                    // We can only add as many bits as fit before `power`.
+                    let number_of_bits = (power - i).min(len);
+                    if number_of_bits == 0 {
+                        continue; // nothing contributes beyond power
+                    }
+
+                    // Add low `number_of_bits` of `a` into res[i..] (i.e. (a & ((1<<nb)-1)) << i)
+                    let a_slice = BigIntWires {
+                        bits: a.bits[0..number_of_bits].to_vec(),
+                    };
+                    let addition_wires = BigIntWires {
+                        bits: res[i..(i + number_of_bits)].to_vec(),
+                    };
+
+                    let new_bits = super::add::add_generic(ctx, &a_slice, &addition_wires);
+
+                    // Write back; carry may spill one extra bit if it still lies under `power`.
+                    if i + number_of_bits < power {
+                        res[i..(i + number_of_bits + 1)].copy_from_slice(&new_bits.bits);
+                    } else {
+                        // The +1 would exceed `power`; drop the final carry bit.
+                        res[i..(i + number_of_bits)]
+                            .copy_from_slice(&new_bits.bits[..number_of_bits]);
+                    }
                 }
 
-                // Add low `number_of_bits` of `a` into res[i..] (i.e. (a & ((1<<nb)-1)) << i)
-                let a_slice = BigIntWires {
-                    bits: a.bits[0..number_of_bits].to_vec(),
-                };
-                let addition_wires = BigIntWires {
-                    bits: res[i..(i + number_of_bits)].to_vec(),
-                };
-
-                let new_bits = super::add::add_generic(ctx, &a_slice, &addition_wires);
-
-                // Write back; carry may spill one extra bit if it still lies under `power`.
-                if i + number_of_bits < power {
-                    res[i..(i + number_of_bits + 1)].copy_from_slice(&new_bits.bits);
-                } else {
-                    // The +1 would exceed `power`; drop the final carry bit.
-                    res[i..(i + number_of_bits)].copy_from_slice(&new_bits.bits[..number_of_bits]);
-                }
-            }
-
-            res
-        });
+                res
+            },
+            || power,
+        );
     }
 
     BigIntWires { bits: result_bits }
@@ -376,7 +388,14 @@ mod tests {
         } = CircuitBuilder::streaming_execute(input, |root, input| {
             let [a, b] = input;
             let result = operation(root, a, b);
-            assert_eq!(result.bits.len(), n_bits * 2);
+            // ARITY CHECK: Verify that mul operations return n_bits * 2 wires
+            assert_eq!(
+                result.bits.len(),
+                n_bits * 2,
+                "Arity check failed: expected {} wires, got {}",
+                n_bits * 2,
+                result.bits.len()
+            );
 
             result.into_wire_list()
         });

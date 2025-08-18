@@ -17,21 +17,29 @@ pub trait CircuitMode {
     fn feed_wire(&mut self, wire: WireId, value: Self::WireValue);
 
     fn total_size(&self) -> usize;
+
     fn current_size(&self) -> usize;
 
-    fn push_frame(&mut self, name: &'static str, inputs: Vec<(WireId, Self::WireValue)>);
+    fn push_frame(&mut self, name: &'static str, input_wires: &[WireId]);
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::WireValue)>;
-
-    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, Self::WireValue)>;
-
-    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, Self::WireValue)>;
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()>;
 }
 
-#[derive(Default)]
 pub struct Execute(WireStack);
+
+impl Default for Execute {
+    fn default() -> Self {
+        let mut stack = WireStack::default();
+        // Need to push a root frame first
+        stack.push_frame("root", &[]);
+        // Initialize constants
+        stack.feed_wire(FALSE_WIRE, false);
+        stack.feed_wire(TRUE_WIRE, true);
+        Execute(stack)
+    }
+}
 
 impl CircuitMode for Execute {
     type WireValue = bool;
@@ -52,20 +60,12 @@ impl CircuitMode for Execute {
         self.0.current_size()
     }
 
-    fn push_frame(&mut self, name: &'static str, inputs: Vec<(WireId, bool)>) {
+    fn push_frame(&mut self, name: &'static str, inputs: &[WireId]) {
         self.0.push_frame(name, inputs);
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
         self.0.pop_frame(outputs)
-    }
-
-    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, bool)> {
-        self.0.prepare_frame_inputs(input_wires)
-    }
-
-    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, bool)> {
-        self.0.extract_frame_outputs(output_wires)
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
@@ -192,20 +192,13 @@ impl CircuitMode for Garble {
         self.wires.last().map(|w| w.size()).unwrap_or_default()
     }
 
-    fn push_frame(&mut self, _name: &'static str, inputs: Vec<(WireId, GarbledWire)>) {
+    fn push_frame(&mut self, _name: &'static str, inputs: &[WireId]) {
+        let inputs = self.prepare_frame_inputs(inputs);
         self.push_frame(inputs);
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, GarbledWire)> {
         self.pop_frame(outputs)
-    }
-
-    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
-        self.prepare_frame_inputs(input_wires)
-    }
-
-    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
-        self.extract_frame_outputs(output_wires)
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
@@ -291,20 +284,13 @@ impl CircuitMode for Evaluate {
         self.wires.last().map(|w| w.len()).unwrap_or_default()
     }
 
-    fn push_frame(&mut self, _name: &'static str, inputs: Vec<(WireId, EvaluatedWire)>) {
+    fn push_frame(&mut self, _name: &'static str, inputs: &[WireId]) {
+        let inputs = self.prepare_frame_inputs(inputs);
         self.push_frame(inputs);
     }
 
     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
         self.pop_frame(outputs)
-    }
-
-    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
-        self.prepare_frame_inputs(input_wires)
-    }
-
-    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
-        self.extract_frame_outputs(output_wires)
     }
 
     fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {

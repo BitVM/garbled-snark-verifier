@@ -21,7 +21,7 @@ use rand_chacha::ChaCha20Rng;
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::IntoWireList,
+    circuit::streaming::{IntoWireList, WiresObject},
     core::wire,
     gadgets::{
         self,
@@ -59,6 +59,19 @@ impl Deref for Fr {
 impl DerefMut for Fr {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl WiresObject for Fr {
+    fn get_wires_vec(&self) -> Vec<WireId> {
+        self.into_wire_list()
+    }
+
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        if wires.len() != Self::N_BITS {
+            return None;
+        }
+        Some(Self(BigIntWires::from_wires(wires)?))
     }
 }
 

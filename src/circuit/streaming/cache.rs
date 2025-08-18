@@ -7,7 +7,7 @@ use log::debug;
 use crate::{
     WireId,
     circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
-}; // BitVec<Lsb0, usize>
+};
 
 pub struct BooleanFrame {
     name: &'static str,
@@ -170,11 +170,8 @@ impl WireStack {
         self.frames.len()
     }
 
-    pub fn push_frame(
-        &mut self,
-        name: &'static str,
-        inputs: impl IntoIterator<Item = (WireId, bool)>,
-    ) {
+    pub fn push_frame(&mut self, name: &'static str, inputs: &[WireId]) {
+        let inputs = self.prepare_frame_inputs(inputs);
         self.frames.push(BooleanFrame::with_inputs(name, inputs));
     }
 

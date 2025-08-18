@@ -6,7 +6,7 @@ use rand::Rng;
 use super::fq6::Fq6Components;
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::IntoWireList,
+    circuit::streaming::{IntoWireList, WiresObject},
     gadgets::{
         bigint::{self, BigIntWires, select},
         bn254::{
@@ -34,6 +34,28 @@ impl IntoWireList for Fq12 {
 impl IntoWireList for &Fq12 {
     fn into_wire_list(self) -> Vec<WireId> {
         self.0.iter().flat_map(|fq6| fq6.into_wire_list()).collect()
+    }
+}
+
+impl WiresObject for Fq12 {
+    fn get_wires_vec(&self) -> Vec<WireId> {
+        (&self.0[0])
+            .into_wire_list()
+            .into_iter()
+            .chain((&self.0[1]).into_wire_list())
+            .collect()
+    }
+
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        if wires.len() != 2 * Fq6::N_BITS {
+            return None;
+        }
+
+        let mid = wires.len() / 2;
+        let c0 = Fq6::from_wires(&wires[0..mid])?;
+        let c1 = Fq6::from_wires(&wires[mid..])?;
+
+        Some(Self([c0, c1]))
     }
 }
 

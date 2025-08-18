@@ -8,7 +8,7 @@ use rand::Rng;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::IntoWireList,
+    circuit::streaming::{IntoWireList, WiresObject},
     gadgets::{
         bigint::{self, BigIntWires, Error},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
@@ -39,6 +39,25 @@ impl IntoWireList for &G1Projective {
         wires.extend((&self.y).into_wire_list());
         wires.extend((&self.z).into_wire_list());
         wires
+    }
+}
+
+impl WiresObject for G1Projective {
+    fn get_wires_vec(&self) -> Vec<WireId> {
+        self.into_wire_list()
+    }
+
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        if wires.len() != 3 * Fq::N_BITS {
+            return None;
+        }
+
+        let part_size = wires.len() / 3;
+        let x = Fq::from_wires(&wires[0..part_size])?;
+        let y = Fq::from_wires(&wires[part_size..2 * part_size])?;
+        let z = Fq::from_wires(&wires[2 * part_size..])?;
+
+        Some(Self { x, y, z })
     }
 }
 

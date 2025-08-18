@@ -22,6 +22,8 @@ pub use gadgets::{
 };
 pub use math::*;
 
+pub mod storage;
+
 #[cfg(test)]
 pub mod test_utils {
     use rand::SeedableRng;

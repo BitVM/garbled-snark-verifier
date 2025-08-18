@@ -4,7 +4,7 @@ pub const TRUE_WIRE: WireId = WireId(1);
 
 use crate::{
     Gate, WireId,
-    circuit::streaming::{CircuitMode, ComponentHandle, IntoWires},
+    circuit::streaming::{CircuitMode, ComponentHandle, WiresObject},
 };
 
 /// Simplified CircuitContext trait for hierarchical circuit building
@@ -18,16 +18,20 @@ pub trait CircuitContext {
     /// Adds a gate to the current component
     fn add_gate(&mut self, gate: Gate);
 
-    fn with_child<O: IntoWires>(
+    fn with_child<O: WiresObject>(
         &mut self,
         input_wires: Vec<WireId>,
         f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
-    ) -> O;
+        arity: impl FnOnce() -> usize,
+    ) -> O {
+        self.with_named_child("anon", input_wires, f, arity)
+    }
 
-    fn with_named_child<O: IntoWires>(
+    fn with_named_child<O: WiresObject>(
         &mut self,
         name: &'static str,
         input_wires: Vec<WireId>,
         f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
+        arity: impl FnOnce() -> usize,
     ) -> O;
 }
