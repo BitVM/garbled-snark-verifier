@@ -214,7 +214,7 @@ pub fn mul_by_constant<C: CircuitContext>(
             "mul_by_const_chunk",
             input,
             move |ctx| {
-                let mut res = acc_in;
+                let mut res = acc_in.clone();
 
                 for &i in chunk {
                     let new_bits = super::add::add_generic(
@@ -279,7 +279,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
             "mul_by_const_mod_2p",
             input,
             move |ctx| {
-                let mut res = prev;
+                let mut res = prev.clone();
 
                 for &i in &chunk_indices {
                     // We can only add as many bits as fit before `power`.

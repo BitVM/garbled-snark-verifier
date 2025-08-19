@@ -2,7 +2,9 @@
 
 use std::{array, time::Instant};
 
-use crate::{Gate, WireId, core::gate_type::GateCount};
+use crate::{
+    Gate, WireId, circuit::streaming::component_meta::ComponentMeta, core::gate_type::GateCount,
+};
 
 mod into_wire_list;
 pub use into_wire_list::{IntoWireList, WiresArity, WiresObject};
@@ -49,7 +51,7 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
         &mut self,
         name: &'static str,
         input_wires: Vec<WireId>,
-        f: impl FnOnce(&mut ComponentHandle<M>) -> O,
+        f: impl Fn(&mut ComponentHandle<M>) -> O,
         _arity: impl FnOnce() -> usize,
     ) -> O {
         let mut child = Component::empty_root();
@@ -188,6 +190,54 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             zero_constant: builder.mode.lookup_wire(FALSE_WIRE).unwrap().clone(),
         }
     }
+
+    //pub fn streaming_process_with_fanout<I, F, O>(inputs: I, wire_cache: M, f: F) -> StreamingResult<M, I, O>
+    //where
+    //    I: CircuitInput + EncodeInput<M>,
+    //    O: CircuitOutput<M>,
+    //    F: Fn(&mut ComponentHandle<M>, &I::WireRepr) -> O::WireRepr,
+    //{
+    //    let mut builder = Self {
+    //        pool: ComponentPool::new(),
+    //        stack: vec![],
+    //        mode: wire_cache,
+    //        next_wire_id: 2, // 0&1 reserved for constants
+    //        gate_count: GateCount::default(),
+    //    };
+
+    //    let root_id = builder.pool.insert(Component::empty_root());
+    //    builder.stack.push(root_id);
+
+    //    // Initialize root frame with mode-specific constants
+    //    builder.mode.push_frame("root", &[]);
+
+    //    ComponentMeta::new(inputs, outputs, outputs_credits)
+
+    //    // ---
+
+    //    let mut root_handle = ComponentHandle {
+    //        id: root_id,
+    //        builder: &mut builder,
+    //    };
+
+    //    // Allocate input wires using the input type
+    //    let input_wires = I::allocate(&inputs, &mut root_handle);
+    //    root_handle.get_component().input_wires = I::collect_wire_ids(&input_wires);
+    //    inputs.encode(&input_wires, &mut root_handle.builder.mode);
+
+    //    let output = f(&mut root_handle, &input_wires);
+    //    root_handle.get_component().output_wires = output.clone().into_wire_list();
+
+    //    let output_wires_ids = root_handle.get_component().output_wires.clone();
+
+    //    StreamingResult {
+    //        input_wires,
+    //        output_wires: O::decode(output, &builder.mode),
+    //        output_wires_ids,
+    //        one_constant: builder.mode.lookup_wire(TRUE_WIRE).unwrap().clone(),
+    //        zero_constant: builder.mode.lookup_wire(FALSE_WIRE).unwrap().clone(),
+    //    }
+    //}
 
     pub fn global_input(&self) -> &[WireId] {
         let root = self.stack.first().unwrap();
