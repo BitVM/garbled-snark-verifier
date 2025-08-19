@@ -217,7 +217,10 @@ mod tests {
         let key = st.allocate(0, Credits::new(1).unwrap());
 
         // Increase to max (255)
-        assert!(st.add_credits(key, Credits::new(254).unwrap()).is_ok());
+        assert!(
+            st.add_credits(key, Credits::new(u32::MAX - 1).unwrap())
+                .is_ok()
+        );
 
         // Now any additional credit should overflow
         let err = st

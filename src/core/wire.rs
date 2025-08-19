@@ -35,6 +35,20 @@ impl Deref for WireId {
     }
 }
 
+// Provide simple conversions so `WireId` can be used as a key type
+// for generic storage utilities that expect `From<usize>`/`Into<usize>`.
+impl From<usize> for WireId {
+    fn from(v: usize) -> Self {
+        WireId(v)
+    }
+}
+
+impl From<WireId> for usize {
+    fn from(w: WireId) -> usize {
+        w.0
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GarbledWire {
     pub label0: S,
@@ -42,7 +56,7 @@ pub struct GarbledWire {
 }
 
 impl GarbledWire {
-    pub(super) fn new(label0: S, label1: S) -> Self {
+    pub(crate) fn new(label0: S, label1: S) -> Self {
         GarbledWire { label0, label1 }
     }
 
@@ -64,6 +78,15 @@ impl GarbledWire {
         match bit {
             false => self.label0,
             true => self.label1,
+        }
+    }
+}
+
+impl Default for GarbledWire {
+    fn default() -> Self {
+        GarbledWire {
+            label0: S([0u8; crate::core::s::S_SIZE]),
+            label1: S([0u8; crate::core::s::S_SIZE]),
         }
     }
 }

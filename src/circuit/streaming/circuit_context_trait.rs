@@ -21,7 +21,7 @@ pub trait CircuitContext {
     fn with_child<O: WiresObject>(
         &mut self,
         input_wires: Vec<WireId>,
-        f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
+        f: impl Fn(&mut ComponentHandle<Self::Mode>) -> O,
         arity: impl FnOnce() -> usize,
     ) -> O {
         self.with_named_child("anon", input_wires, f, arity)
@@ -31,7 +31,7 @@ pub trait CircuitContext {
         &mut self,
         name: &'static str,
         input_wires: Vec<WireId>,
-        f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
+        f: impl Fn(&mut ComponentHandle<Self::Mode>) -> O,
         arity: impl FnOnce() -> usize,
     ) -> O;
 }

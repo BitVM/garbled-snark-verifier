@@ -384,7 +384,7 @@ pub trait Fp254Impl {
             }
         }
 
-        let (odd_part, mut even_part) = bigint::odd_part(circuit, a);
+        let (odd_part, even_part) = bigint::odd_part(circuit, a);
 
         // initialize value for wires
         let neg_odd_part = Self::neg(circuit, &odd_part);
@@ -405,6 +405,7 @@ pub trait Fp254Impl {
 
         const PER_CHUNK: usize = 4;
         for chunk in (0..2 * Self::N_BITS).chunks(PER_CHUNK).into_iter() {
+            let chunk = chunk.into_iter().collect::<Vec<_>>();
             input = circuit.with_named_child(
                 "inverse_iteration",
                 input.clone().into_wire_list(),
@@ -415,9 +416,9 @@ pub trait Fp254Impl {
                         mut r,
                         mut s,
                         mut k,
-                    } = input;
+                    } = input.clone();
 
-                    for _ in chunk.into_iter() {
+                    for _ in chunk.iter() {
                         let not_x1 = u.get(0).unwrap();
                         let not_x2 = v.get(0).unwrap();
 
@@ -541,10 +542,10 @@ pub trait Fp254Impl {
             );
         }
 
-        let IterationContext { mut s, mut k, .. } = input;
+        let IterationContext { s, k, .. } = input;
 
         // divide result by even part
-        let mut s = circuit.with_named_child(
+        let s = circuit.with_named_child(
             "inverse::divide_result_by_even_part",
             [
                 s.clone().into_wire_list(),
@@ -552,8 +553,13 @@ pub trait Fp254Impl {
             ]
             .concat(),
             |circuit| {
+                let mut s = s.clone();
+                let mut even_part = even_part.clone();
+
                 for chunk in (0..Self::N_BITS).chunks(PER_CHUNK).into_iter() {
-                    (s, even_part) = circuit.with_named_child(
+                    let chunk = chunk.into_iter().collect::<Vec<_>>();
+
+                    let (new_s, new_even_part) = circuit.with_named_child(
                         "inverse::divide_result_by_even_part::chunk",
                         [
                             s.clone().into_wire_list(),
@@ -561,7 +567,10 @@ pub trait Fp254Impl {
                         ]
                         .concat(),
                         |circuit| {
-                            for _ in chunk.into_iter() {
+                            let mut s = s.clone();
+                            let mut even_part = even_part.clone();
+
+                            for _ in chunk.iter() {
                                 let updated_s = Self::half(circuit, &s);
                                 let updated_even_part = Self::half(circuit, &even_part);
 
@@ -581,6 +590,9 @@ pub trait Fp254Impl {
                         },
                         || 2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
                     );
+
+                    s = new_s;
+                    even_part = new_even_part;
                 }
 
                 s
@@ -592,13 +604,21 @@ pub trait Fp254Impl {
             "inverse::divide_result_by_2^k",
             [s.clone().into_wire_list(), k.clone().into_wire_list()].concat(),
             |circuit| {
+                let mut s = s.clone();
+                let mut k = k.clone();
+
                 // divide result by 2^k
                 for chunk in (0..2 * Self::N_BITS).chunks(PER_CHUNK).into_iter() {
-                    (s, k) = circuit.with_named_child(
+                    let chunk = chunk.collect::<Vec<_>>();
+
+                    let (new_s, new_k) = circuit.with_named_child(
                         "inverse::divide_result_by_2^k::chunk",
                         [s.clone().into_wire_list(), k.clone().into_wire_list()].concat(),
                         |circuit| {
-                            for _ in chunk.into_iter() {
+                            let mut s = s.clone();
+                            let mut k = k.clone();
+
+                            for _ in chunk.iter() {
                                 let updated_s = Self::half(circuit, &s);
                                 let updated_k =
                                     Self::add_constant(circuit, &k, &ark_bn254::Fq::from(-1));
@@ -614,6 +634,9 @@ pub trait Fp254Impl {
                         },
                         || 2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
                     );
+
+                    s = new_s;
+                    k = new_k;
                 }
 
                 s
