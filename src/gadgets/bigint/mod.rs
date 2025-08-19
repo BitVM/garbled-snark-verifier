@@ -53,7 +53,13 @@ pub struct BigIntWires {
 }
 
 impl BigIntWires {
-    pub fn new<C: CircuitContext>(circuit: &mut C, len: usize) -> Self {
+    pub fn new(issue: impl FnMut() -> WireId, len: usize) -> Self {
+        Self {
+            bits: iter::repeat_with(issue).take(len).collect(),
+        }
+    }
+
+    pub fn from_ctx<C: CircuitContext>(circuit: &mut C, len: usize) -> Self {
         Self {
             bits: iter::repeat_with(|| circuit.issue_wire())
                 .take(len)

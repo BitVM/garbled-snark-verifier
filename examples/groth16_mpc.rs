@@ -10,7 +10,7 @@ use ark_relations::{
     r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
-use garbled_snark_verifier as gsv;
+use garbled_snark_verifier::{self as gsv, WireId};
 use gsv::{
     FrWire, G1Wire,
     circuit::streaming::{
@@ -70,11 +70,15 @@ struct InputWires {
 
 impl CircuitInput for Inputs {
     type WireRepr = InputWires;
-    fn allocate<C: gsv::CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         InputWires {
-            public: self.public.iter().map(|_| FrWire::new(ctx)).collect(),
-            a: G1Wire::new(ctx),
-            c: G1Wire::new(ctx),
+            public: self
+                .public
+                .iter()
+                .map(|_| FrWire::new(&mut issue))
+                .collect(),
+            a: G1Wire::new(&mut issue),
+            c: G1Wire::new(&mut issue),
         }
     }
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {

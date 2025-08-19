@@ -169,7 +169,7 @@ pub fn half<C: CircuitContext>(_circuit: &mut C, a: &BigIntWires) -> BigIntWires
 }
 
 pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntWires, BigIntWires) {
-    let mut select_bn = BigIntWires::new(circuit, a.len() - 1);
+    let mut select_bn = BigIntWires::from_ctx(circuit, a.len() - 1);
     select_bn.insert(0, a.get(0).unwrap());
 
     for i in 1..a.len() {
@@ -180,7 +180,7 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntW
         ));
     }
 
-    let mut k = BigIntWires::new(circuit, a.len() - 1);
+    let mut k = BigIntWires::from_ctx(circuit, a.len() - 1);
     k.insert(0, a.get(0).unwrap());
 
     for i in 1..a.len() {
@@ -238,8 +238,8 @@ mod tests {
     impl<const N: usize> CircuitInput for Input<N> {
         type WireRepr = [BigIntWires; N];
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-            array::from_fn(|_| BigIntWires::new(ctx, self.len))
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+            array::from_fn(|_| BigIntWires::new(&mut issue, self.len))
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {

@@ -190,11 +190,15 @@ mod tests {
 
     impl CircuitInput for Inputs {
         type WireRepr = InputWires;
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
             InputWires {
-                public: self.public.iter().map(|_| FrWire::new(ctx)).collect(),
-                a: G1Projective::new(ctx),
-                c: G1Projective::new(ctx),
+                public: self
+                    .public
+                    .iter()
+                    .map(|_| FrWire::new(&mut issue))
+                    .collect(),
+                a: G1Projective::new(&mut issue),
+                c: G1Projective::new(issue),
             }
         }
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {

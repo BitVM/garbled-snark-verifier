@@ -295,10 +295,10 @@ mod tests {
         impl CircuitInput for MuxInputs {
             type WireRepr = MuxWires;
 
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MuxWires {
-                    data: array::from_fn(|_| ctx.issue_wire()),
-                    select: array::from_fn(|_| ctx.issue_wire()),
+                    data: array::from_fn(|_| (issue)()),
+                    select: array::from_fn(|_| (issue)()),
                 }
             }
 

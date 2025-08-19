@@ -223,6 +223,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        WireId,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, WiresObject,
             modes::CircuitMode,
@@ -361,8 +362,10 @@ mod tests {
         }
         impl CircuitInput for FEInput {
             type WireRepr = FEWires;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                FEWires { f: Fq12::new(ctx) }
+            fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                FEWires {
+                    f: Fq12::new(issue),
+                }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
                 repr.f.to_wires_vec()
@@ -480,10 +483,10 @@ mod tests {
     }
     impl CircuitInput for EllEvalInput {
         type WireRepr = EllEvalWires;
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
             EllEvalWires {
-                f: Fq12::new(ctx),
-                p: G1Projective::new(ctx),
+                f: Fq12::new(&mut issue),
+                p: G1Projective::new(issue),
             }
         }
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
@@ -588,9 +591,9 @@ mod tests {
         }
         impl CircuitInput for In {
             type WireRepr = W;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 W {
-                    p: G1Projective::new(ctx),
+                    p: G1Projective::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
@@ -665,9 +668,9 @@ mod tests {
         }
         impl CircuitInput for In {
             type WireRepr = W;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 W {
-                    p: G1Projective::new(ctx),
+                    p: G1Projective::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
@@ -752,11 +755,11 @@ mod tests {
         }
         impl CircuitInput for In {
             type WireRepr = W;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 W {
-                    p0: G1Projective::new(ctx),
-                    p1: G1Projective::new(ctx),
-                    p2: G1Projective::new(ctx),
+                    p0: G1Projective::new(&mut issue),
+                    p1: G1Projective::new(&mut issue),
+                    p2: G1Projective::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {

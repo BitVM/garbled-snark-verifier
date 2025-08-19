@@ -104,8 +104,12 @@ impl Fq12 {
         ark_bn254::Fq12::new(Fq6::from_bits(bits.0), Fq6::from_bits(bits.1))
     }
 
-    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq12 {
-        Fq12([Fq6::new(circuit), Fq6::new(circuit)])
+    pub fn from_ctx<C: CircuitContext>(circuit: &mut C) -> Fq12 {
+        Fq12([Fq6::from_ctx(circuit), Fq6::from_ctx(circuit)])
+    }
+
+    pub fn new(mut issue: impl FnMut() -> WireId) -> Fq12 {
+        Fq12([Fq6::new(&mut issue), Fq6::new(issue)])
     }
 
     pub fn get_wire_bits_fn(
@@ -454,8 +458,8 @@ mod tests {
     impl<const N: usize> CircuitInput for Fq12Input<N> {
         type WireRepr = [Fq12; N];
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-            array::from_fn(|_| Fq12::new(ctx))
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+            array::from_fn(|_| Fq12::new(&mut issue))
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -715,11 +719,11 @@ mod tests {
         }
         impl CircuitInput for MulBy34Input {
             type WireRepr = MulBy34Wire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MulBy34Wire {
-                    a: Fq12::new(ctx),
-                    c3: Fq2::new(ctx),
-                    c4: Fq2::new(ctx),
+                    a: Fq12::new(&mut issue),
+                    c3: Fq2::new(&mut issue),
+                    c4: Fq2::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -820,12 +824,12 @@ mod tests {
         }
         impl CircuitInput for MulBy034Input {
             type WireRepr = MulBy034Wire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MulBy034Wire {
-                    a: Fq12::new(ctx),
-                    c0: Fq2::new(ctx),
-                    c3: Fq2::new(ctx),
-                    c4: Fq2::new(ctx),
+                    a: Fq12::new(&mut issue),
+                    c0: Fq2::new(&mut issue),
+                    c3: Fq2::new(&mut issue),
+                    c4: Fq2::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -911,11 +915,11 @@ mod tests {
         }
         impl CircuitInput for MulBy034Const4Input {
             type WireRepr = MulBy034Const4Wire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MulBy034Const4Wire {
-                    a: Fq12::new(ctx),
-                    c0: Fq2::new(ctx),
-                    c3: Fq2::new(ctx),
+                    a: Fq12::new(&mut issue),
+                    c0: Fq2::new(&mut issue),
+                    c3: Fq2::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {

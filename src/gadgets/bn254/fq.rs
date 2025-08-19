@@ -96,9 +96,12 @@ impl Fq {
         )?))
     }
 
-    /// Create new field element wires
-    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq {
-        Fq(BigIntWires::new(circuit, Self::N_BITS))
+    pub fn from_ctx<C: CircuitContext>(circuit: &mut C) -> Fq {
+        Fq(BigIntWires::from_ctx(circuit, Self::N_BITS))
+    }
+
+    pub fn new(issue: impl FnMut() -> WireId) -> Fq {
+        Fq(BigIntWires::new(issue, Self::N_BITS))
     }
 
     pub fn get_wire_bits_fn(
@@ -174,7 +177,7 @@ impl Fq {
     }
 
     pub fn wires<C: CircuitContext>(circuit: &mut C) -> Fq {
-        Fq(BigIntWires::new(circuit, Self::N_BITS))
+        Fq(BigIntWires::from_ctx(circuit, Self::N_BITS))
     }
 
     // Check if field element is quadratic non-residue in Montgomery form
@@ -337,8 +340,8 @@ pub(super) mod tests {
     impl<const N: usize> CircuitInput for FqInput<N> {
         type WireRepr = [Fq; N];
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-            array::from_fn(|_| Fq::new(ctx))
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+            array::from_fn(|_| Fq::new(&mut issue))
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -619,8 +622,8 @@ pub(super) mod tests {
         impl CircuitInput for BigIntInput {
             type WireRepr = BigIntWires;
 
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                BigIntWires::new(ctx, self.len)
+            fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                BigIntWires::new(issue, self.len)
             }
 
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -700,9 +703,9 @@ pub(super) mod tests {
         impl CircuitInput for MultiplexerInput {
             type WireRepr = (Vec<Fq>, Vec<WireId>);
 
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                let a = self.a_values.iter().map(|_| Fq::new(ctx)).collect();
-                let s = (0..self.w).map(|_| ctx.issue_wire()).collect();
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                let a = self.a_values.iter().map(|_| Fq::new(&mut issue)).collect();
+                let s = (0..self.w).map(|_| (issue)()).collect();
                 (a, s)
             }
 

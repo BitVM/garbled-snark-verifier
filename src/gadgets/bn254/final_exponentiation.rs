@@ -171,6 +171,7 @@ mod tests {
 
     use super::*;
     use crate::{
+        WireId,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitMode, CircuitOutput, EncodeInput, Execute,
         },
@@ -266,9 +267,9 @@ mod tests {
 
         impl CircuitInput for In {
             type WireRepr = W;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 W {
-                    f: Fq12Wires::new(ctx),
+                    f: Fq12Wires::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {

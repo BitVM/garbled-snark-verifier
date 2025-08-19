@@ -111,9 +111,12 @@ impl Fr {
         )?))
     }
 
-    /// Create new field element wires
-    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fr {
-        Fr(BigIntWires::new(circuit, Self::N_BITS))
+    pub fn from_ctx<C: CircuitContext>(circuit: &mut C) -> Fr {
+        Fr(BigIntWires::from_ctx(circuit, Self::N_BITS))
+    }
+
+    pub fn new(issue: impl FnMut() -> WireId) -> Fr {
+        Fr(BigIntWires::new(issue, Self::N_BITS))
     }
 
     pub fn get_wire_bits_fn(

@@ -7,9 +7,9 @@
 use std::env;
 
 use ark_ff::{UniformRand, Zero};
-use garbled_snark_verifier as gsv;
+use garbled_snark_verifier::{self as gsv, WireId};
 use gsv::{
-    CircuitContext, Fq,
+    Fq,
     circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute},
 };
 use rand::SeedableRng;
@@ -25,9 +25,9 @@ struct Wires {
 
 impl CircuitInput for Inputs {
     type WireRepr = Wires;
-    fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         Wires {
-            vals: self.vals.iter().map(|_| Fq::new(ctx)).collect(),
+            vals: self.vals.iter().map(|_| Fq::new(&mut issue)).collect(),
         }
     }
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {

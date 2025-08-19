@@ -176,10 +176,8 @@ mod tests {
         }
         impl crate::circuit::streaming::CircuitInput for OneInput {
             type WireRepr = OneInputWire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                OneInputWire {
-                    x: ctx.issue_wire(),
-                }
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                OneInputWire { x: (issue)() }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
                 vec![repr.x]
@@ -239,10 +237,8 @@ mod tests {
         }
         impl crate::circuit::streaming::CircuitInput for OneInput {
             type WireRepr = OneInputWire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                OneInputWire {
-                    x: ctx.issue_wire(),
-                }
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                OneInputWire { x: (issue)() }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
                 vec![repr.x]
@@ -297,10 +293,9 @@ mod tests {
         }
         impl crate::circuit::streaming::CircuitInput for OneInput {
             type WireRepr = OneInputWire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-                OneInputWire {
-                    x: ctx.issue_wire(),
-                }
+
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                OneInputWire { x: (issue)() }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
                 vec![repr.x]

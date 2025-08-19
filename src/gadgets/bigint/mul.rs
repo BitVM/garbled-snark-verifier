@@ -351,8 +351,8 @@ mod tests {
     impl<const N: usize> CircuitInput for Input<N> {
         type WireRepr = [BigIntWires; N];
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-            array::from_fn(|_| BigIntWires::new(ctx, self.len))
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+            array::from_fn(|_| BigIntWires::new(&mut issue, self.len))
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -435,8 +435,8 @@ mod tests {
     impl CircuitInput for SingleInput {
         type WireRepr = BigIntWires;
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-            BigIntWires::new(ctx, self.len)
+        fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
+            BigIntWires::new(issue, self.len)
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {

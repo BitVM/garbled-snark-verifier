@@ -157,7 +157,7 @@ pub trait Fp254Impl {
     fn neg<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
 
-        let not_a = BigIntWires::new(circuit, a.len());
+        let not_a = BigIntWires::from_ctx(circuit, a.len());
         not_a.iter().zip(a.iter()).for_each(|(not_a, a_i)| {
             circuit.add_gate(Gate::xor(*a_i, TRUE_WIRE, *not_a));
         });
@@ -706,7 +706,7 @@ pub trait Fp254Impl {
         assert_eq!(a.len(), Self::N_BITS);
 
         let half = Self::half(circuit, a);
-        let mut result = BigIntWires::new(circuit, a.len());
+        let mut result = BigIntWires::from_ctx(circuit, a.len());
         let mut r1 = FALSE_WIRE;
         let mut r2 = FALSE_WIRE;
 

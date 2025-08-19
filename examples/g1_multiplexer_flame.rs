@@ -6,7 +6,7 @@ use ark_ec::PrimeGroup;
 use ark_ff::UniformRand;
 use garbled_snark_verifier as gsv;
 use gsv::{
-    CircuitContext, G1Wire as G1Projective, WireId,
+    G1Wire as G1Projective, WireId,
     circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute},
 };
 // Deterministic RNG helpers
@@ -36,10 +36,12 @@ struct MuxWires {
 impl CircuitInput for MuxInputs {
     type WireRepr = MuxWires;
 
-    fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         MuxWires {
-            a: (0..self.a.len()).map(|_| G1Projective::new(ctx)).collect(),
-            s: (0..self.s.len()).map(|_| ctx.issue_wire()).collect(),
+            a: (0..self.a.len())
+                .map(|_| G1Projective::new(&mut issue))
+                .collect(),
+            s: (0..self.s.len()).map(|_| (issue)()).collect(),
         }
     }
 

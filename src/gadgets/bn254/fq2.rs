@@ -115,8 +115,12 @@ impl Fq2 {
         ark_bn254::Fq2::new(Fq::from_bits(bits.0), Fq::from_bits(bits.1))
     }
 
-    pub fn new<C: CircuitContext>(circuit: &mut C) -> Fq2 {
-        Fq2::from_components(Fq::new(circuit), Fq::new(circuit))
+    pub fn from_ctx<C: CircuitContext>(circuit: &mut C) -> Fq2 {
+        Fq2::from_components(Fq::from_ctx(circuit), Fq::from_ctx(circuit))
+    }
+
+    pub fn new(mut issue: impl FnMut() -> WireId) -> Fq2 {
+        Fq2::from_components(Fq::new(&mut issue), Fq::new(issue))
     }
 
     pub fn get_wire_bits_fn(
@@ -488,8 +492,8 @@ mod tests {
     impl<const N: usize> CircuitInput for Fq2Input<N> {
         type WireRepr = [Fq2; N];
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
-            array::from_fn(|_| Fq2::new(ctx))
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+            array::from_fn(|_| Fq2::new(&mut issue))
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -712,10 +716,10 @@ mod tests {
         }
         impl CircuitInput for In {
             type WireRepr = InWire;
-            fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 InWire {
-                    a: Fq2::new(ctx),
-                    b: Fq::new(ctx),
+                    a: Fq2::new(&mut issue),
+                    b: Fq::new(issue),
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -935,10 +939,10 @@ mod tests {
     impl CircuitInput for Fq2SqrtZeroInput {
         type WireRepr = Fq2SqrtZeroWire;
 
-        fn allocate<C: CircuitContext>(&self, ctx: &mut C) -> Self::WireRepr {
+        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
             Fq2SqrtZeroWire {
-                value: Fq2::new(ctx),
-                is_qr: ctx.issue_wire(),
+                value: Fq2::new(&mut issue),
+                is_qr: (issue)(),
             }
         }
 
