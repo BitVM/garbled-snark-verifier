@@ -4,7 +4,7 @@ use log::debug;
 use super::{BigIntWires, BigUint};
 use crate::{
     CircuitContext, Gate, GateType, WireId,
-    circuit::streaming::{FALSE_WIRE, IntoWireList},
+    circuit::streaming::{FALSE_WIRE, WiresObject},
 };
 
 /// Pre-computed Karatsuba vs Generic algorithm decisions
@@ -207,7 +207,7 @@ pub fn mul_by_constant<C: CircuitContext>(
     // We artificially chunk the function to reduce the `Frame` size
     for chunk in ones.chunks(PER_CHUNK) {
         let acc_in = acc;
-        let mut input = a.into_wire_list();
+        let mut input = a.to_wires_vec();
         input.extend_from_slice(&acc_in);
 
         acc = circuit.with_named_child(
@@ -269,7 +269,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     for chunk in ones.chunks(PER_CHUNK) {
         // Move current accumulator into the child and also pass `a` wires.
         let prev = result_bits;
-        let mut input = a.into_wire_list();
+        let mut input = a.to_wires_vec();
         input.extend_from_slice(&prev);
 
         // Own the chunk indices to avoid lifetime fuss.
@@ -328,8 +328,7 @@ mod tests {
         circuit::{
             CircuitBuilder, CircuitInput,
             streaming::{
-                ComponentHandle, EncodeInput, Execute, IntoWireList, StreamingResult,
-                modes::CircuitMode,
+                ComponentHandle, EncodeInput, Execute, StreamingResult, modes::CircuitMode,
             },
         },
         gadgets::bigint::bits_from_biguint_with_len,
@@ -397,7 +396,7 @@ mod tests {
                 result.bits.len()
             );
 
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids
@@ -470,7 +469,7 @@ mod tests {
             ..
         } = CircuitBuilder::streaming_execute(input, |root, a| {
             let result = operation(root, a, &c_big);
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids
@@ -694,7 +693,7 @@ mod tests {
         } = CircuitBuilder::streaming_execute(input, |root, a| {
             let result = mul_by_constant_modulo_power_two(root, a, &c, power);
             assert_eq!(result.bits.len(), power);
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids
@@ -730,7 +729,7 @@ mod tests {
         } = CircuitBuilder::streaming_execute(input, |root, a| {
             let result = mul_by_constant_modulo_power_two(root, a, &c, power);
             assert_eq!(result.bits.len(), power);
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids
@@ -766,7 +765,7 @@ mod tests {
             ..
         } = CircuitBuilder::streaming_execute(input, |root, a| {
             let result = mul_by_constant_modulo_power_two(root, a, &c, power);
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids

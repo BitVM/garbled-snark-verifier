@@ -5,7 +5,7 @@ use rand::Rng;
 use super::fq2::Pair;
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{IntoWireList, WiresObject},
+    circuit::streaming::WiresObject,
     gadgets::{
         bigint::{self},
         bn254::fq2::Fq2,
@@ -17,24 +17,30 @@ pub type Fq6Components<T> = [Pair<T>; 3];
 #[derive(Clone)]
 pub struct Fq6(pub [Fq2; 3]);
 
-impl IntoWireList for Fq6 {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.0
+impl WiresObject for &Fq6 {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0[0]
+            .to_wires_vec()
             .into_iter()
-            .flat_map(|fq2| fq2.into_wire_list())
+            .chain(self.0[1].to_wires_vec())
+            .chain(self.0[2].to_wires_vec())
             .collect()
     }
-}
 
-impl IntoWireList for &Fq6 {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.0.iter().flat_map(|fq2| fq2.into_wire_list()).collect()
+    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+        // Can't construct a reference from owned data
+        None
     }
 }
 
 impl WiresObject for Fq6 {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        self.into_wire_list()
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0[0]
+            .to_wires_vec()
+            .into_iter()
+            .chain(self.0[1].to_wires_vec())
+            .chain(self.0[2].to_wires_vec())
+            .collect()
     }
 
     fn from_wires(wires: &[WireId]) -> Option<Self> {
@@ -524,8 +530,7 @@ mod tests {
     use crate::{
         CircuitContext,
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList,
-            modes::CircuitMode,
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, modes::CircuitMode,
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -557,7 +562,7 @@ mod tests {
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-            repr.iter().flat_map(|fq6| fq6.into_wire_list()).collect()
+            repr.iter().flat_map(|fq6| fq6.to_wires_vec()).collect()
         }
     }
 
@@ -814,8 +819,8 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                let mut ids = IntoWireList::into_wire_list(&repr.a);
-                ids.extend(IntoWireList::into_wire_list(&repr.b));
+                let mut ids = WiresObject::to_wires_vec(&repr.a);
+                ids.extend(WiresObject::to_wires_vec(&repr.b));
                 ids
             }
         }
@@ -1022,9 +1027,9 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                let mut ids = IntoWireList::into_wire_list(&repr.a);
-                ids.extend(IntoWireList::into_wire_list(&repr.c0));
-                ids.extend(IntoWireList::into_wire_list(&repr.c1));
+                let mut ids = WiresObject::to_wires_vec(&repr.a);
+                ids.extend(WiresObject::to_wires_vec(&repr.c0));
+                ids.extend(WiresObject::to_wires_vec(&repr.c1));
                 ids
             }
         }
@@ -1178,8 +1183,8 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                let mut ids = IntoWireList::into_wire_list(&repr.a);
-                ids.extend(IntoWireList::into_wire_list(&repr.c0));
+                let mut ids = WiresObject::to_wires_vec(&repr.a);
+                ids.extend(WiresObject::to_wires_vec(&repr.c0));
                 ids
             }
         }

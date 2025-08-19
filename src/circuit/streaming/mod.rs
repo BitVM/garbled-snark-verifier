@@ -2,12 +2,10 @@
 
 use std::{array, time::Instant};
 
-use crate::{
-    Gate, WireId, circuit::streaming::component_meta::ComponentMeta, core::gate_type::GateCount,
-};
+use crate::{Gate, WireId, core::gate_type::GateCount};
 
 mod into_wire_list;
-pub use into_wire_list::{IntoWireList, WiresArity, WiresObject};
+pub use into_wire_list::{WiresArity, WiresObject};
 
 mod circuit_context_trait;
 pub use circuit_context_trait::{CircuitContext, FALSE_WIRE, TRUE_WIRE};
@@ -80,7 +78,7 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
 
         let output_wires = f(&mut child_handle);
 
-        let output_wire_ids = output_wires.get_wires_vec();
+        let output_wire_ids = output_wires.to_wires_vec();
 
         let child_component = self.builder.pool.get_mut(child_id);
         child_component.output_wires = output_wire_ids.clone();
@@ -178,7 +176,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         inputs.encode(&input_wires, &mut root_handle.builder.mode);
 
         let output = f(&mut root_handle, &input_wires);
-        root_handle.get_component().output_wires = output.clone().into_wire_list();
+        root_handle.get_component().output_wires = output.to_wires_vec();
 
         let output_wires_ids = root_handle.get_component().output_wires.clone();
 
@@ -226,7 +224,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
     //    inputs.encode(&input_wires, &mut root_handle.builder.mode);
 
     //    let output = f(&mut root_handle, &input_wires);
-    //    root_handle.get_component().output_wires = output.clone().into_wire_list();
+    //    root_handle.get_component().output_wires = output.clone().to_wires_vec();
 
     //    let output_wires_ids = root_handle.get_component().output_wires.clone();
 
@@ -343,7 +341,7 @@ impl<const N: usize> EncodeInput<Execute> for SimpleInputs<N> {
 
 /// Trait for encoding semantic values into mode-specific caches
 pub trait CircuitOutput<M: CircuitMode>: Sized {
-    type WireRepr: Clone + IntoWireList;
+    type WireRepr: Clone + WiresObject;
 
     fn decode(wires: Self::WireRepr, cache: &M) -> Self;
 }

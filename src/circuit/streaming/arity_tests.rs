@@ -278,7 +278,7 @@ mod arity_consistency_tests {
             expected_arity: usize,
             actual: &T,
         ) {
-            let actual_wires = actual.get_wires_vec();
+            let actual_wires = actual.to_wires_vec();
             assert_eq!(
                 expected_arity,
                 actual_wires.len(),
@@ -313,7 +313,7 @@ mod arity_consistency_tests {
 
         impl<T: WiresObject> VerifyArity for T {
             fn verify_arity(&self, expected: usize, component_name: &str) {
-                let actual = self.get_wires_vec().len();
+                let actual = self.to_wires_vec().len();
                 debug_assert_eq!(
                     expected, actual,
                     "Arity mismatch in '{}': expected {} got {}",

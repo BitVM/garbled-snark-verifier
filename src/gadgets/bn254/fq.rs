@@ -12,7 +12,7 @@ use rand::Rng;
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{IntoWireList, WiresObject},
+    circuit::streaming::WiresObject,
     gadgets::{
         self,
         bigint::{self, Error},
@@ -22,18 +22,6 @@ use crate::{
 /// BN254 base field Fq implementation
 #[derive(Clone)]
 pub struct Fq(pub BigIntWires);
-
-impl IntoWireList for Fq {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.0.into_wire_list()
-    }
-}
-
-impl IntoWireList for &Fq {
-    fn into_wire_list(self) -> Vec<WireId> {
-        (&self.0).into_wire_list()
-    }
-}
 
 impl Deref for Fq {
     type Target = BigIntWires;
@@ -49,9 +37,20 @@ impl DerefMut for Fq {
     }
 }
 
+impl WiresObject for &Fq {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0.iter().copied().collect()
+    }
+
+    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+        // Can't construct a reference from owned data
+        None
+    }
+}
+
 impl WiresObject for Fq {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        self.into_wire_list()
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0.iter().copied().collect()
     }
 
     fn from_wires(wires: &[WireId]) -> Option<Self> {
@@ -318,9 +317,7 @@ pub(super) mod tests {
         CircuitContext,
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{
-                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList,
-            },
+            streaming::{CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute},
         },
         gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,

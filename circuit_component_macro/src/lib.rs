@@ -16,14 +16,14 @@ use parse_sig::ComponentSignature;
 ///
 /// This macro transforms a regular Rust function into a circuit component gadget.
 /// The first parameter must be `&mut impl CircuitContext`, and all subsequent
-/// parameters are automatically converted to input wires using the `IntoWireList` trait.
+/// parameters are automatically converted to input wires using the `WiresObject` trait.
 ///
 /// # Requirements
 ///
 /// - First parameter must be `&mut impl CircuitContext`
 /// - Maximum 16 input parameters (excluding context)
-/// - All input parameters must implement `IntoWireList`
-/// - Return type must implement `IntoWireList`
+/// - All input parameters must implement `WiresObject`
+/// - Return type must implement `WiresObject`
 ///
 /// # Example
 ///
@@ -51,7 +51,7 @@ use parse_sig::ComponentSignature;
 /// # Generated Code
 ///
 /// The macro generates a wrapper that:
-/// 1. Collects arguments 2+ into a wire list via `IntoWireList::into_wire_list()`
+/// 1. Collects arguments 2+ into a wire list via `WiresObject::to_wires_vec()`
 /// 2. Calls `ctx.with_child(input_wires, |comp, _inputs| { ... })`
 /// 3. Executes the original function body with `ctx` renamed to `comp`
 /// 4. Returns the output wires with the original return type

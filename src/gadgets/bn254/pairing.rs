@@ -224,7 +224,7 @@ mod tests {
     use super::*;
     use crate::{
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList,
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, WiresObject,
             modes::CircuitMode,
         },
         gadgets::{
@@ -365,7 +365,7 @@ mod tests {
                 FEWires { f: Fq12::new(ctx) }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-                (&repr.f).into_wire_list()
+                repr.f.to_wires_vec()
             }
         }
         impl EncodeInput<Execute> for FEInput {
@@ -487,8 +487,8 @@ mod tests {
             }
         }
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-            let mut ids = (&repr.f).into_wire_list();
-            ids.extend((&repr.p).into_wire_list());
+            let mut ids = repr.f.to_wires_vec();
+            ids.extend(repr.p.to_wires_vec());
             ids
         }
     }
@@ -594,7 +594,7 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-                (&repr.p).into_wire_list()
+                repr.p.to_wires_vec()
             }
         }
         impl EncodeInput<Execute> for In {
@@ -671,7 +671,7 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-                (&repr.p).into_wire_list()
+                repr.p.to_wires_vec()
             }
         }
         impl EncodeInput<Execute> for In {
@@ -760,10 +760,10 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-                let mut ids = Vec::new();
-                ids.extend((&repr.p0).into_wire_list());
-                ids.extend((&repr.p1).into_wire_list());
-                ids.extend((&repr.p2).into_wire_list());
+                let mut ids = Vec::with_capacity(G1Projective::N_BITS * 3);
+                ids.extend(repr.p0.to_wires_vec());
+                ids.extend(repr.p1.to_wires_vec());
+                ids.extend(repr.p2.to_wires_vec());
                 ids
             }
         }

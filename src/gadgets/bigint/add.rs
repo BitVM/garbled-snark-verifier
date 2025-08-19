@@ -214,8 +214,8 @@ mod tests {
         circuit::{
             CircuitBuilder, CircuitInput,
             streaming::{
-                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, IntoWireList,
-                StreamingResult,
+                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, StreamingResult,
+                WiresObject,
             },
         },
         gadgets::bigint::bits_from_biguint_with_len,
@@ -283,7 +283,7 @@ mod tests {
                 result.bits.len()
             );
 
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids
@@ -322,7 +322,7 @@ mod tests {
             let [a] = input;
             let result = operation(root, a, &b_big);
 
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids
@@ -440,7 +440,7 @@ mod tests {
                 result.bits.len()
             );
 
-            result.into_wire_list()
+            result.to_wires_vec()
         });
 
         let actual_fn = output_wires_ids

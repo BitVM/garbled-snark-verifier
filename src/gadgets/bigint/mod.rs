@@ -7,9 +7,7 @@ pub use num_bigint::BigUint;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{
-        CircuitMode, CircuitOutput, Execute, FALSE_WIRE, IntoWireList, TRUE_WIRE,
-    },
+    circuit::streaming::{CircuitMode, CircuitOutput, Execute, FALSE_WIRE, TRUE_WIRE},
 };
 
 mod add;
@@ -52,24 +50,6 @@ pub fn bits_from_biguint_with_len(u: &BigUint, bit_count: usize) -> Result<BitVe
 #[derive(Debug, Clone)]
 pub struct BigIntWires {
     bits: Vec<WireId>,
-}
-
-impl IntoWireList for BigIntWires {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.bits
-    }
-}
-
-impl IntoWireList for &BigIntWires {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.bits.clone()
-    }
-}
-
-impl<const N: usize> IntoWireList for [BigIntWires; N] {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.iter().flat_map(|bn| bn.into_wire_list()).collect()
-    }
 }
 
 impl BigIntWires {

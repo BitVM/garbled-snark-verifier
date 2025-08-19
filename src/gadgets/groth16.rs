@@ -139,7 +139,7 @@ mod tests {
     use super::*;
     use crate::{
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute, IntoWireList,
+            CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute, WiresObject,
         },
         gadgets::bn254::fr::Fr as FrWire,
     };
@@ -200,10 +200,10 @@ mod tests {
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
             let mut ids = Vec::new();
             for s in &repr.public {
-                ids.extend(s.into_wire_list());
+                ids.extend(s.to_wires_vec());
             }
-            ids.extend((&repr.a).into_wire_list());
-            ids.extend((&repr.c).into_wire_list());
+            ids.extend(repr.a.to_wires_vec());
+            ids.extend(repr.c.to_wires_vec());
             ids
         }
     }

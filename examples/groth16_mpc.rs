@@ -14,7 +14,7 @@ use garbled_snark_verifier as gsv;
 use gsv::{
     FrWire, G1Wire,
     circuit::streaming::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute, IntoWireList,
+        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute, WiresObject,
     },
     groth16_verify,
 };
@@ -80,10 +80,10 @@ impl CircuitInput for Inputs {
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {
         let mut ids = Vec::new();
         for s in &repr.public {
-            ids.extend(s.into_wire_list());
+            ids.extend(s.to_wires_vec());
         }
-        ids.extend((&repr.a).into_wire_list());
-        ids.extend((&repr.c).into_wire_list());
+        ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.c.to_wires_vec());
         ids
     }
 }

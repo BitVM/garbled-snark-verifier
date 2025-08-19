@@ -21,7 +21,7 @@ use rand_chacha::ChaCha20Rng;
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{IntoWireList, WiresObject},
+    circuit::streaming::WiresObject,
     core::wire,
     gadgets::{
         self,
@@ -35,18 +35,6 @@ use crate::{
 /// This is the field used for private keys and exponents in BN254 operations.
 #[derive(Clone)]
 pub struct Fr(pub BigIntWires);
-
-impl IntoWireList for Fr {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.0.into_wire_list()
-    }
-}
-
-impl IntoWireList for &Fr {
-    fn into_wire_list(self) -> Vec<WireId> {
-        (&self.0).into_wire_list()
-    }
-}
 
 impl Deref for Fr {
     type Target = BigIntWires;
@@ -62,9 +50,20 @@ impl DerefMut for Fr {
     }
 }
 
+impl WiresObject for &Fr {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0.iter().copied().collect()
+    }
+
+    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+        // Can't construct a reference from owned data
+        None
+    }
+}
+
 impl WiresObject for Fr {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        self.into_wire_list()
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0.iter().copied().collect()
     }
 
     fn from_wires(wires: &[WireId]) -> Option<Self> {

@@ -10,6 +10,7 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext,
+    circuit::streaming::WiresObject,
     gadgets::bn254::{fp254impl::Fp254Impl, fq::Fq, fq12::Fq12},
 };
 
@@ -172,7 +173,6 @@ mod tests {
     use crate::{
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitMode, CircuitOutput, EncodeInput, Execute,
-            IntoWireList,
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -272,7 +272,7 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-                (&repr.f).into_wire_list()
+                repr.f.to_wires_vec()
             }
         }
         impl EncodeInput<Execute> for In {

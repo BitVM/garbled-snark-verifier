@@ -54,7 +54,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
 
     // Generate input wire collection in the original parameter order,
     // skipping any parameters marked as ignored. Ignored params must not
-    // appear in the generated code path invoking IntoWireList to avoid
+    // appear in the generated code path invoking WiresObject to avoid
     // trait requirements on non-wire types.
     let input_wire_collection = if included_param_idents.is_empty() {
         quote! { Vec::new() }
@@ -65,7 +65,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
             {
                 let mut input_wires = Vec::new();
                 #(
-                    input_wires.extend(crate::circuit::streaming::IntoWireList::into_wire_list(#idents_for_wires));
+                    input_wires.extend(crate::circuit::streaming::WiresObject::to_wires_vec(&#idents_for_wires));
                 )*
                 input_wires
             }

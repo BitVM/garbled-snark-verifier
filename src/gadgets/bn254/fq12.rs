@@ -6,7 +6,7 @@ use rand::Rng;
 use super::fq6::Fq6Components;
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{IntoWireList, WiresObject},
+    circuit::streaming::WiresObject,
     gadgets::{
         bigint::{self, BigIntWires, select},
         bn254::{
@@ -22,27 +22,28 @@ pub type Fq12Element<T> = (Fq6Components<T>, Fq6Components<T>);
 #[derive(Clone)]
 pub struct Fq12(pub [Fq6; 2]);
 
-impl IntoWireList for Fq12 {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.0
+impl WiresObject for &Fq12 {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        let [p1, p2] = &self.0;
+
+        p1.to_wires_vec()
             .into_iter()
-            .flat_map(|fq6| fq6.into_wire_list())
+            .chain(p2.to_wires_vec())
             .collect()
     }
-}
 
-impl IntoWireList for &Fq12 {
-    fn into_wire_list(self) -> Vec<WireId> {
-        self.0.iter().flat_map(|fq6| fq6.into_wire_list()).collect()
+    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+        // Can't construct a reference from owned data
+        None
     }
 }
 
 impl WiresObject for Fq12 {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        (&self.0[0])
-            .into_wire_list()
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        self.0[0]
+            .to_wires_vec()
             .into_iter()
-            .chain((&self.0[1]).into_wire_list())
+            .chain(self.0[1].to_wires_vec())
             .collect()
     }
 
@@ -426,8 +427,7 @@ mod tests {
     use crate::{
         CircuitContext,
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, IntoWireList,
-            modes::CircuitMode,
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, modes::CircuitMode,
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -459,7 +459,7 @@ mod tests {
         }
 
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-            repr.iter().flat_map(|fq12| fq12.into_wire_list()).collect()
+            repr.iter().flat_map(|fq12| fq12.to_wires_vec()).collect()
         }
     }
 
@@ -723,9 +723,9 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                let mut ids = IntoWireList::into_wire_list(&repr.a);
-                ids.extend(IntoWireList::into_wire_list(&repr.c3));
-                ids.extend(IntoWireList::into_wire_list(&repr.c4));
+                let mut ids = WiresObject::to_wires_vec(&repr.a);
+                ids.extend(WiresObject::to_wires_vec(&repr.c3));
+                ids.extend(WiresObject::to_wires_vec(&repr.c4));
                 ids
             }
         }
@@ -829,10 +829,10 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                let mut ids = IntoWireList::into_wire_list(&repr.a);
-                ids.extend(IntoWireList::into_wire_list(&repr.c0));
-                ids.extend(IntoWireList::into_wire_list(&repr.c3));
-                ids.extend(IntoWireList::into_wire_list(&repr.c4));
+                let mut ids = WiresObject::to_wires_vec(&repr.a);
+                ids.extend(WiresObject::to_wires_vec(&repr.c0));
+                ids.extend(WiresObject::to_wires_vec(&repr.c3));
+                ids.extend(WiresObject::to_wires_vec(&repr.c4));
                 ids
             }
         }
@@ -919,9 +919,9 @@ mod tests {
                 }
             }
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-                let mut ids = IntoWireList::into_wire_list(&repr.a);
-                ids.extend(IntoWireList::into_wire_list(&repr.c0));
-                ids.extend(IntoWireList::into_wire_list(&repr.c3));
+                let mut ids = WiresObject::to_wires_vec(&repr.a);
+                ids.extend(WiresObject::to_wires_vec(&repr.c0));
+                ids.extend(WiresObject::to_wires_vec(&repr.c3));
                 ids
             }
         }

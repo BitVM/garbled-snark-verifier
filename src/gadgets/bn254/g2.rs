@@ -7,7 +7,7 @@ use rand::Rng;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{IntoWireList, WiresObject},
+    circuit::streaming::WiresObject,
     gadgets::{
         bigint::{self, BigIntWires, Error},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fq2::Fq2, fr::Fr},
@@ -21,29 +21,28 @@ pub struct G2Projective {
     pub z: Fq2,
 }
 
-impl IntoWireList for G2Projective {
-    fn into_wire_list(self) -> Vec<WireId> {
+impl WiresObject for &G2Projective {
+    fn to_wires_vec(&self) -> Vec<WireId> {
         let mut wires = Vec::new();
-        wires.extend(self.x.into_wire_list());
-        wires.extend(self.y.into_wire_list());
-        wires.extend(self.z.into_wire_list());
+        wires.extend(self.x.to_wires_vec());
+        wires.extend(self.y.to_wires_vec());
+        wires.extend(self.z.to_wires_vec());
         wires
     }
-}
 
-impl IntoWireList for &G2Projective {
-    fn into_wire_list(self) -> Vec<WireId> {
-        let mut wires = Vec::new();
-        wires.extend((&self.x).into_wire_list());
-        wires.extend((&self.y).into_wire_list());
-        wires.extend((&self.z).into_wire_list());
-        wires
+    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+        // Can't construct a reference from owned data
+        None
     }
 }
 
 impl WiresObject for G2Projective {
-    fn get_wires_vec(&self) -> Vec<WireId> {
-        self.into_wire_list()
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        let mut wires = Vec::new();
+        wires.extend(self.x.to_wires_vec());
+        wires.extend(self.y.to_wires_vec());
+        wires.extend(self.z.to_wires_vec());
+        wires
     }
 
     fn from_wires(wires: &[WireId]) -> Option<Self> {
@@ -576,7 +575,7 @@ mod tests {
         fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
             let mut wires = Vec::new();
             for point in &repr.points {
-                wires.extend(point.into_wire_list());
+                wires.extend(point.to_wires_vec());
             }
             wires
         }
@@ -692,7 +691,7 @@ mod tests {
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
             let result_wires =
                 G2Projective::add_montgomery(root, &inputs_wire.points[0], &inputs_wire.points[1]);
-            result_wires.into_wire_list()
+            result_wires.to_wires_vec()
         });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
@@ -712,7 +711,7 @@ mod tests {
         let inputs = G2Input { points: [a_mont] };
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
             let result_wires = G2Projective::double_montgomery(root, &inputs_wire.points[0]);
-            result_wires.into_wire_list()
+            result_wires.to_wires_vec()
         });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
@@ -732,7 +731,7 @@ mod tests {
         let inputs = G2Input { points: [a_mont] };
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
             let result_wires = G2Projective::neg(root, &inputs_wire.points[0]);
-            result_wires.into_wire_list()
+            result_wires.to_wires_vec()
         });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
@@ -774,7 +773,7 @@ mod tests {
             fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
                 let mut wires = Vec::new();
                 for g2 in &repr.a {
-                    wires.extend(g2.into_wire_list());
+                    wires.extend(g2.to_wires_vec());
                 }
                 wires.extend(&repr.s);
                 wires
@@ -808,7 +807,7 @@ mod tests {
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
         let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
             let result_wires = G2Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
-            result_wires.into_wire_list()
+            result_wires.to_wires_vec()
         });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
@@ -829,7 +828,7 @@ mod tests {
                     &inputs_wire.scalars[0],
                     &p,
                 );
-                result_wires.into_wire_list()
+                result_wires.to_wires_vec()
             });
 
         let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_wires.clone());
@@ -886,7 +885,7 @@ mod tests {
                     &inputs_wire.scalars,
                     &bases,
                 );
-                result_wires.into_wire_list()
+                result_wires.to_wires_vec()
             });
 
         let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_wires.clone());

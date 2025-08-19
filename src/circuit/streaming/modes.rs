@@ -7,7 +7,7 @@ use crate::{
     CircuitContext, Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
     circuit::streaming::{FALSE_WIRE, TRUE_WIRE, WireStack, component_meta::ComponentMeta},
     core::gate::garbling::Blake3Hasher,
-    storage::{Credits, ONE_CREDIT, Storage},
+    storage::Storage,
 };
 
 pub trait CircuitMode {
@@ -252,7 +252,7 @@ impl CircuitMode for ExecuteWithCredits {
         }
     }
 
-    fn feed_wire(&mut self, wire: WireId, value: Self::WireValue) {
+    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {
         todo!()
     }
 
@@ -270,7 +270,7 @@ impl CircuitMode for ExecuteWithCredits {
         vec![]
     }
 
-    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
+    fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {
         todo!()
     }
 }
@@ -282,16 +282,16 @@ impl CircuitContext for ExecuteWithCredits {
         todo!()
     }
 
-    fn add_gate(&mut self, gate: Gate) {
+    fn add_gate(&mut self, _gate: Gate) {
         todo!()
     }
 
     fn with_named_child<O: super::WiresObject>(
         &mut self,
-        name: &'static str,
-        input_wires: Vec<WireId>,
-        f: impl Fn(&mut super::ComponentHandle<Self::Mode>) -> O,
-        arity: impl FnOnce() -> usize,
+        _name: &'static str,
+        _input_wires: Vec<WireId>,
+        _f: impl Fn(&mut super::ComponentHandle<Self::Mode>) -> O,
+        _arity: impl FnOnce() -> usize,
     ) -> O {
         todo!()
     }

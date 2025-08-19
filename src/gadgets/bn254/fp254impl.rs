@@ -11,7 +11,7 @@ use crate::{
     CircuitContext, Gate, WireId,
     circuit::{
         CircuitInput,
-        streaming::{FALSE_WIRE, IntoWireList, TRUE_WIRE, WiresObject},
+        streaming::{FALSE_WIRE, TRUE_WIRE, WiresObject},
     },
     gadgets::bigint::select,
     math::montgomery::calculate_montgomery_constants,
@@ -348,22 +348,15 @@ pub trait Fp254Impl {
             k: BigIntWires,
         }
 
-        impl IntoWireList for IterationContext {
-            fn into_wire_list(self) -> Vec<WireId> {
-                let Self { u, v, r, s, k } = self;
-                u.into_iter()
-                    .into_iter()
-                    .chain(v.into_iter())
-                    .chain(r.into_iter())
-                    .chain(s.into_iter())
-                    .chain(k.into_iter())
-                    .collect()
-            }
-        }
-
         impl WiresObject for IterationContext {
-            fn get_wires_vec(&self) -> Vec<WireId> {
-                self.clone().into_wire_list()
+            fn to_wires_vec(&self) -> Vec<WireId> {
+                let mut wires = Vec::new();
+                wires.extend(self.u.iter().copied());
+                wires.extend(self.v.iter().copied());
+                wires.extend(self.r.iter().copied());
+                wires.extend(self.s.iter().copied());
+                wires.extend(self.k.iter().copied());
+                wires
             }
 
             fn from_wires(wires: &[WireId]) -> Option<Self> {
@@ -408,7 +401,7 @@ pub trait Fp254Impl {
             let chunk = chunk.into_iter().collect::<Vec<_>>();
             input = circuit.with_named_child(
                 "inverse_iteration",
-                input.clone().into_wire_list(),
+                input.to_wires_vec(),
                 |circuit| {
                     let IterationContext {
                         mut u,
@@ -547,11 +540,7 @@ pub trait Fp254Impl {
         // divide result by even part
         let s = circuit.with_named_child(
             "inverse::divide_result_by_even_part",
-            [
-                s.clone().into_wire_list(),
-                even_part.clone().into_wire_list(),
-            ]
-            .concat(),
+            [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat(),
             |circuit| {
                 let mut s = s.clone();
                 let mut even_part = even_part.clone();
@@ -561,11 +550,7 @@ pub trait Fp254Impl {
 
                     let (new_s, new_even_part) = circuit.with_named_child(
                         "inverse::divide_result_by_even_part::chunk",
-                        [
-                            s.clone().into_wire_list(),
-                            even_part.clone().into_wire_list(),
-                        ]
-                        .concat(),
+                        [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat(),
                         |circuit| {
                             let mut s = s.clone();
                             let mut even_part = even_part.clone();
@@ -602,7 +587,7 @@ pub trait Fp254Impl {
 
         circuit.with_named_child(
             "inverse::divide_result_by_2^k",
-            [s.clone().into_wire_list(), k.clone().into_wire_list()].concat(),
+            [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat(),
             |circuit| {
                 let mut s = s.clone();
                 let mut k = k.clone();
@@ -613,7 +598,7 @@ pub trait Fp254Impl {
 
                     let (new_s, new_k) = circuit.with_named_child(
                         "inverse::divide_result_by_2^k::chunk",
-                        [s.clone().into_wire_list(), k.clone().into_wire_list()].concat(),
+                        [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat(),
                         |circuit| {
                             let mut s = s.clone();
                             let mut k = k.clone();
