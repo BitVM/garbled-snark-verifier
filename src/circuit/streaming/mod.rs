@@ -1,8 +1,12 @@
 #![allow(dead_code)]
 
-use std::{array, time::Instant};
+use std::{array, fmt::Debug};
 
-use crate::{Gate, WireId, core::gate_type::GateCount};
+use crate::{
+    Gate, WireId,
+    circuit::streaming::{component_meta::ComponentMeta, modes::ExecuteWithCredits},
+    core::gate_type::GateCount,
+};
 
 mod into_wire_list;
 pub use into_wire_list::{WiresArity, WiresObject};
@@ -17,7 +21,6 @@ mod cache;
 pub use cache::WireStack;
 
 pub mod modes;
-use log::info;
 pub use modes::{CircuitMode, Evaluate, Execute, Garble};
 
 pub mod component_meta;
@@ -46,83 +49,84 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
     }
 
     fn with_named_child<O: WiresObject>(
-        &mut self,
-        name: &'static str,
-        input_wires: Vec<WireId>,
-        f: impl Fn(&mut ComponentHandle<M>) -> O,
+        &'_ mut self,
+        _name: &'static str,
+        _input_wires: Vec<WireId>,
+        _f: impl Fn(&mut Self) -> O,
         _arity: impl FnOnce() -> usize,
     ) -> O {
-        let mut child = Component::empty_root();
+        todo!()
+        //let mut child = Component::empty_root();
 
-        child.name = name;
-        child.input_wires = input_wires.clone();
-        child.internal_wire_offset = self.builder.next_wire_id;
+        //child.name = name;
+        //child.input_wires = input_wires.clone();
+        //child.internal_wire_offset = self.builder.next_wire_id;
 
-        let child_id = self.builder.pool.insert(child);
-        self.builder.stack.push(child_id);
-        self.builder
-            .pool
-            .get_mut(self.id)
-            .actions
-            .push(Action::Call { id: child_id });
+        //let child_id = self.builder.pool.insert(child);
+        //self.builder.stack.push(child_id);
+        //self.builder
+        //    .pool
+        //    .get_mut(self.id)
+        //    .actions
+        //    .push(Action::Call { id: child_id });
 
-        // Track parent cache size and start time for tracing
-        let start_time = Instant::now();
+        //// Track parent cache size and start time for tracing
+        //let start_time = Instant::now();
 
-        self.builder.mode.push_frame(name, &input_wires);
+        //self.builder.mode.push_frame(name, &input_wires);
 
-        let mut child_handle = ComponentHandle {
-            id: child_id,
-            builder: self.builder,
-        };
+        //let mut child_handle = ComponentHandle {
+        //    id: child_id,
+        //    builder: self.builder,
+        //};
 
-        let output_wires = f(&mut child_handle);
+        //let output_wires = f(&mut child_handle);
 
-        let output_wire_ids = output_wires.to_wires_vec();
+        //let output_wire_ids = output_wires.to_wires_vec();
 
-        let child_component = self.builder.pool.get_mut(child_id);
-        child_component.output_wires = output_wire_ids.clone();
-        child_component.num_wire = self.builder.next_wire_id - child_component.internal_wire_offset;
+        //let child_component = self.builder.pool.get_mut(child_id);
+        //child_component.output_wires = output_wire_ids.clone();
+        //child_component.num_wire = self.builder.next_wire_id - child_component.internal_wire_offset;
 
-        // Capture current frame cache usage before popping the frame
-        let child_cache_entries = self.builder.mode.current_size();
+        //// Capture current frame cache usage before popping the frame
+        //let child_cache_entries = self.builder.mode.current_size();
 
-        let total_cahce_size = self.builder.mode.total_size();
+        //let total_cahce_size = self.builder.mode.total_size();
 
-        let extracted_outputs = self.builder.mode.pop_frame(&output_wire_ids);
+        //let extracted_outputs = self.builder.mode.pop_frame(&output_wire_ids);
 
-        // Feed output values back into parent frame
-        for (wire_id, value) in extracted_outputs {
-            self.builder.mode.feed_wire(wire_id, value);
-        }
+        //// Feed output values back into parent frame
+        //for (wire_id, value) in extracted_outputs {
+        //    self.builder.mode.feed_wire(wire_id, value);
+        //}
 
-        self.builder
-            .stack
-            .pop()
-            .expect("unbalanced component stack");
+        //self.builder
+        //    .stack
+        //    .pop()
+        //    .expect("unbalanced component stack");
 
-        let component = self.builder.pool.remove(child_id);
+        //let component = self.builder.pool.remove(child_id);
 
-        // Count actions separately: gates and nested calls
-        let gates = component
-            .actions
-            .iter()
-            .filter(|a| matches!(a, Action::Gate(_)))
-            .count();
-        let calls = component
-            .actions
-            .iter()
-            .filter(|a| matches!(a, Action::Call { .. }))
-            .count();
+        //// Count actions separately: gates and nested calls
+        //let gates = component
+        //    .actions
+        //    .iter()
+        //    .filter(|a| matches!(a, Action::Gate(_)))
+        //    .count();
+        //let calls = component
+        //    .actions
+        //    .iter()
+        //    .filter(|a| matches!(a, Action::Call { .. }))
+        //    .count();
 
-        let duration_ms = start_time.elapsed().as_nanos();
+        //let duration_ms = start_time.elapsed().as_nanos();
 
-        info!(
-            "component_metrics name={} gates={gates} calls={calls} cache_entries={child_cache_entries} total_cache={total_cahce_size} duration_ns={duration_ms}",
-            component.name
-        );
+        //info!(
+        //    "component_metrics name={} gates={gates} calls={calls} cache_entries={child_cache_entries} total_cache={total_cahce_size} duration_ns={duration_ms}",
+        //    component.name
+        //);
 
-        output_wires
+        //output_wires
     }
 }
 
@@ -143,11 +147,65 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
     pub one_constant: M::WireValue,
 }
 
+impl CircuitBuilder<ExecuteWithCredits> {
+    pub fn streaming_process_with_credits<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        f: F,
+    ) -> StreamingResult<ExecuteWithCredits, I, O>
+    where
+        I: CircuitInput + EncodeInput<bool>,
+        O: CircuitOutput<ExecuteWithCredits>,
+        O::WireRepr: Debug,
+        F: Fn(&mut ExecuteWithCredits, &I::WireRepr) -> O::WireRepr,
+    {
+        let mut meta = ExecuteWithCredits::FirstPass(ComponentMeta::new(&[], &[]));
+        let allocated_inputs = inputs.allocate(|| {
+            let wire_id = meta.issue_wire();
+
+            if let ExecuteWithCredits::FirstPass(meta) = &mut meta {
+                meta.increment_credits(&[wire_id]);
+            }
+
+            wire_id
+        });
+
+        inputs.encode(&allocated_inputs, &mut meta);
+
+        let output = f(&mut meta, &allocated_inputs);
+
+        if let ExecuteWithCredits::FirstPass(meta) = &mut meta {
+            dbg!(&output);
+            meta.pin(&output.to_wires_vec());
+        }
+
+        dbg!(&meta);
+        let mut ctx = meta.to_second_pass(live_wires_capacity);
+
+        let allocated_inputs = inputs.allocate(|| ctx.issue_wire());
+        inputs.encode(&allocated_inputs, &mut ctx);
+
+        let output_repr = f(&mut ctx, &allocated_inputs);
+        let output_wires = output_repr.to_wires_vec();
+        dbg!(&output_wires);
+
+        let output = O::decode(output_repr, &ctx);
+
+        StreamingResult {
+            input_wires: allocated_inputs,
+            output_wires: output,
+            output_wires_ids: output_wires,
+            one_constant: *ctx.lookup_wire(TRUE_WIRE).unwrap(),
+            zero_constant: *ctx.lookup_wire(FALSE_WIRE).unwrap(),
+        }
+    }
+}
+
 impl<M: CircuitMode> CircuitBuilder<M> {
     /// Convenience wrapper using the generic streaming path for Evaluate mode
     pub fn streaming_process<I, F, O>(inputs: I, wire_cache: M, f: F) -> StreamingResult<M, I, O>
     where
-        I: CircuitInput + EncodeInput<M>,
+        I: CircuitInput + EncodeInput<M::WireValue>,
         O: CircuitOutput<M>,
         F: FnOnce(&mut ComponentHandle<M>, &I::WireRepr) -> O::WireRepr,
     {
@@ -189,58 +247,6 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         }
     }
 
-    pub fn streaming_process_with_fanout<I, F, O>(
-        inputs: I,
-        wire_cache: M,
-        f: F,
-    ) -> StreamingResult<M, I, O>
-    where
-        I: CircuitInput + EncodeInput<M>,
-        O: CircuitOutput<M>,
-        F: Fn(&mut ComponentHandle<M>, &I::WireRepr) -> O::WireRepr,
-    {
-        let mut builder = Self {
-            pool: ComponentPool::new(),
-            stack: vec![],
-            mode: wire_cache,
-            next_wire_id: 2, // 0&1 reserved for constants
-            gate_count: GateCount::default(),
-        };
-
-        let root_id = builder.pool.insert(Component::empty_root());
-        builder.stack.push(root_id);
-
-        // Initialize root frame with mode-specific constants
-        builder.mode.push_frame("root", &[]);
-
-        //ComponentMeta::new(inputs, outputs, outputs_credits);
-
-        // ---
-
-        let mut root_handle = ComponentHandle {
-            id: root_id,
-            builder: &mut builder,
-        };
-
-        // Allocate input wires using the input type
-        let input_wires = I::allocate(&inputs, || root_handle.issue_wire());
-        root_handle.get_component().input_wires = I::collect_wire_ids(&input_wires);
-        inputs.encode(&input_wires, &mut root_handle.builder.mode);
-
-        let output = f(&mut root_handle, &input_wires);
-        root_handle.get_component().output_wires = output.clone().to_wires_vec();
-
-        let output_wires_ids = root_handle.get_component().output_wires.clone();
-
-        StreamingResult {
-            input_wires,
-            output_wires: O::decode(output, &builder.mode),
-            output_wires_ids,
-            one_constant: builder.mode.lookup_wire(TRUE_WIRE).unwrap().clone(),
-            zero_constant: builder.mode.lookup_wire(FALSE_WIRE).unwrap().clone(),
-        }
-    }
-
     pub fn global_input(&self) -> &[WireId] {
         let root = self.stack.first().unwrap();
         &self.pool.get(*root).input_wires
@@ -251,7 +257,7 @@ impl CircuitBuilder<Execute> {
     /// Convenience wrapper using the generic streaming path for Evaluate mode
     pub fn streaming_execute<I, F>(inputs: I, f: F) -> StreamingResult<Execute, I, Vec<bool>>
     where
-        I: CircuitInput + EncodeInput<Execute>,
+        I: CircuitInput + EncodeInput<bool>,
         F: FnOnce(&mut ComponentHandle<Execute>, &I::WireRepr) -> Vec<WireId>,
     {
         Self::streaming_process(inputs, Execute::default(), f)
@@ -316,8 +322,8 @@ pub trait CircuitInput {
 }
 
 /// Trait for encoding semantic values into mode-specific caches
-pub trait EncodeInput<M: CircuitMode>: Sized + CircuitInput {
-    fn encode(self, repr: &Self::WireRepr, cache: &mut M);
+pub trait EncodeInput<W: Clone>: Sized + CircuitInput {
+    fn encode<M: CircuitMode<WireValue = W>>(&self, repr: &Self::WireRepr, cache: &mut M);
 }
 
 pub type SimpleInputs<const N: usize> = [bool; N];
@@ -335,8 +341,8 @@ impl<const N: usize> CircuitInput for SimpleInputs<N> {
     }
 }
 
-impl<const N: usize> EncodeInput<Execute> for SimpleInputs<N> {
-    fn encode(self, repr: &SimpleInputsWire<N>, cache: &mut Execute) {
+impl<const N: usize> EncodeInput<bool> for SimpleInputs<N> {
+    fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
         self.iter().zip(repr.iter()).for_each(|(v, w)| {
             cache.feed_wire(*w, *v);
         });
@@ -354,9 +360,15 @@ impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
     type WireRepr = Vec<WireId>;
 
     fn decode(wires: Self::WireRepr, cache: &M) -> Self {
+        dbg!(format!("start decode: {wires:?}"));
         wires
             .iter()
-            .map(|w| cache.lookup_wire(*w).unwrap().clone())
+            .map(|w| {
+                cache
+                    .lookup_wire(*w)
+                    .unwrap_or_else(|| panic!("Can't find {w:?}"))
+                    .clone()
+            })
             .collect()
     }
 }
@@ -372,7 +384,10 @@ pub use arity_check::{ArityChecker, WireCount, verify_arity};
 
 #[cfg(test)]
 mod exec_test {
+    use test_log::test;
+
     use super::*;
+    use crate::circuit::streaming::modes::ExecuteWithCredits;
 
     /// Example input structure with mixed types
     pub struct Inputs {
@@ -403,8 +418,8 @@ mod exec_test {
         }
     }
 
-    impl EncodeInput<Execute> for Inputs {
-        fn encode(self, repr: &InputsWire, cache: &mut Execute) {
+    impl EncodeInput<bool> for Inputs {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             cache.feed_wire(repr.flag, self.flag);
             let bits = self.nonce.to_bits_le();
             for (i, bit) in bits.into_iter().enumerate() {
@@ -414,20 +429,24 @@ mod exec_test {
     }
 
     #[test]
-    fn simple() {
+    fn simple_with_credits() {
         let inputs = Inputs {
             flag: true,
             nonce: u64::MAX,
         };
 
-        let output = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let InputsWire { flag, nonce } = inputs_wire;
+        let output: StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::<ExecuteWithCredits>::streaming_process_with_credits(
+                inputs,
+                100,
+                |root, inputs_wire| {
+                    let InputsWire { flag, nonce } = inputs_wire;
 
-            let result = root.issue_wire();
-            root.add_gate(Gate::and(*flag, nonce[0], result));
-
-            vec![result]
-        });
+                    let result = root.issue_wire();
+                    root.add_gate(Gate::and(*flag, nonce[0], result));
+                    vec![result]
+                },
+            );
 
         assert!(output.output_wires[0])
     }

@@ -349,8 +349,8 @@ pub(super) mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<Execute> for FqInput<N> {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl<const N: usize> EncodeInput<bool> for FqInput<N> {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             self.values
                 .iter()
                 .zip(repr.iter())
@@ -631,8 +631,12 @@ pub(super) mod tests {
             }
         }
 
-        impl EncodeInput<Execute> for BigIntInput {
-            fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+        impl EncodeInput<bool> for BigIntInput {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &Self::WireRepr,
+                cache: &mut M,
+            ) {
                 let bits = bits_from_biguint_with_len(&self.value, self.len).unwrap();
                 repr.iter().zip(bits).for_each(|(w, b)| {
                     cache.feed_wire(*w, b);
@@ -718,8 +722,12 @@ pub(super) mod tests {
             }
         }
 
-        impl EncodeInput<Execute> for MultiplexerInput {
-            fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+        impl EncodeInput<bool> for MultiplexerInput {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &Self::WireRepr,
+                cache: &mut M,
+            ) {
                 let (a, s) = repr;
                 // Encode a values
                 for (fq_wires, val) in a.iter().zip(self.a_values.iter()) {

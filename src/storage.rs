@@ -10,16 +10,18 @@ pub enum Error {
     OverflowCredits,
 }
 
-pub type Credits = NonZeroU32;
-pub const ONE_CREDIT: Credits = NonZeroU32::MIN;
+pub type Credits = u32;
 
+#[derive(Debug)]
 struct Entry<T: Default> {
-    credits: Credits,
+    credits: NonZeroU32,
     data: T,
 }
 
+#[derive(Debug)]
 pub struct Storage<K: From<usize>, T: Default> {
     data: Slab<Entry<T>>,
+    index_offset: usize,
     _p: PhantomData<K>,
 }
 
@@ -44,22 +46,50 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
     pub fn new(capacity: usize) -> Self {
         Self {
             data: Slab::with_capacity(capacity),
+            index_offset: 2,
             _p: PhantomData,
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    fn to_key(&self, index: usize) -> K {
+        K::from(index + self.index_offset)
+    }
+
+    fn to_index(&self, k: K) -> usize {
+        let index: usize = k.into();
+        index.checked_sub(self.index_offset).unwrap()
+    }
+
     pub fn allocate(&mut self, data: T, credits: Credits) -> K {
-        K::from(self.data.insert(Entry { data, credits }))
+        if let Some(credits) = NonZeroU32::new(credits) {
+            let index = self.data.insert(Entry { data, credits });
+            let key = self.to_key(index);
+            dbg!(format!("allocate new key {key:?} with index = {index}"));
+            key
+        } else {
+            usize::MAX.into()
+        }
     }
 
     pub fn add_credits(&mut self, key: K, credits: Credits) -> Result<(), Error> {
-        let key = key.into();
+        let index = self.to_index(key);
 
-        let entry = self.data.get_mut(key).ok_or(Error::NotFound { key })?;
+        let entry = self
+            .data
+            .get_mut(index)
+            .ok_or(Error::NotFound { key: index })?;
 
         entry.credits = entry
             .credits
-            .checked_add(credits.into())
+            .checked_add(credits)
             .ok_or(Error::OverflowCredits)?;
 
         Ok(())
@@ -68,18 +98,34 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
     /// Return value with `key`
     /// If value inside have one credit - value will be removed from storage
     pub fn get<'s>(&'s mut self, key: K) -> Result<Data<'s, T>, Error> {
-        let key = key.into();
+        dbg!(format!("start searching key {key:?}"));
+        let index = self.to_index(key);
 
-        match self.data.get(key) {
-            None => Err(Error::NotFound { key }),
-            Some(entry) if entry.credits == ONE_CREDIT => {
-                let Entry { data, .. } = self.data.remove(key);
+        dbg!(format!("start searching index {index}"));
+        match self.data.get(index) {
+            None => Err(Error::NotFound { key: index }),
+            Some(entry) if entry.credits == NonZeroU32::MIN => {
+                dbg!(format!(
+                    "delete by {:?} key with index {}",
+                    self.to_key(index),
+                    index
+                ));
+
+                let Entry { data, .. } = self.data.remove(index);
                 Ok(Data::Owned(data))
             }
             Some(_) => {
+                dbg!(format!(
+                    "decrement by {:?} key with index {}",
+                    self.to_key(index),
+                    index
+                ));
+
+                let entry: &'s mut Entry<T> = self.data.get_mut(index).expect("present above");
+
                 // We know credits > 1 here.
-                let entry: &'s mut Entry<T> = self.data.get_mut(key).expect("present above");
-                entry.credits = Credits::new(entry.credits.get() - 1).unwrap();
+                entry.credits = NonZeroU32::new(entry.credits.get() - 1).unwrap();
+
                 Ok(Data::Borrowed(&entry.data))
             }
         }
@@ -87,27 +133,17 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
     /// Modify value under the `key`
     /// If value inside have one credit - value will be removed from storage
-    pub fn get_with_mut<'s>(
-        &'s mut self,
-        key: K,
-        func: impl FnOnce(&mut T),
-    ) -> Result<Data<'s, T>, Error> {
-        let key = key.into();
+    pub fn set(&mut self, key: K, func: impl FnOnce(&mut T)) -> Result<(), Error> {
+        let index = self.to_index(key);
 
-        match self.data.get(key) {
-            None => Err(Error::NotFound { key }),
-            Some(entry) if entry.credits == ONE_CREDIT => {
-                let mut data = self.data.remove(key).data;
-                func(&mut data);
-                Ok(Data::Owned(data))
-            }
+        match self.data.get(index) {
+            None => Err(Error::NotFound { key: index }),
             Some(_) => {
                 // Mutate in place, decrement credits, return borrowed mut
-                let entry = self.data.get_mut(key).expect("present above");
+                let entry = self.data.get_mut(index).expect("present above");
                 // Decrement first to avoid borrow conflicts with entry.data
-                entry.credits = Credits::new(entry.credits.get() - 1).unwrap();
                 func(&mut entry.data);
-                Ok(Data::Borrowed(&entry.data))
+                Ok(())
             }
         }
     }
@@ -135,7 +171,7 @@ mod tests {
     #[test]
     fn get_borrow_then_owned() {
         let mut st = Storage::<Key, String>::new(8);
-        let key = st.allocate("hello".to_string(), Credits::new(2).unwrap());
+        let key = st.allocate("hello".to_string(), 2);
 
         {
             let d = st.get(key).expect("first get should succeed");
@@ -160,7 +196,7 @@ mod tests {
     #[test]
     fn get_owned_when_one_credit() {
         let mut st = Storage::<Key, i32>::new(4);
-        let key = st.allocate(42, Credits::new(1).unwrap());
+        let key = st.allocate(42, 1);
 
         let d = st.get(key).expect("get should succeed");
         match d {
@@ -173,59 +209,15 @@ mod tests {
     }
 
     #[test]
-    fn set_mutes_mutates_and_borrows_then_remove() {
-        let mut st = Storage::<Key, String>::new(8);
-        let key = st.allocate("abc".to_string(), Credits::new(2).unwrap());
-
-        {
-            let d = st
-                .get_with_mut(key, |s| s.push('!'))
-                .expect("set_mutes should succeed");
-            match d {
-                Data::Borrowed(s) => assert_eq!(s, "abc!"),
-                Data::Owned(_) => panic!("should not be owned yet"),
-            }
-        }
-
-        // Next access should remove and return owned
-        match st.get(key).expect("should succeed") {
-            Data::Owned(s) => assert_eq!(s, "abc!"),
-            Data::Borrowed(_) => panic!("should be owned now"),
-        }
-    }
-
-    #[test]
-    fn set_mutes_owned_when_one_credit() {
-        let mut st = Storage::<Key, String>::new(8);
-        let key = st.allocate("x".to_string(), Credits::new(1).unwrap());
-
-        match st
-            .get_with_mut(key, |s| s.push('y'))
-            .expect("set_mutes should succeed")
-        {
-            Data::Owned(s) => assert_eq!(s, "xy"),
-            Data::Borrowed(_) => panic!("should be owned on last credit"),
-        }
-
-        // removed
-        assert_eq!(st.get(key), Err(Error::NotFound { key: key.0 }));
-    }
-
-    #[test]
     fn add_credits_and_overflow() {
         let mut st = Storage::<Key, i32>::new(4);
-        let key = st.allocate(0, Credits::new(1).unwrap());
+        let key = st.allocate(0, 1);
 
         // Increase to max (255)
-        assert!(
-            st.add_credits(key, Credits::new(u32::MAX - 1).unwrap())
-                .is_ok()
-        );
+        assert!(st.add_credits(key, u32::MAX - 1).is_ok());
 
         // Now any additional credit should overflow
-        let err = st
-            .add_credits(key, Credits::new(1).unwrap())
-            .expect_err("expected overflow");
+        let err = st.add_credits(key, 1).expect_err("expected overflow");
         assert_eq!(err, Error::OverflowCredits);
     }
 
@@ -234,13 +226,7 @@ mod tests {
         let mut st = Storage::<Key, ()>::new(1);
         let fake = Key(123);
         assert_eq!(st.get(fake), Err(Error::NotFound { key: 123 }));
-        assert_eq!(
-            st.get_with_mut(fake, |_| ()),
-            Err(Error::NotFound { key: 123 })
-        );
-        assert_eq!(
-            st.add_credits(fake, Credits::new(1).unwrap()),
-            Err(Error::NotFound { key: 123 })
-        );
+        assert_eq!(st.set(fake, |_| ()), Err(Error::NotFound { key: 123 }));
+        assert_eq!(st.add_credits(fake, 1), Err(Error::NotFound { key: 123 }));
     }
 }

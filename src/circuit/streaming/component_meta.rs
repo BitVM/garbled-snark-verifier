@@ -18,10 +18,11 @@ use std::{cell::RefCell, cmp, collections::HashMap, iter};
 
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{CircuitMode, ComponentHandle, FALSE_WIRE, TRUE_WIRE, WiresObject},
+    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject},
     storage::Credits,
 };
 
+#[derive(Debug)]
 pub struct ComponentMeta {
     /// This variable should be used as follows
     /// During the real execution of the component, we take from here as from the stack
@@ -38,20 +39,16 @@ pub struct ComponentMeta {
 }
 
 impl ComponentMeta {
-    pub fn new(inputs: &[WireId], outputs: &[WireId], outputs_credits: &[Credits]) -> Self {
+    pub fn new(inputs: &[WireId], outputs: &[(WireId, Credits)]) -> Self {
         let mut external_credits = vec![0; inputs.len() + outputs.len()];
 
         let mut external_index = HashMap::with_capacity(inputs.len() + outputs.len());
 
-        let mut offset = WireId(0);
-        for (i, (&wire_id, credits)) in inputs
+        let mut offset = WireId::MIN;
+        for (i, (wire_id, credits)) in outputs
             .iter()
-            .zip(iter::repeat(0))
-            .chain(
-                outputs
-                    .iter()
-                    .zip(outputs_credits.iter().copied().map(|cr| cr.into())),
-            )
+            .copied()
+            .chain(inputs.iter().copied().zip(iter::repeat(0)))
             .enumerate()
         {
             offset = cmp::max(offset, wire_id);
@@ -71,7 +68,15 @@ impl ComponentMeta {
         }
     }
 
+    pub fn pin(&self, wires: &[WireId]) {
+        self.add_credits(wires, u32::MAX);
+    }
+
     pub fn increment_credits(&self, wires: &[WireId]) {
+        self.add_credits(wires, 1);
+    }
+
+    pub fn add_credits(&self, wires: &[WireId], credit: u32) {
         let mut stack = self.credits_stack.borrow_mut();
         let mut external = self.external_credits.borrow_mut();
         let offset = self.offset.0;
@@ -87,7 +92,7 @@ impl ComponentMeta {
                 index => {
                     let idx = index.0 - offset;
                     if idx < stack.len() {
-                        stack[idx] += 1;
+                        stack[idx] += credit;
                     } else {
                         panic!("internal wire index out of bounds");
                     }
@@ -95,14 +100,19 @@ impl ComponentMeta {
             }
         }
     }
+
+    pub fn next_credit(&mut self) -> Option<Credits> {
+        self.credits_stack.borrow_mut().pop()
+    }
 }
 
+#[derive(Default)]
 pub struct Empty;
 impl CircuitMode for Empty {
-    type WireValue = ();
+    type WireValue = bool;
 
     fn lookup_wire(&self, _wire: WireId) -> Option<&Self::WireValue> {
-        Some(&())
+        Some(&false)
     }
 
     fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {}
@@ -148,7 +158,7 @@ impl CircuitContext for ComponentMeta {
         &mut self,
         _name: &'static str,
         input_wires: Vec<WireId>,
-        _f: impl FnOnce(&mut ComponentHandle<Self::Mode>) -> O,
+        _f: impl Fn(&mut Self) -> O,
         arity: impl FnOnce() -> usize,
     ) -> O {
         self.increment_credits(&input_wires);
@@ -314,7 +324,7 @@ mod tests {
     fn increment_panics_on_unknown_external_wire() {
         // Choose inputs far from zero so there exist ids < offset that are not inputs/outputs/constants
         let inputs = [WireId(10), WireId(11)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
 
         // 9 < offset (12) and is not an input/output/constant
         let unknown = WireId(9);
@@ -326,7 +336,7 @@ mod tests {
     fn internal_wire_used_in_child_and_after() {
         // Arrange
         let inputs = [WireId(2), WireId(3)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
 
         // r1 produced, then passed to child, then used after child
         let r1 = meta.issue_wire();
@@ -353,7 +363,7 @@ mod tests {
     #[test]
     fn wire_lifetime_finishes_in_child() {
         let inputs = [WireId(2), WireId(3)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
 
         let w = meta.issue_wire();
         // The only use of w is as child input; never used afterwards
@@ -371,28 +381,27 @@ mod tests {
 
     #[test]
     fn external_output_credit_is_tracked() {
-        use crate::storage::ONE_CREDIT;
         // outputs_credits initializes external credits for outputs; using output as input increments outputs area
         let inputs = [WireId(2), WireId(3)];
-        let outputs = [WireId(7)];
-        let mut meta = ComponentMeta::new(&inputs, &outputs, &[ONE_CREDIT]);
+        let outputs = [(WireId(7), 1)];
+        let mut meta = ComponentMeta::new(&inputs, &outputs);
 
         // Use output[0] as an input to a gate producing an internal wire
         let r = meta.issue_wire();
-        meta.add_gate(and(outputs[0], TRUE_WIRE, r));
+        meta.add_gate(and(outputs[0].0, TRUE_WIRE, r));
 
         let external = meta.external_credits.borrow().clone();
         assert_eq!(external.len(), inputs.len() + outputs.len());
         assert_eq!(external[0], 0);
         assert_eq!(external[1], 0);
         // initial ONE_CREDIT + one use in gate on inputs side of outputs area
-        assert_eq!(external[2], ONE_CREDIT.get() + 1);
+        assert_eq!(external[2], 2);
     }
 
     #[test]
     fn internal_wire_reused_across_multiple_children_and_parent() {
         let inputs = [WireId(2), WireId(3)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
 
         let w = meta.issue_wire();
         // Write to w (does not add credits in reads-only mode)
@@ -418,7 +427,7 @@ mod tests {
     #[test]
     fn inputs_used_multiple_times_and_in_children() {
         let inputs = [WireId(2), WireId(3)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
 
         let r1 = meta.issue_wire();
         let r2 = meta.issue_wire();
@@ -439,19 +448,17 @@ mod tests {
 
     #[test]
     fn outputs_credits_multiple_outputs() {
-        use crate::storage::ONE_CREDIT;
         let inputs = [WireId(2), WireId(3)];
-        let outputs = [WireId(8), WireId(9)];
-        let init = [ONE_CREDIT, ONE_CREDIT.saturating_add(ONE_CREDIT.into())]; // 1 and 2
-        let mut meta = ComponentMeta::new(&inputs, &outputs, &init);
+        let outputs = [(WireId(8), 1), (WireId(9), 2)];
+        let mut meta = ComponentMeta::new(&inputs, &outputs);
 
         let r = meta.issue_wire();
         // Use outputs[0] twice, outputs[1] once
-        meta.add_gate(and(outputs[0], TRUE_WIRE, r));
+        meta.add_gate(and(outputs[0].0, TRUE_WIRE, r));
         let r2 = meta.issue_wire();
-        meta.add_gate(xor(outputs[0], FALSE_WIRE, r2));
+        meta.add_gate(xor(outputs[0].0, FALSE_WIRE, r2));
         let r3 = meta.issue_wire();
-        meta.add_gate(and(outputs[1], TRUE_WIRE, r3));
+        meta.add_gate(and(outputs[1].0, TRUE_WIRE, r3));
 
         let ext = meta.external_credits.borrow().clone();
         assert_eq!(ext.len(), inputs.len() + outputs.len());
@@ -459,14 +466,14 @@ mod tests {
         assert_eq!(ext[0], 0);
         assert_eq!(ext[1], 0);
         // outputs area incremented appropriately: [1+2, 2+1] = [3,3]
-        assert_eq!(ext[2], ONE_CREDIT.get() + 2);
-        assert_eq!(ext[3], ONE_CREDIT.get() * 2 + 1);
+        assert_eq!(ext[2], 3);
+        assert_eq!(ext[3], 2 + 1);
     }
 
     #[test]
     fn wire_only_written_never_read_has_zero_credits() {
         let inputs = [WireId(2), WireId(3)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
         let w = meta.issue_wire();
         // Write into w; never read or passed to child
         meta.add_gate(and(TRUE_WIRE, FALSE_WIRE, w));
@@ -478,7 +485,7 @@ mod tests {
     #[test]
     fn issued_wires_contiguous_and_stack_len_matches() {
         let inputs = [WireId(2), WireId(3)];
-        let mut meta = ComponentMeta::new(&inputs, &[], &[]);
+        let mut meta = ComponentMeta::new(&inputs, &[]);
         let w1 = meta.issue_wire();
         let w2 = meta.issue_wire();
         let w3 = meta.issue_wire();

@@ -308,6 +308,10 @@ impl Gate {
             value: evaluated_value,
         }
     }
+
+    pub fn execute(&self, a: bool, b: bool) -> bool {
+        self.gate_type.f()(a, b)
+    }
 }
 
 #[derive(thiserror::Error, Debug, PartialEq)]

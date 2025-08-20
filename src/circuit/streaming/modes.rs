@@ -1,14 +1,16 @@
-use std::{array, cell::RefCell, collections::HashMap};
+use std::{array, collections::HashMap};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
 use crate::{
-    CircuitContext, Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
-    circuit::streaming::{FALSE_WIRE, TRUE_WIRE, WireStack, component_meta::ComponentMeta},
+    Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
+    circuit::streaming::{FALSE_WIRE, TRUE_WIRE, WireStack},
     core::gate::garbling::Blake3Hasher,
-    storage::Storage,
 };
+
+mod execute_with_credits;
+pub use execute_with_credits::ExecuteWithCredits;
 
 pub trait CircuitMode {
     type WireValue: Clone;
@@ -218,82 +220,6 @@ impl CircuitMode for Garble {
         }
 
         Some(())
-    }
-}
-
-/// Prototype mode: single global storage keyed by `WireId` with credit-based lifetimes.
-///
-/// Notes:
-/// - For now there is no prepass integration here; callers can `feed_wire` to seed inputs
-///   and we consume credits on reads during gate evaluation.
-/// - Constants are stored outside of `WireStorage` and don't consume credits.
-pub struct ExecuteWithCredits {
-    storage: RefCell<Storage<WireId, bool>>,
-    stack: Vec<ComponentMeta>,
-}
-
-impl ExecuteWithCredits {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            storage: RefCell::new(Storage::new(capacity)),
-            stack: vec![],
-        }
-    }
-}
-
-impl CircuitMode for ExecuteWithCredits {
-    type WireValue = bool;
-
-    fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
-        match self.storage.borrow_mut().get(wire).as_deref() {
-            Ok(&true) => Some(&true),
-            Ok(&false) => Some(&false),
-            Err(_) => None,
-        }
-    }
-
-    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {
-        todo!()
-    }
-
-    fn total_size(&self) -> usize {
-        todo!()
-    }
-
-    fn current_size(&self) -> usize {
-        todo!()
-    }
-
-    fn push_frame(&mut self, _name: &'static str, _inputs: &[WireId]) {}
-
-    fn pop_frame(&mut self, _outputs: &[WireId]) -> Vec<(WireId, Self::WireValue)> {
-        vec![]
-    }
-
-    fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {
-        todo!()
-    }
-}
-
-impl CircuitContext for ExecuteWithCredits {
-    type Mode = Self;
-
-    fn issue_wire(&mut self) -> WireId {
-        todo!()
-    }
-
-    fn add_gate(&mut self, _gate: Gate) {
-        todo!()
-    }
-
-    fn with_named_child<O: super::WiresObject>(
-        &mut self,
-        _name: &'static str,
-        _input_wires: Vec<WireId>,
-        _f: impl Fn(&mut super::ComponentHandle<Self::Mode>) -> O,
-        _arity: impl FnOnce() -> usize,
-    ) -> O {
-        todo!()
     }
 }
 

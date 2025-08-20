@@ -247,8 +247,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<Execute> for Input<N> {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl<const N: usize> EncodeInput<bool> for Input<N> {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             self.bns.iter().zip(repr.iter()).for_each(|(bn, bn_wires)| {
                 let bits = bits_from_biguint_with_len(bn, self.len).unwrap();
                 bn_wires.iter().zip(bits).for_each(|(w, b)| {

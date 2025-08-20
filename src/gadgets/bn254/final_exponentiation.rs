@@ -200,7 +200,11 @@ mod tests {
         struct Out {
             value: ark_bn254::Fq12,
         }
-        fn encode_fq6_to_wires(val: &ark_bn254::Fq6, wires: &Fq6Wires, cache: &mut Execute) {
+        fn encode_fq6_to_wires<M: CircuitMode<WireValue = bool>>(
+            val: &ark_bn254::Fq6,
+            wires: &Fq6Wires,
+            cache: &mut M,
+        ) {
             let c0_c0_bits = bits_from_biguint_with_len(
                 &BigUintOutput::from(val.c0.c0.into_bigint()),
                 FqWire::N_BITS,
@@ -276,8 +280,8 @@ mod tests {
                 repr.f.to_wires_vec()
             }
         }
-        impl EncodeInput<Execute> for In {
-            fn encode(self, repr: &W, cache: &mut Execute) {
+        impl EncodeInput<bool> for In {
+            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &W, cache: &mut M) {
                 let f_m = Fq12Wires::as_montgomery(self.f);
                 encode_fq6_to_wires(&f_m.c0, &repr.f.0[0], cache);
                 encode_fq6_to_wires(&f_m.c1, &repr.f.0[1], cache);

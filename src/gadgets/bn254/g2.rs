@@ -589,8 +589,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<Execute> for G2Input<N> {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl<const N: usize> EncodeInput<bool> for G2Input<N> {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             for (point_wire, point_val) in repr.points.iter().zip(self.points.iter()) {
                 let point_fn = G2Projective::get_wire_bits_fn(point_wire, point_val).unwrap();
                 for &wire_id in point_wire
@@ -637,8 +637,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<Execute> for ScalarInput<N> {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl<const N: usize> EncodeInput<bool> for ScalarInput<N> {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             for (scalar_wire, scalar_val) in repr.scalars.iter().zip(self.scalars.iter()) {
                 let scalar_fn = Fr::get_wire_bits_fn(scalar_wire, scalar_val).unwrap();
                 for &wire_id in scalar_wire.iter() {
@@ -789,8 +789,12 @@ mod tests {
                 wires
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Execute> for MultiplexerInputs {
-            fn encode(self, repr: &MultiplexerInputsWire, cache: &mut Execute) {
+        impl EncodeInput<bool> for MultiplexerInputs {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &MultiplexerInputsWire,
+                cache: &mut M,
+            ) {
                 for (g2_wire, g2_val) in repr.a.iter().zip(self.a.iter()) {
                     let g2_fn = G2Projective::get_wire_bits_fn(g2_wire, g2_val).unwrap();
                     for &wire_id in g2_wire
@@ -877,8 +881,12 @@ mod tests {
                     .collect()
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Execute> for MsmInputs {
-            fn encode(self, repr: &MsmInputsWire, cache: &mut Execute) {
+        impl EncodeInput<bool> for MsmInputs {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &MsmInputsWire,
+                cache: &mut M,
+            ) {
                 for (fr_wire, fr_val) in repr.scalars.iter().zip(self.scalars.iter()) {
                     let fr_fn = Fr::get_wire_bits_fn(fr_wire, fr_val).unwrap();
                     for &wire_id in fr_wire.iter() {

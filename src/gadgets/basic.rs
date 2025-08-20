@@ -276,7 +276,7 @@ mod tests {
     fn test_multiplexer() {
         use rand::Rng;
 
-        use crate::circuit::streaming::{CircuitInput, EncodeInput, Execute, modes::CircuitMode};
+        use crate::circuit::streaming::{CircuitInput, EncodeInput, modes::CircuitMode};
 
         let mut rng = trng();
 
@@ -310,8 +310,12 @@ mod tests {
             }
         }
 
-        impl EncodeInput<Execute> for MuxInputs {
-            fn encode(self, repr: &MuxWires, cache: &mut Execute) {
+        impl EncodeInput<bool> for MuxInputs {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &Self::WireRepr,
+                cache: &mut M,
+            ) {
                 for (i, &value) in self.data.iter().enumerate() {
                     cache.feed_wire(repr.data[i], value);
                 }

@@ -92,8 +92,8 @@ impl CircuitInput for Inputs {
     }
 }
 
-impl EncodeInput<Execute> for Inputs {
-    fn encode(self, repr: &InputWires, cache: &mut Execute) {
+impl EncodeInput<bool> for Inputs {
+    fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &InputWires, cache: &mut M) {
         // Encode public scalars
         for (w, v) in repr.public.iter().zip(self.public.iter()) {
             let fr_fn = FrWire::get_wire_bits_fn(w, v).expect("fr encoding fn");

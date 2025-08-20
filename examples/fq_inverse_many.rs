@@ -38,8 +38,8 @@ impl CircuitInput for Inputs {
     }
 }
 
-impl EncodeInput<Execute> for Inputs {
-    fn encode(self, repr: &Wires, cache: &mut Execute) {
+impl EncodeInput<bool> for Inputs {
+    fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Wires, cache: &mut M) {
         for (w, v) in repr.vals.iter().zip(self.vals.iter()) {
             let fnc = Fq::get_wire_bits_fn(w, v).expect("fq encoding fn");
             for &wire in w.0.iter() {

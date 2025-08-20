@@ -503,8 +503,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<Execute> for Fq2Input<N> {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl<const N: usize> EncodeInput<bool> for Fq2Input<N> {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             self.values
                 .iter()
                 .zip(repr.iter())
@@ -728,8 +728,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<Execute> for In {
-            fn encode(self, repr: &InWire, cache: &mut Execute) {
+        impl EncodeInput<bool> for In {
+            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &InWire, cache: &mut M) {
                 // encode a (Fq2) in montgomery form
                 let a_m = Fq2::as_montgomery(self.a);
                 let c0_bits = bits_from_biguint_with_len(
@@ -953,8 +953,8 @@ mod tests {
         }
     }
 
-    impl EncodeInput<Execute> for Fq2SqrtZeroInput {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl EncodeInput<bool> for Fq2SqrtZeroInput {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             let c0_bits = bits_from_biguint_with_len(
                 &BigUintOutput::from(self.value.c0.into_bigint()),
                 Fq::N_BITS,

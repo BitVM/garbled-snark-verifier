@@ -467,8 +467,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<Execute> for Fq12Input<N> {
-        fn encode(self, repr: &Self::WireRepr, cache: &mut Execute) {
+    impl<const N: usize> EncodeInput<bool> for Fq12Input<N> {
+        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
             self.values
                 .iter()
                 .zip(repr.iter())
@@ -482,7 +482,11 @@ mod tests {
         }
     }
 
-    fn encode_fq6_to_wires(val: &ark_bn254::Fq6, wires: &Fq6, cache: &mut Execute) {
+    fn encode_fq6_to_wires<M: CircuitMode<WireValue = bool>>(
+        val: &ark_bn254::Fq6,
+        wires: &Fq6,
+        cache: &mut M,
+    ) {
         // c0
         let c0_c0_bits =
             bits_from_biguint_with_len(&BigUintOutput::from(val.c0.c0.into_bigint()), Fq::N_BITS)
@@ -733,8 +737,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<Execute> for MulBy34Input {
-            fn encode(self, repr: &MulBy34Wire, cache: &mut Execute) {
+        impl EncodeInput<bool> for MulBy34Input {
+            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &MulBy34Wire, cache: &mut M) {
                 // Encode a (Fq12) in montgomery form
                 let a_m = Fq12::as_montgomery(self.a);
                 encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
@@ -840,8 +844,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<Execute> for MulBy034Input {
-            fn encode(self, repr: &MulBy034Wire, cache: &mut Execute) {
+        impl EncodeInput<bool> for MulBy034Input {
+            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &MulBy034Wire, cache: &mut M) {
                 // Encode a (Fq12) in montgomery form
                 let a_m = Fq12::as_montgomery(self.a);
                 encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
@@ -929,8 +933,12 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<Execute> for MulBy034Const4Input {
-            fn encode(self, repr: &MulBy034Const4Wire, cache: &mut Execute) {
+        impl EncodeInput<bool> for MulBy034Const4Input {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &MulBy034Const4Wire,
+                cache: &mut M,
+            ) {
                 // Encode a (Fq12) in montgomery form
                 let a_m = Fq12::as_montgomery(self.a);
                 encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);

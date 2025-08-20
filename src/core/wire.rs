@@ -22,6 +22,11 @@ pub type WireError = Error;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WireId(pub usize);
 
+impl WireId {
+    pub const MIN: WireId = WireId(2);
+    pub const UNREACHABLE: WireId = WireId(usize::MAX);
+}
+
 impl fmt::Display for WireId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

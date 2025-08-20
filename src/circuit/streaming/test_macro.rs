@@ -183,8 +183,12 @@ mod tests {
                 vec![repr.x]
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Garble> for OneInput {
-            fn encode(self, repr: &OneInputWire, cache: &mut Garble) {
+        impl crate::circuit::streaming::EncodeInput<GarbledWire> for OneInput {
+            fn encode<M: CircuitMode<WireValue = GarbledWire>>(
+                &self,
+                repr: &OneInputWire,
+                cache: &mut M,
+            ) {
                 cache.feed_wire(repr.x, lbl_pair(repr.x));
                 let _ = self; // value not used in garble-mode structure build
             }
@@ -244,8 +248,12 @@ mod tests {
                 vec![repr.x]
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Execute> for OneInput {
-            fn encode(self, repr: &OneInputWire, cache: &mut Execute) {
+        impl crate::circuit::streaming::EncodeInput<bool> for OneInput {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &Self::WireRepr,
+                cache: &mut M,
+            ) {
                 cache.feed_wire(repr.x, self.x);
             }
         }
@@ -301,8 +309,12 @@ mod tests {
                 vec![repr.x]
             }
         }
-        impl crate::circuit::streaming::EncodeInput<Execute> for OneInput {
-            fn encode(self, repr: &OneInputWire, cache: &mut Execute) {
+        impl crate::circuit::streaming::EncodeInput<bool> for OneInput {
+            fn encode<M: CircuitMode<WireValue = bool>>(
+                &self,
+                repr: &Self::WireRepr,
+                cache: &mut M,
+            ) {
                 cache.feed_wire(repr.x, self.x);
             }
         }
