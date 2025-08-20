@@ -2,6 +2,8 @@
 
 use std::{array, fmt::Debug};
 
+use log::debug;
+
 use crate::{
     Gate, WireId,
     circuit::streaming::{component_meta::ComponentMeta, modes::ExecuteWithCredits},
@@ -159,35 +161,62 @@ impl CircuitBuilder<ExecuteWithCredits> {
         O::WireRepr: Debug,
         F: Fn(&mut ExecuteWithCredits, &I::WireRepr) -> O::WireRepr,
     {
-        let mut meta = ExecuteWithCredits::FirstPass(ComponentMeta::new(&[], &[]));
+        debug!(
+            "streaming_process_with_credits: start metadata pass capacity={}",
+            live_wires_capacity
+        );
+        let mut meta = ExecuteWithCredits::MetadataPass(ComponentMeta::new(&[], &[]));
         let allocated_inputs = inputs.allocate(|| {
             let wire_id = meta.issue_wire();
 
-            if let ExecuteWithCredits::FirstPass(meta) = &mut meta {
+            if let ExecuteWithCredits::MetadataPass(meta) = &mut meta {
                 meta.increment_credits(&[wire_id]);
             }
 
             wire_id
         });
+        debug!(
+            "metadata: allocated inputs = {:?}",
+            I::collect_wire_ids(&allocated_inputs)
+                .iter()
+                .map(|w| w.0)
+                .collect::<Vec<_>>()
+        );
 
         inputs.encode(&allocated_inputs, &mut meta);
 
         let output = f(&mut meta, &allocated_inputs);
+        debug!(
+            "metadata: declared outputs = {:?}",
+            output
+                .to_wires_vec()
+                .iter()
+                .map(|w| w.0)
+                .collect::<Vec<_>>()
+        );
 
-        if let ExecuteWithCredits::FirstPass(meta) = &mut meta {
-            dbg!(&output);
+        if let ExecuteWithCredits::MetadataPass(meta) = &mut meta {
             meta.pin(&output.to_wires_vec());
         }
 
-        dbg!(&meta);
-        let mut ctx = meta.to_second_pass(live_wires_capacity);
+        let mut ctx = meta.to_execute_pass(live_wires_capacity);
 
         let allocated_inputs = inputs.allocate(|| ctx.issue_wire());
+        debug!(
+            "execute: allocated inputs = {:?}",
+            I::collect_wire_ids(&allocated_inputs)
+                .iter()
+                .map(|w| w.0)
+                .collect::<Vec<_>>()
+        );
         inputs.encode(&allocated_inputs, &mut ctx);
 
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
-        dbg!(&output_wires);
+        debug!(
+            "execute: output wires = {:?}",
+            output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
 
         let output = O::decode(output_repr, &ctx);
 
@@ -360,7 +389,6 @@ impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
     type WireRepr = Vec<WireId>;
 
     fn decode(wires: Self::WireRepr, cache: &M) -> Self {
-        dbg!(format!("start decode: {wires:?}"));
         wires
             .iter()
             .map(|w| {
@@ -449,6 +477,88 @@ mod exec_test {
             );
 
         assert!(output.output_wires[0])
+    }
+
+    #[test]
+    fn nested_with_credits() {
+        let inputs = Inputs {
+            flag: true,
+            nonce: u64::MAX,
+        };
+
+        let output: StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::<ExecuteWithCredits>::streaming_process_with_credits(
+                inputs,
+                100,
+                |root, inputs_wire| {
+                    let InputsWire { flag, nonce } = inputs_wire;
+
+                    let result = root.issue_wire();
+                    root.add_gate(Gate::and(*flag, nonce[0], result));
+                    root.with_child(
+                        vec![result],
+                        |child| {
+                            let result2 = child.issue_wire();
+                            child.add_gate(Gate::and(result, result, result2));
+                            vec![result2]
+                        },
+                        || 1,
+                    )
+                },
+            );
+
+        assert!(output.output_wires[0])
+    }
+
+    #[test]
+    fn nested_components_with_credits() {
+        use circuit_component_macro::component;
+
+        #[component]
+        fn level2_gadget<C: CircuitContext>(ctx: &mut C, input: WireId) -> WireId {
+            let internal = ctx.issue_wire();
+            ctx.add_gate(Gate::and(input, input, internal));
+
+            internal
+        }
+
+        // Level 1: Calls level2
+        #[component]
+        fn level1_gadget<C: CircuitContext>(ctx: &mut C, input: WireId) -> WireId {
+            let internal = ctx.issue_wire();
+            ctx.add_gate(Gate::xor(input, TRUE_WIRE, internal));
+
+            // Call level 2
+            level2_gadget(ctx, internal)
+        }
+
+        let inputs = Inputs {
+            flag: true,
+            nonce: u64::MAX,
+        };
+
+        let output: StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::<ExecuteWithCredits>::streaming_process_with_credits(
+                inputs,
+                200,
+                |ctx, inputs_wire| {
+                    let InputsWire { flag, nonce } = inputs_wire;
+                    let w0 = ctx.issue_wire();
+                    ctx.add_gate(Gate::and(*flag, nonce[0], w0));
+
+                    // Call level 1
+                    vec![level1_gadget(ctx, w0)]
+                },
+            );
+
+        // With flag=true and nonce[0]=true:
+        // w0 = true AND true = true
+        // level1_internal = true XOR true = false
+        // level2_internal = false AND false = false
+        // level3_temp1 = false XOR false = false
+        // level3_temp2 = false AND false = false
+        // innermost_result = false XOR false = false
+        assert!(!output.output_wires[0])
     }
 
     #[test]

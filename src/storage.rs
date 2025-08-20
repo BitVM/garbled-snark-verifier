@@ -71,9 +71,7 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
     pub fn allocate(&mut self, data: T, credits: Credits) -> K {
         if let Some(credits) = NonZeroU32::new(credits) {
             let index = self.data.insert(Entry { data, credits });
-            let key = self.to_key(index);
-            dbg!(format!("allocate new key {key:?} with index = {index}"));
-            key
+            self.to_key(index)
         } else {
             usize::MAX.into()
         }
@@ -98,29 +96,15 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
     /// Return value with `key`
     /// If value inside have one credit - value will be removed from storage
     pub fn get<'s>(&'s mut self, key: K) -> Result<Data<'s, T>, Error> {
-        dbg!(format!("start searching key {key:?}"));
         let index = self.to_index(key);
 
-        dbg!(format!("start searching index {index}"));
         match self.data.get(index) {
             None => Err(Error::NotFound { key: index }),
             Some(entry) if entry.credits == NonZeroU32::MIN => {
-                dbg!(format!(
-                    "delete by {:?} key with index {}",
-                    self.to_key(index),
-                    index
-                ));
-
                 let Entry { data, .. } = self.data.remove(index);
                 Ok(Data::Owned(data))
             }
             Some(_) => {
-                dbg!(format!(
-                    "decrement by {:?} key with index {}",
-                    self.to_key(index),
-                    index
-                ));
-
                 let entry: &'s mut Entry<T> = self.data.get_mut(index).expect("present above");
 
                 // We know credits > 1 here.

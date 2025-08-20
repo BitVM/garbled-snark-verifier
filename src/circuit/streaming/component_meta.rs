@@ -16,6 +16,8 @@
 
 use std::{cell::RefCell, cmp, collections::HashMap, iter};
 
+use log::{debug, error, trace};
+
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject},
@@ -36,6 +38,14 @@ pub struct ComponentMeta {
 
     offset: WireId,
     cursor: WireId,
+
+    /// Wire substitutions: (issue_position, wire_id, credits) sorted by position
+    /// Used when this ComponentMeta is on the execution stack
+    substitutions: Option<Box<[(u32, WireId, Credits)]>>,
+    /// Current position in substitutions array for sequential access
+    substitution_cursor: RefCell<usize>,
+    /// Track how many wires have been issued in this context
+    issue_counter: RefCell<usize>,
 }
 
 impl ComponentMeta {
@@ -51,7 +61,10 @@ impl ComponentMeta {
             .chain(inputs.iter().copied().zip(iter::repeat(0)))
             .enumerate()
         {
-            offset = cmp::max(offset, wire_id);
+            // Skip unreachable wires when computing offset
+            if wire_id != WireId(usize::MAX) {
+                offset = cmp::max(offset, wire_id);
+            }
 
             external_index.insert(wire_id, i);
             external_credits[i] += credits;
@@ -59,16 +72,37 @@ impl ComponentMeta {
 
         offset.0 += 1;
 
-        Self {
+        let this = Self {
             credits_stack: RefCell::new(vec![]),
             external_credits: RefCell::new(external_credits),
             external_index,
             cursor: offset,
             offset,
-        }
+            substitutions: None,
+            substitution_cursor: RefCell::new(0),
+            issue_counter: RefCell::new(0),
+        };
+        debug!(
+            "ComponentMeta::new offset={} inputs={:?} outputs={:?}",
+            this.offset.0,
+            inputs.iter().map(|w| w.0).collect::<Vec<_>>(),
+            outputs.iter().map(|(w, c)| (w.0, *c)).collect::<Vec<_>>()
+        );
+        this
+    }
+
+    /// Returns external input credit counts for the first `n_inputs` entries.
+    /// Useful for child → parent credit propagation.
+    pub fn external_input_counts(&self, n_inputs: usize) -> Vec<u32> {
+        let ext = self.external_credits.borrow();
+        ext.iter().take(n_inputs).copied().collect()
     }
 
     pub fn pin(&self, wires: &[WireId]) {
+        debug!(
+            "ComponentMeta::pin wires={:?}",
+            wires.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
         self.add_credits(wires, u32::MAX);
     }
 
@@ -84,16 +118,38 @@ impl ComponentMeta {
         for wire_id in wires.iter().copied() {
             match wire_id {
                 TRUE_WIRE | FALSE_WIRE => (),
+                // Skip unreachable wires
+                WireId(usize::MAX) => (),
                 // External wire: increment in external_credits using precomputed map
                 index if index < self.offset => match self.external_index.get(&index) {
-                    Some(&pos) => external[pos] += 1,
-                    None => panic!("I don't know this wire id"),
+                    Some(&pos) => {
+                        external[pos] += 1;
+                        trace!(
+                            "add_credits: external wire_id={} +={} now_ext[{}]={}",
+                            index.0, credit, pos, external[pos]
+                        );
+                    }
+                    None => {
+                        error!("add_credits: unknown external wire_id={}", index.0);
+                        panic!("I don't know this wire id")
+                    }
                 },
                 index => {
                     let idx = index.0 - offset;
                     if idx < stack.len() {
-                        stack[idx] += credit;
+                        let before = stack[idx];
+                        stack[idx] = stack[idx].checked_add(credit).unwrap_or(stack[idx]);
+                        trace!(
+                            "add_credits: internal wire_id={} idx={} {}+={} -> {}",
+                            index.0, idx, before, credit, stack[idx]
+                        );
                     } else {
+                        error!(
+                            "add_credits: internal wire_id={} idx={} out of bounds stack_len={}",
+                            index.0,
+                            idx,
+                            stack.len()
+                        );
                         panic!("internal wire index out of bounds");
                     }
                 }
@@ -102,7 +158,96 @@ impl ComponentMeta {
     }
 
     pub fn next_credit(&mut self) -> Option<Credits> {
-        self.credits_stack.borrow_mut().pop()
+        let v = self.credits_stack.borrow_mut().pop();
+        trace!("next_credit -> {:?}", v);
+        v
+    }
+
+    /// Returns the issue order indices for the given wire IDs.
+    ///
+    /// For each wire in the input slice, returns its index in the order it was issued
+    /// (0 for first issued wire, 1 for second, etc.). Returns None for external wires
+    /// (inputs/outputs) or unknown wires.
+    pub fn get_issue_indices(&self, wires: &[WireId]) -> Vec<Option<usize>> {
+        let res = wires
+            .iter()
+            .map(|&wire_id| {
+                // Check if it's an internal wire (issued via issue_wire)
+                if wire_id >= self.offset {
+                    let index = wire_id.0 - self.offset.0;
+                    // Verify it's within the range of issued wires
+                    if index < self.credits_stack.borrow().len() {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
+        trace!(
+            "get_issue_indices wires={:?} -> {:?}",
+            wires.iter().map(|w| w.0).collect::<Vec<_>>(),
+            res
+        );
+        res
+    }
+
+    /// Setup substitutions for child execution
+    pub fn setup_substitutions(
+        &mut self,
+        output_indices: &[Option<usize>],
+        parent_outputs: &[(WireId, Credits)],
+    ) {
+        let mut substitutions = Vec::new();
+
+        for (i, opt_pos) in output_indices.iter().enumerate() {
+            if let Some(pos) = opt_pos {
+                substitutions.push((*pos as u32, parent_outputs[i].0, parent_outputs[i].1));
+            }
+        }
+
+        if !substitutions.is_empty() {
+            self.substitutions = Some(substitutions.into_boxed_slice());
+            *self.substitution_cursor.borrow_mut() = 0;
+        }
+
+        *self.issue_counter.borrow_mut() = 0;
+        debug!(
+            "setup_substitutions output_indices={:?} parent_outputs={:?} substitutions_len={}",
+            output_indices,
+            parent_outputs
+                .iter()
+                .map(|(w, c)| (w.0, *c))
+                .collect::<Vec<_>>(),
+            self.substitutions.as_ref().map(|s| s.len()).unwrap_or(0)
+        );
+    }
+
+    /// Check if current issue needs substitution and advance counter
+    pub fn check_substitution(&self) -> Option<(WireId, Credits)> {
+        let issue_pos = *self.issue_counter.borrow();
+        *self.issue_counter.borrow_mut() += 1;
+
+        if let Some(ref subs) = self.substitutions {
+            let cursor = *self.substitution_cursor.borrow();
+            if cursor < subs.len() && subs[cursor].0 == issue_pos as u32 {
+                *self.substitution_cursor.borrow_mut() += 1;
+                let res = (subs[cursor].1, subs[cursor].2);
+                trace!(
+                    "check_substitution: hit at issue_pos={} -> wire_id={} credits={} next_cursor={}",
+                    issue_pos,
+                    res.0.0,
+                    res.1,
+                    *self.substitution_cursor.borrow()
+                );
+                return Some(res);
+            }
+        }
+
+        trace!("check_substitution: miss at issue_pos={}", issue_pos);
+        None
     }
 }
 
@@ -146,11 +291,21 @@ impl CircuitContext for ComponentMeta {
 
         self.credits_stack.borrow_mut().push(0);
 
+        trace!(
+            "ComponentMeta::issue_wire -> {} (stack_len={})",
+            next.0,
+            self.credits_stack.borrow().len()
+        );
+
         next
     }
 
     fn add_gate(&mut self, gate: Gate) {
         // Consider only reads: wire_a and wire_b; wire_c is a write, it is not counted.
+        trace!(
+            "ComponentMeta::add_gate kind={:?} a={} b={} c={}",
+            gate.gate_type, gate.wire_a.0, gate.wire_b.0, gate.wire_c.0
+        );
         self.increment_credits(&[gate.wire_a, gate.wire_b]);
     }
 
@@ -161,12 +316,24 @@ impl CircuitContext for ComponentMeta {
         _f: impl Fn(&mut Self) -> O,
         arity: impl FnOnce() -> usize,
     ) -> O {
+        let arity = arity();
+        debug!(
+            "ComponentMeta::with_named_child name={} inputs={:?} arity={}",
+            _name,
+            input_wires.iter().map(|w| w.0).collect::<Vec<_>>(),
+            arity
+        );
         self.increment_credits(&input_wires);
 
         let mock_output = std::iter::repeat_with(|| self.issue_wire())
-            .take((arity)())
+            .take(arity)
             .collect::<Vec<_>>();
 
+        debug!(
+            "ComponentMeta::with_named_child name={} mock_outputs={:?}",
+            _name,
+            mock_output.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
         O::from_wires(&mock_output).unwrap()
     }
 }
@@ -500,5 +667,49 @@ mod tests {
         assert_eq!(w1.0 - base, 0);
         assert_eq!(w2.0 - base, 1);
         assert_eq!(w3.0 - base, 2);
+    }
+
+    #[test]
+    fn get_issue_indices_returns_correct_order() {
+        let inputs = [WireId(10), WireId(11)];
+        let outputs = [(WireId(15), 1)];
+        let mut meta = ComponentMeta::new(&inputs, &outputs);
+
+        // Issue some wires in order
+        let w1 = meta.issue_wire(); // Should be index 0
+        let w2 = meta.issue_wire(); // Should be index 1
+        let w3 = meta.issue_wire(); // Should be index 2
+        let w4 = meta.issue_wire(); // Should be index 3
+
+        // Test with wires in different order
+        let test_wires = vec![w3, w1, w4, w2, inputs[0], outputs[0].0, TRUE_WIRE];
+        let indices = meta.get_issue_indices(&test_wires);
+
+        assert_eq!(indices[0], Some(2), "w3 should have index 2");
+        assert_eq!(indices[1], Some(0), "w1 should have index 0");
+        assert_eq!(indices[2], Some(3), "w4 should have index 3");
+        assert_eq!(indices[3], Some(1), "w2 should have index 1");
+        assert_eq!(indices[4], None, "input wire should return None");
+        assert_eq!(indices[5], None, "output wire should return None");
+        assert_eq!(indices[6], None, "TRUE_WIRE should return None");
+    }
+
+    #[test]
+    fn get_issue_indices_with_unknown_wire() {
+        let inputs = [WireId(5), WireId(6)];
+        let mut meta = ComponentMeta::new(&inputs, &[]);
+
+        let w1 = meta.issue_wire();
+        let w2 = meta.issue_wire();
+
+        // Create a wire ID that's beyond what we've issued
+        let unknown_wire = WireId(meta.cursor.0 + 100);
+
+        let test_wires = vec![w1, unknown_wire, w2];
+        let indices = meta.get_issue_indices(&test_wires);
+
+        assert_eq!(indices[0], Some(0));
+        assert_eq!(indices[1], None, "Unknown wire should return None");
+        assert_eq!(indices[2], Some(1));
     }
 }
