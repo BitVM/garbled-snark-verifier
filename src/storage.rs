@@ -59,6 +59,13 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         self.data.is_empty()
     }
 
+    /// Test helper: check if a key currently exists in storage without consuming credits
+    #[cfg(test)]
+    pub fn contains(&self, key: K) -> bool {
+        let index = self.to_index(key);
+        self.data.get(index).is_some()
+    }
+
     fn to_key(&self, index: usize) -> K {
         K::from(index + self.index_offset)
     }
@@ -135,6 +142,8 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
 #[cfg(test)]
 mod tests {
+    use test_log::test;
+
     use super::*;
 
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -155,6 +164,7 @@ mod tests {
     #[test]
     fn get_borrow_then_owned() {
         let mut st = Storage::<Key, String>::new(8);
+        st.index_offset = 0;
         let key = st.allocate("hello".to_string(), 2);
 
         {
@@ -180,6 +190,7 @@ mod tests {
     #[test]
     fn get_owned_when_one_credit() {
         let mut st = Storage::<Key, i32>::new(4);
+        st.index_offset = 0;
         let key = st.allocate(42, 1);
 
         let d = st.get(key).expect("get should succeed");
@@ -208,6 +219,7 @@ mod tests {
     #[test]
     fn unknown_key_not_found() {
         let mut st = Storage::<Key, ()>::new(1);
+        st.index_offset = 0;
         let fake = Key(123);
         assert_eq!(st.get(fake), Err(Error::NotFound { key: 123 }));
         assert_eq!(st.set(fake, |_| ()), Err(Error::NotFound { key: 123 }));

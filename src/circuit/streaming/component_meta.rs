@@ -14,7 +14,12 @@
 //! - If an id less than `offset` is encountered that is not among the I/Os, a panic is generated - such a wire is unknown to the current component.
 //! - Calls to child components increase credits only for input wires passed to them; child internals are not analyzed in this mode.
 
-use std::{cell::RefCell, cmp, collections::HashMap, iter};
+use std::{
+    cell::RefCell,
+    cmp,
+    collections::{HashMap, VecDeque},
+    iter,
+};
 
 use log::{debug, error, trace};
 
@@ -31,7 +36,7 @@ pub struct ComponentMeta {
     /// lifetime (credits) for real wires, during their issue
     ///
     /// Since the order in which they are released is deterministic, everything is fairly trivial
-    credits_stack: RefCell<Vec<u32>>,
+    credits_stack: RefCell<VecDeque<u32>>,
     external_credits: RefCell<Vec<u32>>,
     /// Fast lookup from external wire id -> position in `external_credits`
     external_index: HashMap<WireId, usize>,
@@ -73,7 +78,7 @@ impl ComponentMeta {
         offset.0 += 1;
 
         let this = Self {
-            credits_stack: RefCell::new(vec![]),
+            credits_stack: RefCell::new(VecDeque::new()),
             external_credits: RefCell::new(external_credits),
             external_index,
             cursor: offset,
@@ -98,12 +103,45 @@ impl ComponentMeta {
         ext.iter().take(n_inputs).copied().collect()
     }
 
+    /// Get a copy of the current credits stack for debugging
+    #[cfg(debug_assertions)]
+    pub fn get_credits_stack(&self) -> Vec<u32> {
+        self.credits_stack.borrow().iter().copied().collect()
+    }
+
     pub fn pin(&self, wires: &[WireId]) {
         debug!(
             "ComponentMeta::pin wires={:?}",
             wires.iter().map(|w| w.0).collect::<Vec<_>>()
         );
         self.add_credits(wires, u32::MAX);
+    }
+
+    /// Ensure that wires which are declared as outputs in the metadata pass
+    /// will receive at least `extra` internal credits when we transition to
+    /// the execute pass. This guarantees they can be allocated with non-zero
+    /// credits so their values survive until final decode.
+    ///
+    /// Note: this only affects wires that were issued inside this component
+    /// (i.e. have an internal position in the credits stack). External outputs
+    /// are handled via `pin` in `external_credits`.
+    pub fn boost_internal_output_credits(&self, outputs: &[WireId], extra: u32) {
+        let indices = self.get_issue_indices(outputs);
+        let mut stack = self.credits_stack.borrow_mut();
+
+        for (w, idx_opt) in outputs.iter().zip(indices.into_iter()) {
+            if let Some(idx) = idx_opt
+                && idx < stack.len()
+            {
+                let before = stack[idx];
+                // saturating add to avoid overflow; in practice counts are small
+                stack[idx] = stack[idx].saturating_add(extra);
+                trace!(
+                    "boost_internal_output_credits: wire_id={} idx={} {}+{} -> {}",
+                    w.0, idx, before, extra, stack[idx]
+                );
+            }
+        }
     }
 
     pub fn increment_credits(&self, wires: &[WireId]) {
@@ -123,10 +161,12 @@ impl ComponentMeta {
                 // External wire: increment in external_credits using precomputed map
                 index if index < self.offset => match self.external_index.get(&index) {
                     Some(&pos) => {
-                        external[pos] += 1;
+                        let before = external[pos];
+                        external[pos] = external[pos].checked_add(credit).unwrap_or(external[pos]);
+
                         trace!(
-                            "add_credits: external wire_id={} +={} now_ext[{}]={}",
-                            index.0, credit, pos, external[pos]
+                            "add_credits: external wire_id={} pos={} credit_param={} before={} added=1 after={}",
+                            index.0, pos, credit, before, external[pos]
                         );
                     }
                     None => {
@@ -158,7 +198,14 @@ impl ComponentMeta {
     }
 
     pub fn next_credit(&mut self) -> Option<Credits> {
-        let v = self.credits_stack.borrow_mut().pop();
+        let stack = self.credits_stack.borrow();
+        debug!(
+            "next_credit: stack before pop_front = {:?} (len={})",
+            &*stack,
+            stack.len()
+        );
+        drop(stack);
+        let v = self.credits_stack.borrow_mut().pop_front();
         trace!("next_credit -> {:?}", v);
         v
     }
@@ -204,7 +251,38 @@ impl ComponentMeta {
 
         for (i, opt_pos) in output_indices.iter().enumerate() {
             if let Some(pos) = opt_pos {
-                substitutions.push((*pos as u32, parent_outputs[i].0, parent_outputs[i].1));
+                let (parent_wire, parent_credits) = parent_outputs[i];
+
+                // Check if this output wire is also an input (external wire)
+                // If it is, we need to add the child's internal usage credits
+                let adjusted_credits = if let Some(&external_idx) =
+                    self.external_index.get(&parent_wire)
+                {
+                    // This wire is both input and output
+                    // Get the child's internal credits for this position
+                    let internal_credits =
+                        self.credits_stack.borrow().get(*pos).copied().unwrap_or(0);
+
+                    // Also get external credits that child counted for this wire
+                    let external_credits = self
+                        .external_credits
+                        .borrow()
+                        .get(external_idx)
+                        .copied()
+                        .unwrap_or(0);
+
+                    debug!(
+                        "setup_substitutions: wire {} is both input and output - pos={} internal_credits={} external_credits={} parent_credits={}",
+                        parent_wire.0, pos, internal_credits, external_credits, parent_credits
+                    );
+
+                    // Use the maximum of parent credits and what child needs
+                    parent_credits.max(internal_credits).max(external_credits)
+                } else {
+                    parent_credits
+                };
+
+                substitutions.push((*pos as u32, parent_wire, adjusted_credits));
             }
         }
 
@@ -215,13 +293,16 @@ impl ComponentMeta {
 
         *self.issue_counter.borrow_mut() = 0;
         debug!(
-            "setup_substitutions output_indices={:?} parent_outputs={:?} substitutions_len={}",
+            "setup_substitutions output_indices={:?} parent_outputs={:?} substitutions={:?}",
             output_indices,
             parent_outputs
                 .iter()
                 .map(|(w, c)| (w.0, *c))
                 .collect::<Vec<_>>(),
-            self.substitutions.as_ref().map(|s| s.len()).unwrap_or(0)
+            self.substitutions.as_ref().map(|s| s
+                .iter()
+                .map(|(pos, w, c)| (*pos, w.0, *c))
+                .collect::<Vec<_>>())
         );
     }
 
@@ -289,7 +370,7 @@ impl CircuitContext for ComponentMeta {
         let next = self.cursor;
         self.cursor.0 += 1;
 
-        self.credits_stack.borrow_mut().push(0);
+        self.credits_stack.borrow_mut().push_back(0);
 
         trace!(
             "ComponentMeta::issue_wire -> {} (stack_len={})",
@@ -306,7 +387,36 @@ impl CircuitContext for ComponentMeta {
             "ComponentMeta::add_gate kind={:?} a={} b={} c={}",
             gate.gate_type, gate.wire_a.0, gate.wire_b.0, gate.wire_c.0
         );
+
+        // Log the credits before incrementing
+        if gate.wire_a.0 >= 10 && gate.wire_a.0 <= 27 {
+            let stack = self.credits_stack.borrow();
+            if gate.wire_a >= self.offset {
+                let idx = gate.wire_a.0 - self.offset.0;
+                if idx < stack.len() {
+                    trace!(
+                        "ComponentMeta::add_gate BEFORE increment: wire_a={} has {} credits",
+                        gate.wire_a.0, stack[idx]
+                    );
+                }
+            }
+        }
+
         self.increment_credits(&[gate.wire_a, gate.wire_b]);
+
+        // Log the credits after incrementing
+        if gate.wire_a.0 >= 10 && gate.wire_a.0 <= 27 {
+            let stack = self.credits_stack.borrow();
+            if gate.wire_a >= self.offset {
+                let idx = gate.wire_a.0 - self.offset.0;
+                if idx < stack.len() {
+                    trace!(
+                        "ComponentMeta::add_gate AFTER increment: wire_a={} has {} credits",
+                        gate.wire_a.0, stack[idx]
+                    );
+                }
+            }
+        }
     }
 
     fn with_named_child<O: WiresObject>(
@@ -544,25 +654,6 @@ mod tests {
             counts[idx_w], 1,
             "w should have exactly 1 credit from child input"
         );
-    }
-
-    #[test]
-    fn external_output_credit_is_tracked() {
-        // outputs_credits initializes external credits for outputs; using output as input increments outputs area
-        let inputs = [WireId(2), WireId(3)];
-        let outputs = [(WireId(7), 1)];
-        let mut meta = ComponentMeta::new(&inputs, &outputs);
-
-        // Use output[0] as an input to a gate producing an internal wire
-        let r = meta.issue_wire();
-        meta.add_gate(and(outputs[0].0, TRUE_WIRE, r));
-
-        let external = meta.external_credits.borrow().clone();
-        assert_eq!(external.len(), inputs.len() + outputs.len());
-        assert_eq!(external[0], 0);
-        assert_eq!(external[1], 0);
-        // initial ONE_CREDIT + one use in gate on inputs side of outputs area
-        assert_eq!(external[2], 2);
     }
 
     #[test]

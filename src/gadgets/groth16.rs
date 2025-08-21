@@ -135,12 +135,11 @@ mod tests {
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
+    use test_log::test;
 
     use super::*;
     use crate::{
-        circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute, WiresObject,
-        },
+        circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
         gadgets::bn254::fr::Fr as FrWire,
     };
 
@@ -276,10 +275,11 @@ mod tests {
             c: proof.c.into_group(),
         };
 
-        let out = CircuitBuilder::<Execute>::streaming_execute(inputs, |ctx, wires| {
-            let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
-            vec![ok]
-        });
+        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+                vec![ok]
+            });
 
         assert!(out.output_wires[0]);
     }
@@ -308,10 +308,11 @@ mod tests {
             c: proof.c.into_group(),
         };
 
-        let out = CircuitBuilder::<Execute>::streaming_execute(inputs, |ctx, wires| {
-            let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
-            vec![ok]
-        });
+        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+                vec![ok]
+            });
 
         assert!(!out.output_wires[0]);
     }
@@ -348,10 +349,11 @@ mod tests {
         };
         let b_rand = random_g2_affine(&mut rng);
 
-        let out = CircuitBuilder::<Execute>::streaming_execute(inputs, |ctx, wires| {
-            let ok = groth16_verify(ctx, &wires.public, &wires.a, &b_rand, &wires.c, &vk);
-            vec![ok]
-        });
+        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &b_rand, &wires.c, &vk);
+                vec![ok]
+            });
 
         assert!(!out.output_wires[0]);
     }

@@ -5,7 +5,7 @@ use rand_chacha::ChaChaRng;
 
 use crate::{
     Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
-    circuit::streaming::{FALSE_WIRE, TRUE_WIRE, WireStack},
+    circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
     core::gate::garbling::Blake3Hasher,
 };
 
@@ -30,55 +30,56 @@ pub trait CircuitMode {
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()>;
 }
 
-pub struct Execute(WireStack);
-
-impl Default for Execute {
-    fn default() -> Self {
-        let mut stack = WireStack::default();
-        // Need to push a root frame first
-        stack.push_frame("root", &[]);
-        // Initialize constants
-        stack.feed_wire(FALSE_WIRE, false);
-        stack.feed_wire(TRUE_WIRE, true);
-        Execute(stack)
-    }
-}
-
-impl CircuitMode for Execute {
-    type WireValue = bool;
-
-    fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
-        self.0.lookup_wire(wire)
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: bool) {
-        self.0.feed_wire(wire, value);
-    }
-
-    fn total_size(&self) -> usize {
-        self.0.total_size()
-    }
-
-    fn current_size(&self) -> usize {
-        self.0.current_size()
-    }
-
-    fn push_frame(&mut self, name: &'static str, inputs: &[WireId]) {
-        self.0.push_frame(name, inputs);
-    }
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
-        self.0.pop_frame(outputs)
-    }
-
-    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
-        let wire_a_val = self.lookup_wire(gate.wire_a)?;
-        let wire_b_val = self.lookup_wire(gate.wire_b)?;
-        let result = (gate.gate_type.f())(*wire_a_val, *wire_b_val);
-        self.feed_wire(gate.wire_c, result);
-        Some(())
-    }
-}
+// TODO GARBLE: Execute mode will be removed after refactoring
+// pub struct Execute(WireStack);
+//
+// impl Default for Execute {
+//     fn default() -> Self {
+//         let mut stack = WireStack::default();
+//         // Need to push a root frame first
+//         stack.push_frame("root", &[]);
+//         // Initialize constants
+//         stack.feed_wire(FALSE_WIRE, false);
+//         stack.feed_wire(TRUE_WIRE, true);
+//         Execute(stack)
+//     }
+// }
+//
+// impl CircuitMode for Execute {
+//     type WireValue = bool;
+//
+//     fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
+//         self.0.lookup_wire(wire)
+//     }
+//
+//     fn feed_wire(&mut self, wire: WireId, value: bool) {
+//         self.0.feed_wire(wire, value);
+//     }
+//
+//     fn total_size(&self) -> usize {
+//         self.0.total_size()
+//     }
+//
+//     fn current_size(&self) -> usize {
+//         self.0.current_size()
+//     }
+//
+//     fn push_frame(&mut self, name: &'static str, inputs: &[WireId]) {
+//         self.0.push_frame(name, inputs);
+//     }
+//
+//     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
+//         self.0.pop_frame(outputs)
+//     }
+//
+//     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
+//         let wire_a_val = self.lookup_wire(gate.wire_a)?;
+//         let wire_b_val = self.lookup_wire(gate.wire_b)?;
+//         let result = (gate.gate_type.f())(*wire_a_val, *wire_b_val);
+//         self.feed_wire(gate.wire_c, result);
+//         Some(())
+//     }
+// }
 
 // Example modes to demonstrate the generic design
 

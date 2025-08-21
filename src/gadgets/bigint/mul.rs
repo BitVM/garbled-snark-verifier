@@ -1,7 +1,7 @@
 use circuit_component_macro::bn_component;
-use log::debug;
+use log::{debug, info, trace};
 
-use super::{BigIntWires, BigUint};
+use super::{BigIntWires, BigUint, add};
 use crate::{
     CircuitContext, Gate, GateType, WireId,
     circuit::streaming::{FALSE_WIRE, WiresObject},
@@ -12,10 +12,8 @@ const fn is_use_karatsuba(len: usize) -> bool {
     len > 83
 }
 
-fn extend_with_zero<C: CircuitContext>(circuit: &mut C, bits: &mut Vec<WireId>) {
-    let zero_wire = circuit.issue_wire();
-    circuit.add_gate(Gate::new(GateType::Nimp, bits[0], bits[0], zero_wire));
-    bits.push(zero_wire);
+fn extend_with_zero<C: CircuitContext>(_circuit: &mut C, bits: &mut Vec<WireId>) {
+    bits.push(FALSE_WIRE);
 }
 
 #[bn_component(arity = "a.len() * 2")]
@@ -40,7 +38,7 @@ pub fn mul_generic<C: CircuitContext>(
             addition_wires_1.push(wire);
         }
 
-        let addition_result = super::add::add_generic(
+        let addition_result = add::add_generic(
             circuit,
             &BigIntWires {
                 bits: addition_wires_0,
@@ -69,41 +67,48 @@ pub fn mul_karatsuba<C: CircuitContext>(
         return mul_generic(circuit, a, b);
     }
 
-    let mut result_bits: Vec<WireId> = Vec::with_capacity(len * 2);
-    for _ in 0..(len * 2) {
-        let wire = circuit.issue_wire();
-        circuit.add_gate(Gate::new(GateType::Nimp, a.bits[0], a.bits[0], wire));
-        result_bits.push(wire);
-    }
+    let mut result_bits = vec![FALSE_WIRE; len * 2];
 
     let len_0 = len / 2;
     let len_1 = len.div_ceil(2);
 
-    let a_0 = BigIntWires {
-        bits: a.bits[0..len_0].to_vec(),
-    };
-    let a_1 = BigIntWires {
-        bits: a.bits[len_0..].to_vec(),
-    };
-
-    let b_0 = BigIntWires {
-        bits: b.bits[0..len_0].to_vec(),
-    };
-    let b_1 = BigIntWires {
-        bits: b.bits[len_0..].to_vec(),
-    };
+    let (a_0, a_1) = a.clone().split_at(len_0);
+    let (b_0, b_1) = b.clone().split_at(len_0);
 
     // Use optimal algorithm choice for recursive calls
+    info!(
+        "  Computing sq_0: len_0={}, use_karatsuba={}",
+        len_0,
+        is_use_karatsuba(len_0)
+    );
+
     let sq_0 = if is_use_karatsuba(len_0) {
         mul_karatsuba(circuit, &a_0, &b_0)
     } else {
         mul_generic(circuit, &a_0, &b_0)
     };
+
+    trace!(
+        "  sq_0 result (first 8): {:?}",
+        &sq_0.bits[0..sq_0.bits.len().min(8)]
+    );
+
+    info!(
+        "  Computing sq_1: len_1={}, use_karatsuba={}",
+        len_1,
+        is_use_karatsuba(len_1)
+    );
+
     let sq_1 = if is_use_karatsuba(len_1) {
         mul_karatsuba(circuit, &a_1, &b_1)
     } else {
         mul_generic(circuit, &a_1, &b_1)
     };
+
+    trace!(
+        "  sq_1 result (first 8): {:?}",
+        &sq_1.bits[0..sq_1.bits.len().min(8)]
+    );
 
     let mut extended_a_0 = a_0.bits.clone();
     let mut extended_b_0 = b_0.bits.clone();
@@ -116,16 +121,17 @@ pub fn mul_karatsuba<C: CircuitContext>(
         extend_with_zero(circuit, &mut extended_sq_0);
     }
 
-    let sum_a = super::add::add_generic(circuit, &BigIntWires { bits: extended_a_0 }, &a_1);
-    let sum_b = super::add::add_generic(circuit, &BigIntWires { bits: extended_b_0 }, &b_1);
+    let sum_a = add::add_generic(circuit, &BigIntWires { bits: extended_a_0 }, &a_1);
+    let sum_b = add::add_generic(circuit, &BigIntWires { bits: extended_b_0 }, &b_1);
 
-    let mut sq_sum = super::add::add_generic(
+    let mut sq_sum = add::add_generic(
         circuit,
         &BigIntWires {
             bits: extended_sq_0,
         },
         &sq_1,
     );
+
     extend_with_zero(circuit, &mut sq_sum.bits);
 
     // Use optimal algorithm choice for sum multiplication
@@ -134,24 +140,44 @@ pub fn mul_karatsuba<C: CircuitContext>(
     } else {
         mul_generic(circuit, &sum_a, &sum_b)
     };
-    let cross_term_full = super::add::sub_generic_without_borrow(circuit, &sum_mul, &sq_sum);
+
+    let cross_term_full = add::sub_generic_without_borrow(circuit, &sum_mul, &sq_sum);
     let cross_term = BigIntWires {
         bits: cross_term_full.bits[..(len + 1)].to_vec(),
     };
 
+    trace!(
+        "  cross_term (first 8): {:?}",
+        &cross_term.bits[0..cross_term.bits.len().min(8)]
+    );
+
     result_bits[..(len_0 * 2)].copy_from_slice(&sq_0.bits);
+    trace!(
+        "  After copying sq_0 to result[0..{}]: {:?}",
+        len_0 * 2,
+        &result_bits[0..16.min(result_bits.len())]
+    );
 
     let segment = BigIntWires {
         bits: result_bits[len_0..(len_0 + len + 1)].to_vec(),
     };
-    let new_segment = super::add::add_generic(circuit, &segment, &cross_term);
+    trace!("  segment for cross_term addition: {:?}", &segment.bits);
+    let new_segment = add::add_generic(circuit, &segment, &cross_term);
+    trace!("  new_segment after addition: {:?}", &new_segment.bits);
     result_bits[len_0..(len_0 + len + 2)].copy_from_slice(&new_segment.bits);
+    trace!(
+        "  After adding cross_term: {:?}",
+        &result_bits[0..16.min(result_bits.len())]
+    );
 
     let segment2 = BigIntWires {
         bits: result_bits[(2 * len_0)..].to_vec(),
     };
-    let new_segment2 = super::add::add_generic(circuit, &segment2, &sq_1);
+    trace!("  segment2 for sq_1 addition: {:?}", &segment2.bits);
+    let new_segment2 = add::add_generic(circuit, &segment2, &sq_1);
+    trace!("  new_segment2 after addition: {:?}", &new_segment2.bits);
     result_bits[(2 * len_0)..].copy_from_slice(&new_segment2.bits[..(2 * len_1)]);
+    trace!("  Final result_bits: {:?}", &result_bits);
 
     BigIntWires { bits: result_bits }
 }
@@ -217,7 +243,7 @@ pub fn mul_by_constant<C: CircuitContext>(
                 let mut res = acc_in.clone();
 
                 for &i in chunk {
-                    let new_bits = super::add::add_generic(
+                    let new_bits = add::add_generic(
                         ctx,
                         a,
                         &BigIntWires {
@@ -296,7 +322,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
                         bits: res[i..(i + number_of_bits)].to_vec(),
                     };
 
-                    let new_bits = super::add::add_generic(ctx, &a_slice, &addition_wires);
+                    let new_bits = add::add_generic(ctx, &a_slice, &addition_wires);
 
                     // Write back; carry may spill one extra bit if it still lies under `power`.
                     if i + number_of_bits < power {
@@ -327,9 +353,7 @@ mod tests {
     use crate::{
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{
-                ComponentHandle, EncodeInput, Execute, StreamingResult, modes::CircuitMode,
-            },
+            streaming::{EncodeInput, StreamingResult, modes::CircuitMode},
         },
         gadgets::bigint::bits_from_biguint_with_len,
     };
@@ -376,17 +400,38 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u128,
-        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigIntWires) -> BigIntWires,
+        operation: impl Fn(
+            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &BigIntWires,
+            &BigIntWires,
+        ) -> BigIntWires,
     ) {
+        info!(
+            "test_mul_operation: {} * {} = {} (n_bits={})",
+            a_val, b_val, expected, n_bits
+        );
+
         let input = Input::new(n_bits, [a_val, b_val]);
 
         let StreamingResult {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, input| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
             let [a, b] = input;
+            trace!("Input A wire IDs: {:?}", &a.bits);
+            trace!("Input B wire IDs: {:?}", &b.bits);
+
             let result = operation(root, a, b);
+
+            info!(
+                "Result wire IDs (first 16): {:?}",
+                &result.bits[0..result.bits.len().min(16)]
+            );
             // ARITY CHECK: Verify that mul operations return n_bits * 2 wires
             assert_eq!(
                 result.bits.len(),
@@ -414,6 +459,19 @@ mod tests {
 
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
+
+        info!("Expected bitmask: {}", expected);
+        info!("Actual bitmask:   {}", actual);
+
+        // Log individual wire values for debugging
+        for (i, wire_id) in res.bits.iter().enumerate().take(16) {
+            let actual_val = actual_fn.get(wire_id).copied().unwrap_or(false);
+            let expected_val = expected_fn(*wire_id).unwrap_or(false);
+            trace!(
+                "Wire[{}] (ID: {:?}): actual={}, expected={}",
+                i, wire_id, actual_val, expected_val
+            );
+        }
 
         assert_eq!(expected, actual);
     }
@@ -458,7 +516,11 @@ mod tests {
         a_val: u64,
         c_val: u64,
         expected: u128,
-        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigUint) -> BigIntWires,
+        operation: impl Fn(
+            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &BigIntWires,
+            &BigUint,
+        ) -> BigIntWires,
     ) {
         let input = SingleInput::new(n_bits, a_val);
         let c_big = BigUint::from(c_val);
@@ -467,7 +529,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, a| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
             let result = operation(root, a, &c_big);
             result.to_wires_vec()
         });
@@ -488,6 +554,19 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
+        info!("Expected bitmask: {}", expected);
+        info!("Actual bitmask:   {}", actual);
+
+        // Log individual wire values for debugging
+        for (i, wire_id) in res.bits.iter().enumerate().take(16) {
+            let actual_val = actual_fn.get(wire_id).copied().unwrap_or(false);
+            let expected_val = expected_fn(*wire_id).unwrap_or(false);
+            trace!(
+                "Wire[{}] (ID: {:?}): actual={}, expected={}",
+                i, wire_id, actual_val, expected_val
+            );
+        }
+
         assert_eq!(expected, actual);
     }
 
@@ -496,24 +575,24 @@ mod tests {
     // Basic multiplication tests
     #[test]
     fn test_mul_generic_basic() {
-        test_mul_operation(NUM_BITS, 5, 3, 15, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(100, 5, 3, 15, mul_generic);
     }
 
     #[test]
     fn test_mul_generic_larger() {
-        test_mul_operation(NUM_BITS, 15, 17, 255, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 15, 17, 255, mul_generic);
     }
 
     #[test]
     fn test_mul_generic_zero() {
-        test_mul_operation(NUM_BITS, 0, 42, 0, |c, a, b| mul_generic(c, a, b));
-        test_mul_operation(NUM_BITS, 42, 0, 0, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 0, 42, 0, mul_generic);
+        test_mul_operation(NUM_BITS, 42, 0, 0, mul_generic);
     }
 
     #[test]
     fn test_mul_generic_one() {
-        test_mul_operation(NUM_BITS, 1, 42, 42, |c, a, b| mul_generic(c, a, b));
-        test_mul_operation(NUM_BITS, 42, 1, 42, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 1, 42, 42, mul_generic);
+        test_mul_operation(NUM_BITS, 42, 1, 42, mul_generic);
     }
 
     #[test]
@@ -528,16 +607,16 @@ mod tests {
             max_val,
             max_val,
             (max_val as u128) * (max_val as u128),
-            |c, a, b| mul_generic(c, a, b),
+            mul_generic,
         );
     }
 
     #[test]
     fn test_mul_generic_powers_of_two() {
-        test_mul_operation(NUM_BITS, 2, 2, 4, |c, a, b| mul_generic(c, a, b));
-        test_mul_operation(NUM_BITS, 4, 4, 16, |c, a, b| mul_generic(c, a, b));
-        test_mul_operation(NUM_BITS, 8, 8, 64, |c, a, b| mul_generic(c, a, b));
-        test_mul_operation(NUM_BITS, 16, 16, 256, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(NUM_BITS, 2, 2, 4, mul_generic);
+        test_mul_operation(NUM_BITS, 4, 4, 16, mul_generic);
+        test_mul_operation(NUM_BITS, 8, 8, 64, mul_generic);
+        test_mul_operation(NUM_BITS, 16, 16, 256, mul_generic);
     }
 
     #[test]
@@ -557,24 +636,33 @@ mod tests {
     // Karatsuba multiplication tests
     #[test]
     fn test_mul_karatsuba_basic() {
-        test_mul_operation(NUM_BITS, 5, 3, 15, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 5, 5, 25, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_larger() {
-        test_mul_operation(NUM_BITS, 15, 17, 255, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 15, 17, 255, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_zero() {
-        test_mul_operation(NUM_BITS, 0, 42, 0, |c, a, b| mul_karatsuba(c, a, b));
-        test_mul_operation(NUM_BITS, 42, 0, 0, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 0, 42, 0, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 42, 0, 0, mul_karatsuba);
     }
 
     #[test]
     fn test_mul_karatsuba_one() {
-        test_mul_operation(NUM_BITS, 1, 42, 42, |c, a, b| mul_karatsuba(c, a, b));
-        test_mul_operation(NUM_BITS, 42, 1, 42, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 1, 42, 42, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 42, 1, 42, mul_karatsuba);
+    }
+
+    #[test]
+    fn test_mul_karatsuba_minimal() {
+        // Minimal size that triggers Karatsuba (needs >= 5 bits)
+        test_mul_operation(5, 1, 1, 1, mul_karatsuba);
+        test_mul_operation(5, 1, 2, 2, mul_karatsuba);
+        test_mul_operation(6, 1, 3, 3, mul_karatsuba);
+        test_mul_operation(8, 1, 42, 42, mul_karatsuba);
     }
 
     #[test]
@@ -588,16 +676,16 @@ mod tests {
             max_val,
             max_val,
             (max_val as u128) * (max_val as u128),
-            |c, a, b| mul_karatsuba(c, a, b),
+            mul_karatsuba,
         );
     }
 
     #[test]
     fn test_mul_karatsuba_powers_of_two() {
-        test_mul_operation(NUM_BITS, 2, 2, 4, |c, a, b| mul_karatsuba(c, a, b));
-        test_mul_operation(NUM_BITS, 4, 4, 16, |c, a, b| mul_karatsuba(c, a, b));
-        test_mul_operation(NUM_BITS, 8, 8, 64, |c, a, b| mul_karatsuba(c, a, b));
-        test_mul_operation(NUM_BITS, 16, 16, 256, |c, a, b| mul_karatsuba(c, a, b));
+        test_mul_operation(NUM_BITS, 2, 2, 4, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 4, 4, 16, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 8, 8, 64, mul_karatsuba);
+        test_mul_operation(NUM_BITS, 16, 16, 256, mul_karatsuba);
     }
 
     #[test]
@@ -634,30 +722,30 @@ mod tests {
         for (a, b) in test_cases {
             // Test with same inputs
             let expected = (a as u128) * (b as u128);
-            test_mul_operation(NUM_BITS, a, b, expected, |c, x, y| mul_generic(c, x, y));
-            test_mul_operation(NUM_BITS, a, b, expected, |c, x, y| mul_karatsuba(c, x, y));
+            test_mul_operation(NUM_BITS, a, b, expected, mul_generic);
+            test_mul_operation(NUM_BITS, a, b, expected, mul_karatsuba);
         }
     }
 
     // Multiplication by constant tests
     #[test]
     fn test_mul_by_constant_basic() {
-        test_mul_by_constant_operation(NUM_BITS, 5, 3, 15, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 5, 3, 15, mul_by_constant);
     }
 
     #[test]
     fn test_mul_by_constant_larger() {
-        test_mul_by_constant_operation(NUM_BITS, 15, 17, 255, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 15, 17, 255, mul_by_constant);
     }
 
     #[test]
     fn test_mul_by_constant_zero() {
-        test_mul_by_constant_operation(NUM_BITS, 0, 42, 0, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 0, 42, 0, mul_by_constant);
     }
 
     #[test]
     fn test_mul_by_constant_one() {
-        test_mul_by_constant_operation(NUM_BITS, 42, 1, 42, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 42, 1, 42, mul_by_constant);
     }
 
     #[test]
@@ -673,10 +761,10 @@ mod tests {
 
     #[test]
     fn test_mul_by_constant_powers_of_two() {
-        test_mul_by_constant_operation(NUM_BITS, 17, 2, 34, |c, a, b| mul_by_constant(c, a, b));
-        test_mul_by_constant_operation(NUM_BITS, 17, 4, 68, |c, a, b| mul_by_constant(c, a, b));
-        test_mul_by_constant_operation(NUM_BITS, 17, 8, 136, |c, a, b| mul_by_constant(c, a, b));
-        test_mul_by_constant_operation(NUM_BITS, 17, 16, 272, |c, a, b| mul_by_constant(c, a, b));
+        test_mul_by_constant_operation(NUM_BITS, 17, 2, 34, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 17, 4, 68, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 17, 8, 136, mul_by_constant);
+        test_mul_by_constant_operation(NUM_BITS, 17, 16, 272, mul_by_constant);
     }
 
     // Modular multiplication tests
@@ -690,7 +778,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, a| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
             let result = mul_by_constant_modulo_power_two(root, a, &c, power);
             assert_eq!(result.bits.len(), power);
             result.to_wires_vec()
@@ -713,6 +805,19 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
+        info!("Expected bitmask: {}", expected);
+        info!("Actual bitmask:   {}", actual);
+
+        // Log individual wire values for debugging
+        for (i, wire_id) in res.bits.iter().enumerate().take(16) {
+            let actual_val = actual_fn.get(wire_id).copied().unwrap_or(false);
+            let expected_val = expected_fn(*wire_id).unwrap_or(false);
+            trace!(
+                "Wire[{}] (ID: {:?}): actual={}, expected={}",
+                i, wire_id, actual_val, expected_val
+            );
+        }
+
         assert_eq!(expected, actual);
     }
 
@@ -726,7 +831,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, a| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
             let result = mul_by_constant_modulo_power_two(root, a, &c, power);
             assert_eq!(result.bits.len(), power);
             result.to_wires_vec()
@@ -749,6 +858,19 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
+        info!("Expected bitmask: {}", expected);
+        info!("Actual bitmask:   {}", actual);
+
+        // Log individual wire values for debugging
+        for (i, wire_id) in res.bits.iter().enumerate().take(16) {
+            let actual_val = actual_fn.get(wire_id).copied().unwrap_or(false);
+            let expected_val = expected_fn(*wire_id).unwrap_or(false);
+            trace!(
+                "Wire[{}] (ID: {:?}): actual={}, expected={}",
+                i, wire_id, actual_val, expected_val
+            );
+        }
+
         assert_eq!(expected, actual);
     }
 
@@ -763,7 +885,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, a| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
             let result = mul_by_constant_modulo_power_two(root, a, &c, power);
             result.to_wires_vec()
         });
@@ -785,6 +911,19 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
+        info!("Expected bitmask: {}", expected);
+        info!("Actual bitmask:   {}", actual);
+
+        // Log individual wire values for debugging
+        for (i, wire_id) in res.bits.iter().enumerate().take(16) {
+            let actual_val = actual_fn.get(wire_id).copied().unwrap_or(false);
+            let expected_val = expected_fn(*wire_id).unwrap_or(false);
+            trace!(
+                "Wire[{}] (ID: {:?}): actual={}, expected={}",
+                i, wire_id, actual_val, expected_val
+            );
+        }
+
         assert_eq!(expected, actual);
     }
 
@@ -795,11 +934,11 @@ mod tests {
         const LARGE_BITS: usize = 16;
 
         // Test with 4-bit inputs
-        test_mul_operation(SMALL_BITS, 7, 5, 35, |c, a, b| mul_generic(c, a, b));
-        test_mul_operation(SMALL_BITS, 15, 15, 225, |c, a, b| mul_generic(c, a, b)); // max 4-bit value
+        test_mul_operation(SMALL_BITS, 7, 5, 35, mul_generic);
+        test_mul_operation(SMALL_BITS, 15, 15, 225, mul_generic); // max 4-bit value
 
         // Test with 16-bit inputs (if supported)
-        test_mul_operation(LARGE_BITS, 255, 255, 65025, |c, a, b| mul_generic(c, a, b));
+        test_mul_operation(LARGE_BITS, 255, 255, 65025, mul_generic);
         test_mul_operation(LARGE_BITS, 1000, 1000, 1000000, |c, a, b| {
             mul_generic(c, a, b)
         });
@@ -810,12 +949,12 @@ mod tests {
     fn test_mul_generic_random_properties() {
         // Test multiplicative identity: a * 1 = a
         for a in [0, 1, 7, 15, 42, 100, 255] {
-            test_mul_operation(NUM_BITS, a, 1, a as u128, |c, x, y| mul_generic(c, x, y));
+            test_mul_operation(NUM_BITS, a, 1, a as u128, mul_generic);
         }
 
         // Test zero property: a * 0 = 0
         for a in [1, 7, 15, 42, 100, 255] {
-            test_mul_operation(NUM_BITS, a, 0, 0, |c, x, y| mul_generic(c, x, y));
+            test_mul_operation(NUM_BITS, a, 0, 0, mul_generic);
         }
 
         // Test distributive property: a * (b + c) = a * b + a * c (where results fit in range)
@@ -828,7 +967,4 @@ mod tests {
             }
         }
     }
-
-    // The Karatsuba decision matrix test is omitted as it requires the old Circuit API
-    // The is_use_karatsuba function has been pre-computed with the optimal threshold
 }

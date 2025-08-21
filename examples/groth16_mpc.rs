@@ -10,12 +10,10 @@ use ark_relations::{
     r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
-use garbled_snark_verifier::{self as gsv, WireId};
+use garbled_snark_verifier::{self as gsv, WireId, circuit::streaming::StreamingResult};
 use gsv::{
     FrWire, G1Wire,
-    circuit::streaming::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute, WiresObject,
-    },
+    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
     groth16_verify,
 };
 use rand::SeedableRng;
@@ -162,10 +160,11 @@ fn main() {
     };
 
     // 3) Run the streaming MPC-style execution of the Groth16 verifier gadget
-    let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |ctx, wires| {
-        let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
-        vec![ok]
-    });
+    let result: StreamingResult<_, _, Vec<bool>> =
+        CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+            let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+            vec![ok]
+        });
 
     println!("verification_result={}", result.output_wires[0]);
     assert!(result.output_wires[0], "expected successful verification");

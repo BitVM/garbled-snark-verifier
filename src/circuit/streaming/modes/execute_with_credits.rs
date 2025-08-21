@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 
+use itertools::Itertools;
 use log::{debug, error, trace};
 
 use crate::{
@@ -64,13 +65,19 @@ impl ExecuteWithCredits {
                 let meta = stack.last_mut().unwrap();
 
                 // Check if this issue position has a substitution
-                if let Some((wire_id, credits)) = meta.check_substitution() {
-                    debug!(
-                        "issue_wire_with_credit: substitution hit wire_id={} credits={} stack_depth={}",
-                        wire_id.0,
-                        credits,
-                        stack.len()
-                    );
+                if let Some((wire_id, mut credits)) = meta.check_substitution() {
+                    // Get the internal credits from the stack and add them to the substitution
+                    if let Some(internal_credits) = meta.next_credit() {
+                        credits = credits.saturating_add(internal_credits);
+                        debug!(
+                            "issue_wire_with_credit: substitution hit wire_id={} parent_credits={} internal_credits={} total_credits={} stack_depth={}",
+                            wire_id.0,
+                            credits - internal_credits,
+                            internal_credits,
+                            credits,
+                            stack.len()
+                        );
+                    }
                     return (wire_id, credits);
                 }
 
@@ -90,6 +97,14 @@ impl ExecuteWithCredits {
             }
         }
     }
+
+    #[cfg(test)]
+    fn storage_contains(&self, wire: WireId) -> bool {
+        match self {
+            Self::ExecutePass { storage, .. } => storage.borrow().contains(wire),
+            _ => false,
+        }
+    }
 }
 
 impl CircuitMode for ExecuteWithCredits {
@@ -107,13 +122,25 @@ impl CircuitMode for ExecuteWithCredits {
                 Self::MetadataPass(_) => None,
                 Self::ExecutePass { storage, .. } => {
                     trace!("lookup_wire: wire_id={} -> get()", wire.0);
+
+                    // Debug logging for result wires
+                    if wire.0 >= 18 && wire.0 <= 33 {
+                        debug!("RESULT_WIRE lookup_wire: wire_id={} -> get()", wire.0);
+                    }
+
                     match storage.borrow_mut().get(wire).as_deref() {
                         Ok(&OptionalBoolean::True) => {
                             trace!("lookup_wire: wire_id={} = True", wire.0);
+                            if wire.0 >= 18 && wire.0 <= 33 {
+                                debug!("RESULT_WIRE lookup_wire: wire_id={} = True", wire.0);
+                            }
                             Some(&true)
                         }
                         Ok(&OptionalBoolean::False) => {
                             trace!("lookup_wire: wire_id={} = False", wire.0);
+                            if wire.0 >= 18 && wire.0 <= 33 {
+                                debug!("RESULT_WIRE lookup_wire: wire_id={} = False", wire.0);
+                            }
                             Some(&false)
                         }
                         Ok(&OptionalBoolean::None) => {
@@ -145,6 +172,11 @@ impl CircuitMode for ExecuteWithCredits {
 
         if let Self::ExecutePass { storage, .. } = self {
             trace!("feed_wire: wire_id={} value={}", wire.0, value);
+
+            // Debug logging for specific wires we're interested in
+            if wire.0 >= 18 && wire.0 <= 33 {
+                debug!("RESULT_WIRE feed_wire: wire_id={} value={}", wire.0, value);
+            }
             storage
                 .borrow_mut()
                 .set(wire, |data| {
@@ -216,13 +248,13 @@ impl CircuitContext for ExecuteWithCredits {
 
     fn with_named_child<O: WiresObject>(
         &mut self,
-        _name: &'static str,
+        name: &'static str,
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
         output_arity: impl FnOnce() -> usize,
     ) -> O {
         let arity = output_arity();
-        debug!("with_named_child: enter name={} arity={}", _name, arity);
+        debug!("with_named_child: enter name={name} arity={arity}");
 
         if let Self::MetadataPass(meta) = self {
             meta.increment_credits(&input_wires);
@@ -255,6 +287,13 @@ impl CircuitContext for ExecuteWithCredits {
             _ => unreachable!(),
         };
 
+        // Debug: Log the credits_stack after metadata pass
+        #[cfg(debug_assertions)]
+        debug!(
+            "with_named_child[exec]: child_meta credits_stack after metadata = {:?}",
+            child_meta.get_credits_stack()
+        );
+
         // Get which child internal wires will be outputs (by their issue position)
         let output_indices = child_meta.get_issue_indices(&meta_wires_output);
         debug!(
@@ -265,26 +304,30 @@ impl CircuitContext for ExecuteWithCredits {
         // Propagate child's measured input usage back to the parent's wires
         if let Self::ExecutePass { storage, .. } = self {
             let input_counts = child_meta.external_input_counts(input_wires.len());
+
             debug!(
                 "with_named_child[exec]: child_input_counts={:?} inputs={:?}",
                 input_counts,
                 input_wires.iter().map(|w| w.0).collect::<Vec<_>>()
             );
-            for (wire, count) in input_wires.iter().copied().zip(input_counts.into_iter()) {
+
+            for (wire, count) in input_wires.iter().copied().zip_eq(input_counts.into_iter()) {
                 // Adjust for the parent's metadata pass that counted a +1 "pass" credit.
                 // Execution does not consume a read at call time, so we only need (count - 1)
                 // extra credits to match the child's real reads.
-                let extra = count.saturating_sub(1);
+                //
+                //let extra = count.saturating_sub(1);
+                let extra = count;
                 debug!(
                     "with_named_child[exec]: child_reads={} -> add extra credits wire_id={} +{}",
                     count, wire.0, extra
                 );
                 if extra > 0 {
-                    // Ignore errors for constants/unreachable; those should not appear here
-                    let _ = storage.borrow_mut().add_credits(wire, extra);
+                    storage.borrow_mut().add_credits(wire, extra).unwrap();
                 }
             }
         }
+
         // Phase 2: Pre-allocate parent output wires with credits
         let child_preallocated_outputs: Vec<_> =
             (0..arity).map(|_| self.issue_wire_with_credit()).collect();
@@ -320,7 +363,7 @@ impl CircuitContext for ExecuteWithCredits {
 
         debug!(
             "with_named_child: exit name={} outputs={:?}",
-            _name,
+            name,
             output
                 .to_wires_vec()
                 .iter()
@@ -328,5 +371,55 @@ impl CircuitContext for ExecuteWithCredits {
                 .collect::<Vec<_>>()
         );
         output
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::gate_type::GateType;
+
+    fn and(a: WireId, b: WireId, c: WireId) -> Gate {
+        Gate {
+            gate_type: GateType::And,
+            wire_a: a,
+            wire_b: b,
+            wire_c: c,
+        }
+    }
+
+    #[test]
+    fn no_zombie_parent_wire_after_child_reads() {
+        // Metadata phase: prepare a single parent internal wire
+        let mut meta = ExecuteWithCredits::MetadataPass(ComponentMeta::new(&[], &[]));
+        let parent_wire = match &mut meta {
+            ExecuteWithCredits::MetadataPass(m) => {
+                let w = m.issue_wire();
+                // Mimic the parent pass credit for "being passed to child"
+                m.increment_credits(&[w]);
+                w
+            }
+            _ => unreachable!(),
+        };
+
+        // Switch to execute pass
+        let mut ctx = meta.to_execute_pass(8);
+        ctx.feed_wire(parent_wire, true);
+
+        // Child uses the parent wire twice; after child returns, parent wire must be fully consumed
+        let _out = ctx.with_child(
+            vec![parent_wire],
+            |child| {
+                let out = child.issue_wire();
+                child.add_gate(and(parent_wire, parent_wire, out));
+                vec![out]
+            },
+            || 1,
+        );
+
+        assert!(
+            !ctx.storage_contains(parent_wire),
+            "parent wire should be removed from storage (no zombie)"
+        );
     }
 }

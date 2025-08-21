@@ -377,7 +377,7 @@ pub trait Fp254Impl {
             }
         }
 
-        let (odd_part, even_part) = bigint::odd_part(circuit, a);
+        let [odd_part, even_part] = bigint::odd_part(circuit, a);
 
         // initialize value for wires
         let neg_odd_part = Self::neg(circuit, &odd_part);

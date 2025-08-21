@@ -4,10 +4,10 @@
 
 use ark_ec::PrimeGroup;
 use ark_ff::UniformRand;
-use garbled_snark_verifier as gsv;
+use garbled_snark_verifier::{self as gsv, circuit::streaming::StreamingResult};
 use gsv::{
     G1Wire as G1Projective, WireId,
-    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute},
+    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput},
 };
 // Deterministic RNG helpers
 use rand::{Rng, SeedableRng};
@@ -113,15 +113,16 @@ fn main() {
             s: s_bits.clone(),
         };
 
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |ctx, wires| {
-            let out = G1Projective::multiplexer(ctx, &wires.a, &wires.s, w);
-            // Return all coordinate wires so they are decoded, preventing DCE
-            let mut ids = Vec::new();
-            ids.extend(out.x.iter());
-            ids.extend(out.y.iter());
-            ids.extend(out.z.iter());
-            ids
-        });
+        let result: StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+                let out = G1Projective::multiplexer(ctx, &wires.a, &wires.s, w);
+                // Return all coordinate wires so they are decoded, preventing DCE
+                let mut ids = Vec::new();
+                ids.extend(out.x.iter());
+                ids.extend(out.y.iter());
+                ids.extend(out.z.iter());
+                ids
+            });
 
         // Verify selected point matches expectation (Montgomery domain)
         let got = G1Projective::from_bits_unchecked(result.output_wires.clone());

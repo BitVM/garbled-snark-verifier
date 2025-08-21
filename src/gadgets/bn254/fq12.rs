@@ -19,7 +19,7 @@ use crate::{
 
 pub type Fq12Element<T> = (Fq6Components<T>, Fq6Components<T>);
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Fq12(pub [Fq6; 2]);
 
 impl WiresObject for &Fq12 {
@@ -431,7 +431,8 @@ mod tests {
     use crate::{
         CircuitContext,
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, modes::CircuitMode,
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
+            modes::{CircuitMode, ExecuteWithCredits},
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -547,10 +548,10 @@ mod tests {
         value: ark_bn254::Fq12,
     }
 
-    impl CircuitOutput<Execute> for Fq12Output {
+    impl CircuitOutput<ExecuteWithCredits> for Fq12Output {
         type WireRepr = Fq12;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
             let c0 = decode_fq6_from_wires(&wires.0[0], cache);
             let c1 = decode_fq6_from_wires(&wires.0[1], cache);
             let value = ark_bn254::Fq12::new(c0, c1);
@@ -558,19 +559,31 @@ mod tests {
         }
     }
 
-    fn decode_fq6_from_wires(wires: &Fq6, cache: &Execute) -> ark_bn254::Fq6 {
-        let c0_c0 =
-            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[0].0.clone(), cache);
-        let c0_c1 =
-            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[1].0.clone(), cache);
-        let c1_c0 =
-            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0[0].0.clone(), cache);
-        let c1_c1 =
-            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0[1].0.clone(), cache);
-        let c2_c0 =
-            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[2].0[0].0.clone(), cache);
-        let c2_c1 =
-            <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[2].0[1].0.clone(), cache);
+    fn decode_fq6_from_wires(wires: &Fq6, cache: &ExecuteWithCredits) -> ark_bn254::Fq6 {
+        let c0_c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            wires.0[0].0[0].0.clone(),
+            cache,
+        );
+        let c0_c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            wires.0[0].0[1].0.clone(),
+            cache,
+        );
+        let c1_c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            wires.0[1].0[0].0.clone(),
+            cache,
+        );
+        let c1_c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            wires.0[1].0[1].0.clone(),
+            cache,
+        );
+        let c2_c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            wires.0[2].0[0].0.clone(),
+            cache,
+        );
+        let c2_c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            wires.0[2].0[1].0.clone(),
+            cache,
+        );
 
         let c0 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c0_c0), ark_bn254::Fq::from(c0_c1));
         let c1 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c1_c0), ark_bn254::Fq::from(c1_c1));
@@ -595,14 +608,11 @@ mod tests {
         let expected = a + b;
 
         let input = Fq12Input::new([a, b]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a, b] = input;
                 Fq12::add(ctx, a, b)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -613,14 +623,11 @@ mod tests {
         let expected = -a;
 
         let input = Fq12Input::new([a]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::neg(ctx, a)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -632,14 +639,11 @@ mod tests {
         let expected = a - b;
 
         let input = Fq12Input::new([a, b]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a, b] = input;
                 Fq12::sub(ctx, a, b)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -650,14 +654,11 @@ mod tests {
         let expected = a + a;
 
         let input = Fq12Input::new([a]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::double(ctx, a)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -671,14 +672,11 @@ mod tests {
         let expected = Fq12::as_montgomery(a * b);
 
         let input = Fq12Input::new([a_m, b_m]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a, b] = input;
                 Fq12::mul_montgomery(ctx, a, b)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -692,14 +690,11 @@ mod tests {
         let expected = Fq12::as_montgomery(a * b);
 
         let input = Fq12Input::new([a_m]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::mul_by_constant_montgomery(ctx, a, &b_m)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -797,11 +792,10 @@ mod tests {
         let expected = Fq12::as_montgomery(expected_a);
 
         let input = MulBy34Input { a, c3, c4 };
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| Fq12::mul_by_34_montgomery(ctx, &input.a, &input.c3, &input.c4),
-        );
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
+                Fq12::mul_by_34_montgomery(ctx, &input.a, &input.c3, &input.c4)
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -887,13 +881,10 @@ mod tests {
         let expected = Fq12::as_montgomery(expected_a);
 
         let input = MulBy034Input { a, c0, c3, c4 };
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 Fq12::mul_by_034_montgomery(ctx, &input.a, &input.c0, &input.c3, &input.c4)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -976,10 +967,8 @@ mod tests {
         let expected = Fq12::as_montgomery(expected_a);
 
         let input = MulBy034Const4Input { a, c0, c3 };
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 Fq12::mul_by_034_constant4_montgomery(
                     ctx,
                     &input.a,
@@ -987,8 +976,7 @@ mod tests {
                     &input.c3,
                     &Fq2::as_montgomery(c4),
                 )
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -1000,14 +988,11 @@ mod tests {
         let expected = Fq12::as_montgomery(a * a);
 
         let input = Fq12Input::new([a_m]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::square_montgomery(ctx, a)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -1024,14 +1009,11 @@ mod tests {
         let expected = Fq12::as_montgomery(expected_a);
 
         let input = Fq12Input::new([a_m]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::cyclotomic_square_montgomery(ctx, a)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -1046,9 +1028,9 @@ mod tests {
             let expected_m = Fq12::as_montgomery(expected);
 
             let input = Fq12Input::new([a_m]);
-            let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
+            let result = CircuitBuilder::streaming_execute::<_, _, Fq12Output>(
                 input,
-                Execute::default(),
+                10_000,
                 |ctx, input| {
                     let [a] = input;
                     Fq12::frobenius_montgomery(ctx, a, i)
@@ -1066,14 +1048,11 @@ mod tests {
         let expected = Fq12::as_montgomery(a.inverse().unwrap());
 
         let input = Fq12Input::new([a_m]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::inverse_montgomery(ctx, a)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -1085,14 +1064,11 @@ mod tests {
         expected.conjugate_in_place();
 
         let input = Fq12Input::new([a]);
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, Fq12Output>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
                 let [a] = input;
                 Fq12::conjugate(ctx, a)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }

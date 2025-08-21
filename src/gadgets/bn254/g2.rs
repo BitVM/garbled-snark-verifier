@@ -547,7 +547,8 @@ mod tests {
     use crate::{
         CircuitContext,
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, modes::CircuitMode,
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
+            modes::{CircuitMode, ExecuteWithCredits},
         },
         gadgets::bigint::BigUint as BigUintOutput,
         test_utils::trng,
@@ -654,10 +655,10 @@ mod tests {
         pub point: ark_bn254::G2Projective,
     }
 
-    impl CircuitOutput<Execute> for G2Output {
+    impl CircuitOutput<ExecuteWithCredits> for G2Output {
         type WireRepr = G2Projective;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
             // Decode Fq2 components
             let x_c0 = BigUintOutput::decode(wires.x.c0().0.clone(), cache);
             let x_c1 = BigUintOutput::decode(wires.x.c1().0.clone(), cache);
@@ -696,11 +697,15 @@ mod tests {
         let inputs = G2Input {
             points: [a_mont, b_mont],
         };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires =
-                G2Projective::add_montgomery(root, &inputs_wire.points[0], &inputs_wire.points[1]);
-            result_wires.to_wires_vec()
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G2Projective::add_montgomery(
+                    root,
+                    &inputs_wire.points[0],
+                    &inputs_wire.points[1],
+                );
+                result_wires.to_wires_vec()
+            });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, c_mont);
@@ -717,10 +722,11 @@ mod tests {
         let c_mont = G2Projective::as_montgomery(c);
 
         let inputs = G2Input { points: [a_mont] };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G2Projective::double_montgomery(root, &inputs_wire.points[0]);
-            result_wires.to_wires_vec()
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G2Projective::double_montgomery(root, &inputs_wire.points[0]);
+                result_wires.to_wires_vec()
+            });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, c_mont);
@@ -737,10 +743,11 @@ mod tests {
         let neg_a_mont = G2Projective::as_montgomery(neg_a);
 
         let inputs = G2Input { points: [a_mont] };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G2Projective::neg(root, &inputs_wire.points[0]);
-            result_wires.to_wires_vec()
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G2Projective::neg(root, &inputs_wire.points[0]);
+                result_wires.to_wires_vec()
+            });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, neg_a_mont);
@@ -819,10 +826,12 @@ mod tests {
         }
 
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G2Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
-            result_wires.to_wires_vec()
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires =
+                    G2Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
+                result_wires.to_wires_vec()
+            });
 
         let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, expected);
@@ -835,8 +844,8 @@ mod tests {
         let result = p * s;
 
         let inputs = ScalarInput { scalars: [s] };
-        let circuit_result =
-            CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::scalar_mul_by_constant_base_montgomery::<_, 10>(
                     root,
                     &inputs_wire.scalars[0],
@@ -899,8 +908,8 @@ mod tests {
         }
 
         let inputs = MsmInputs { scalars };
-        let circuit_result =
-            CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::msm_with_constant_bases_montgomery::<10, _>(
                     root,
                     &inputs_wire.scalars,

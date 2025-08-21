@@ -1,4 +1,5 @@
 use circuit_component_macro::{bn_component, component};
+use log::debug;
 use num_bigint::BigUint;
 
 use super::BigIntWires;
@@ -160,11 +161,29 @@ pub fn select<C: CircuitContext>(
 ) -> BigIntWires {
     assert_eq!(a.len(), b.len());
 
+    debug!(
+        "select: a = {:?}",
+        a.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
+    debug!(
+        "select: b = {:?}",
+        b.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
+    debug!("select: s = {}", s.0);
+
     BigIntWires {
         bits: a
             .iter()
             .zip(b.iter())
-            .map(|(a_i, b_i)| crate::gadgets::basic::selector(circuit, *a_i, *b_i, s))
+            .enumerate()
+            .map(|(i, (a_i, b_i))| {
+                let result = crate::gadgets::basic::selector(circuit, *a_i, *b_i, s);
+                debug!(
+                    "select: selector[{}] ({}, {}, {}) -> {}",
+                    i, a_i.0, b_i.0, s.0, result.0
+                );
+                result
+            })
             .collect(),
     }
 }
@@ -196,7 +215,7 @@ pub fn multiplexer<C: CircuitContext>(
 
 //#[cfg(test)]
 //mod tests {
-//    use log::debug;
+//    use debug;
 //    use test_log::test;
 //
 //    use super::*;

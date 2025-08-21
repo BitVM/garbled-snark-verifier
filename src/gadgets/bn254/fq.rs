@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// BN254 base field Fq implementation
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Fq(pub BigIntWires);
 
 impl Deref for Fq {
@@ -312,6 +312,8 @@ pub(super) mod tests {
     use std::{array, collections::HashMap};
 
     use ark_ff::AdditiveGroup;
+    use itertools::Itertools;
+    use log::trace;
     use rand::Rng;
     use test_log::test;
 
@@ -320,7 +322,9 @@ pub(super) mod tests {
         CircuitContext,
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute},
+            streaming::{
+                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, modes::ExecuteWithCredits,
+            },
         },
         gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,
@@ -370,10 +374,10 @@ pub(super) mod tests {
         value: ark_bn254::Fq,
     }
 
-    impl CircuitOutput<Execute> for FqOutput {
+    impl CircuitOutput<ExecuteWithCredits> for FqOutput {
         type WireRepr = Fq;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
             // Decode BigIntWires to BigUint, then convert to ark_bn254::Fq
             let biguint = BigUintOutput::decode(wires.0, cache);
             let value = ark_bn254::Fq::from(biguint);
@@ -413,9 +417,9 @@ pub(super) mod tests {
                 let expected = $ark_op(a_v);
                 let input = FqInput::new([a_v]);
 
-                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                let result = CircuitBuilder::streaming_execute::<_, _, FqOutput>(
                     input,
-                    Execute::default(),
+                    10_000,
                     |ctx, input| {
                         let [a] = input;
                         $op(ctx, a)
@@ -435,9 +439,9 @@ pub(super) mod tests {
                 let expected = $ark_op(a_v, b_v);
                 let input = FqInput::new([a_v, b_v]);
 
-                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                let result = CircuitBuilder::streaming_execute::<_, _, FqOutput>(
                     input,
-                    Execute::default(),
+                    10_000,
                     |ctx, input| {
                         let [a, b] = input;
                         $op(ctx, a, b)
@@ -457,9 +461,9 @@ pub(super) mod tests {
                 let expected = $ark_op(a_v, b_v);
                 let input = FqInput::new([a_v]);
 
-                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                let result = CircuitBuilder::streaming_execute::<_, _, FqOutput>(
                     input,
-                    Execute::default(),
+                    10_000,
                     |ctx, input| {
                         let [a] = input;
                         $op(ctx, a, &b_v)
@@ -479,9 +483,9 @@ pub(super) mod tests {
                 let expected = Fq::as_montgomery($ark_op(a_v));
                 let input = FqInput::new([a_mont]);
 
-                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                let result = CircuitBuilder::streaming_execute::<_, _, FqOutput>(
                     input,
-                    Execute::default(),
+                    10_000,
                     |ctx, input| {
                         let [a] = input;
                         $op(ctx, a)
@@ -503,9 +507,9 @@ pub(super) mod tests {
                 let expected = Fq::as_montgomery($ark_op(a_v, b_v));
                 let input = FqInput::new([a_mont, b_mont]);
 
-                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                let result = CircuitBuilder::streaming_execute::<_, _, FqOutput>(
                     input,
-                    Execute::default(),
+                    10_000,
                     |ctx, input| {
                         let [a, b] = input;
                         $op(ctx, a, b)
@@ -527,9 +531,9 @@ pub(super) mod tests {
                 let expected = Fq::as_montgomery($ark_op(a_v, b_v));
                 let input = FqInput::new([a_mont]);
 
-                let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
+                let result = CircuitBuilder::streaming_execute::<_, _, FqOutput>(
                     input,
-                    Execute::default(),
+                    10_000,
                     |ctx, input| {
                         let [a] = input;
                         $op(ctx, a, &b_mont)
@@ -638,7 +642,8 @@ pub(super) mod tests {
                 cache: &mut M,
             ) {
                 let bits = bits_from_biguint_with_len(&self.value, self.len).unwrap();
-                repr.iter().zip(bits).for_each(|(w, b)| {
+                repr.iter().zip_eq(bits).for_each(|(w, b)| {
+                    trace!("we feed wire={w:?} to {b}");
                     cache.feed_wire(*w, b);
                 });
             }
@@ -649,11 +654,10 @@ pub(super) mod tests {
             value: input_value,
         };
 
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
-            input,
-            Execute::default(),
-            |ctx, x| Fq::montgomery_reduce(ctx, x),
-        );
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, FqOutput>(input, 10_000, |ctx, x| {
+                Fq::montgomery_reduce(ctx, x)
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }
@@ -672,14 +676,11 @@ pub(super) mod tests {
 
         let input = FqInput::new([aa_montgomery]);
 
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, FqOutput>(input, 10_000, |ctx, input| {
                 let [aa_wire] = input;
                 Fq::sqrt_montgomery(ctx, aa_wire)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected_c);
     }
@@ -751,14 +752,11 @@ pub(super) mod tests {
             w,
         };
 
-        let result = CircuitBuilder::<Execute>::streaming_process::<_, _, FqOutput>(
-            input,
-            Execute::default(),
-            |ctx, input| {
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, FqOutput>(input, 10_000, |ctx, input| {
                 let (a, s) = input;
                 Fq::multiplexer(ctx, a, s, w)
-            },
-        );
+            });
 
         assert_eq!(result.output_wires.value, expected);
     }

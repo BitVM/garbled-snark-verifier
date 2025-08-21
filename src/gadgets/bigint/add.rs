@@ -168,9 +168,23 @@ pub fn half<C: CircuitContext>(_circuit: &mut C, a: &BigIntWires) -> BigIntWires
     }
 }
 
-pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntWires, BigIntWires) {
+pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> [BigIntWires; 2] {
+    log::debug!(
+        "odd_part: input a = {:?}",
+        a.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
+
     let mut select_bn = BigIntWires::from_ctx(circuit, a.len() - 1);
+    log::debug!(
+        "odd_part: select_bn after from_ctx = {:?}",
+        select_bn.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
+
     select_bn.insert(0, a.get(0).unwrap());
+    log::debug!(
+        "odd_part: select_bn after insert = {:?}",
+        select_bn.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
 
     for i in 1..a.len() {
         circuit.add_gate(Gate::or(
@@ -181,7 +195,16 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntW
     }
 
     let mut k = BigIntWires::from_ctx(circuit, a.len() - 1);
+    log::debug!(
+        "odd_part: k after from_ctx = {:?}",
+        k.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
+
     k.insert(0, a.get(0).unwrap());
+    log::debug!(
+        "odd_part: k after insert = {:?}",
+        k.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+    );
 
     for i in 1..a.len() {
         circuit.add_gate(Gate::and_variant(
@@ -196,10 +219,26 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> (BigIntW
 
     for i in 0..a.len() {
         let half_res = half(circuit, &odd_acc);
+        log::debug!(
+            "odd_part: iteration {} half_res = {:?}",
+            i,
+            half_res.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
+        log::debug!(
+            "odd_part: iteration {} odd_acc before select = {:?}",
+            i,
+            odd_acc.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
+
         odd_acc = select(circuit, &odd_acc, &half_res, select_bn.get(i).unwrap());
+        log::debug!(
+            "odd_part: iteration {} odd_acc after select = {:?}",
+            i,
+            odd_acc.bits.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
     }
 
-    (odd_acc, k)
+    [odd_acc, k]
 }
 
 #[cfg(test)]
@@ -214,8 +253,8 @@ mod tests {
         circuit::{
             CircuitBuilder, CircuitInput,
             streaming::{
-                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, Execute, StreamingResult,
-                WiresObject,
+                CircuitMode, CircuitOutput, EncodeInput, StreamingResult, WiresObject,
+                modes::ExecuteWithCredits,
             },
         },
         gadgets::bigint::bits_from_biguint_with_len,
@@ -263,7 +302,7 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u64,
-        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigIntWires) -> BigIntWires,
+        operation: impl Fn(&mut ExecuteWithCredits, &BigIntWires, &BigIntWires) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val, b_val]);
 
@@ -271,7 +310,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, input| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
             let [a, b] = input;
             let result = operation(root, a, b);
             // ARITY CHECK: Verify that add/sub operations return n_bits + 1 wires
@@ -309,7 +352,11 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u64,
-        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires, &BigUint) -> BigIntWires,
+        operation: impl Fn(
+            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &BigIntWires,
+            &BigUint,
+        ) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val]);
         let b_big = BigUint::from(b_val);
@@ -318,7 +365,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, input| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
             let [a] = input;
             let result = operation(root, a, &b_big);
 
@@ -347,79 +398,82 @@ mod tests {
 
     #[test]
     fn test_add_generic_basic() {
-        test_two_input_operation(NUM_BITS, 5, 3, 8, |ctx, a, b| add_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 5, 3, 8, add_generic);
     }
 
     #[test]
     fn test_add_generic_with_carry() {
-        test_two_input_operation(NUM_BITS, 7, 9, 16, |ctx, a, b| add_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 7, 9, 16, add_generic);
     }
 
     #[test]
     fn test_add_generic_max_plus_one() {
-        test_two_input_operation(NUM_BITS, 15, 1, 16, |ctx, a, b| add_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 15, 1, 16, add_generic);
     }
 
     #[test]
     fn test_add_generic_zero_zero() {
-        test_two_input_operation(NUM_BITS, 0, 0, 0, |ctx, a, b| add_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 0, 0, 0, add_generic);
     }
 
     #[test]
     fn test_add_generic_one_one() {
-        test_two_input_operation(NUM_BITS, 1, 1, 2, |ctx, a, b| add_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 1, 1, 2, add_generic);
     }
 
     #[test]
     fn test_add_constant_generic_basic() {
-        test_constant_operation(NUM_BITS, 5, 3, 8, |ctx, a, b| add_constant(ctx, a, b));
+        test_constant_operation(NUM_BITS, 5, 3, 8, add_constant);
     }
 
     #[test]
     fn test_add_constant_generic_with_carry() {
-        test_constant_operation(NUM_BITS, 7, 9, 16, |ctx, a, b| add_constant(ctx, a, b));
+        test_constant_operation(NUM_BITS, 7, 9, 16, add_constant);
     }
 
     #[test]
     fn test_add_constant_generic_max_plus_one() {
-        test_constant_operation(NUM_BITS, 15, 1, 16, |ctx, a, b| add_constant(ctx, a, b));
+        test_constant_operation(NUM_BITS, 15, 1, 16, add_constant);
     }
 
     #[test]
     fn test_add_constant_generic_zero_one() {
-        test_constant_operation(NUM_BITS, 0, 1, 1, |ctx, a, b| add_constant(ctx, a, b));
+        test_constant_operation(NUM_BITS, 0, 1, 1, add_constant);
     }
 
     #[test]
     fn test_add_constant_generic_one_one() {
-        test_constant_operation(NUM_BITS, 1, 1, 2, |ctx, a, b| add_constant(ctx, a, b));
+        test_constant_operation(NUM_BITS, 1, 1, 2, add_constant);
     }
 
     #[test]
     fn test_sub_generic_basic() {
-        test_two_input_operation(NUM_BITS, 8, 3, 5, |ctx, a, b| sub_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 8, 3, 5, sub_generic);
     }
 
     #[test]
     fn test_sub_generic_zero_zero() {
-        test_two_input_operation(NUM_BITS, 0, 0, 0, |ctx, a, b| sub_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 0, 0, 0, sub_generic);
     }
 
     #[test]
     fn test_sub_generic_max_minus_one() {
-        test_two_input_operation(NUM_BITS, 15, 1, 14, |ctx, a, b| sub_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 15, 1, 14, sub_generic);
     }
 
     #[test]
     fn test_sub_generic_same_values() {
-        test_two_input_operation(NUM_BITS, 7, 7, 0, |ctx, a, b| sub_generic(ctx, a, b));
+        test_two_input_operation(NUM_BITS, 7, 7, 0, sub_generic);
     }
 
     fn test_single_input_operation(
         n_bits: usize,
         a_val: u64,
         expected: u64,
-        operation: impl FnOnce(&mut ComponentHandle<Execute>, &BigIntWires) -> BigIntWires,
+        operation: impl Fn(
+            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &BigIntWires,
+        ) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val]);
 
@@ -427,7 +481,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        } = CircuitBuilder::streaming_execute(input, |root, input| {
+        }: crate::circuit::streaming::StreamingResult<
+            crate::circuit::streaming::modes::ExecuteWithCredits,
+            _,
+            Vec<bool>,
+        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
             let [a] = input;
 
             let result = operation(root, a);
@@ -463,27 +521,27 @@ mod tests {
 
     #[test]
     fn test_half_even_number() {
-        test_single_input_operation(NUM_BITS, 8, 4, |ctx, a| half(ctx, a));
+        test_single_input_operation(NUM_BITS, 8, 4, half);
     }
 
     #[test]
     fn test_half_odd_number() {
-        test_single_input_operation(NUM_BITS, 9, 4, |ctx, a| half(ctx, a));
+        test_single_input_operation(NUM_BITS, 9, 4, half);
     }
 
     #[test]
     fn test_half_zero() {
-        test_single_input_operation(NUM_BITS, 0, 0, |ctx, a| half(ctx, a));
+        test_single_input_operation(NUM_BITS, 0, 0, half);
     }
 
     #[test]
     fn test_half_one() {
-        test_single_input_operation(NUM_BITS, 1, 0, |ctx, a| half(ctx, a));
+        test_single_input_operation(NUM_BITS, 1, 0, half);
     }
 
     #[test]
     fn test_half_max_value() {
-        test_single_input_operation(NUM_BITS, 15, 7, |ctx, a| half(ctx, a));
+        test_single_input_operation(NUM_BITS, 15, 7, half);
     }
 
     #[test]
@@ -498,10 +556,10 @@ mod tests {
             k: BigUint,
         }
 
-        impl CircuitOutput<Execute> for DivOut {
+        impl CircuitOutput<ExecuteWithCredits> for DivOut {
             type WireRepr = [BigIntWires; 2];
 
-            fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
                 let [odd, k] = wires;
 
                 let odd = BigUint::decode(odd, cache);
@@ -511,17 +569,12 @@ mod tests {
             }
         }
 
-        let result = CircuitBuilder::<Execute>::streaming_process::<Input<_>, _, DivOut>(
-            input,
-            Execute::default(),
-            |root, input| {
+        let result: StreamingResult<_, _, DivOut> =
+            CircuitBuilder::streaming_execute::<_, _, DivOut>(input, 100, |root, input| {
                 let [a] = input;
 
-                let (odd_result, k_result) = odd_part(root, a);
-
-                [odd_result, k_result]
-            },
-        );
+                odd_part(root, a)
+            });
 
         assert_eq!(result.output_wires.odd, expected_odd);
         assert_eq!(result.output_wires.k, expected_k);

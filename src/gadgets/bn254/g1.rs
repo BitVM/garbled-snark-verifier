@@ -413,7 +413,8 @@ mod tests {
     use crate::{
         CircuitContext,
         circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, Execute, modes::CircuitMode,
+            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
+            modes::{CircuitMode, ExecuteWithCredits},
         },
         gadgets::bigint::BigUint as BigUintOutput,
         test_utils::trng,
@@ -516,10 +517,10 @@ mod tests {
         pub point: ark_bn254::G1Projective,
     }
 
-    impl CircuitOutput<Execute> for G1Output {
+    impl CircuitOutput<ExecuteWithCredits> for G1Output {
         type WireRepr = G1Projective;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
             let x = BigUintOutput::decode(wires.x.0, cache);
             let y = BigUintOutput::decode(wires.y.0, cache);
             let z = BigUintOutput::decode(wires.z.0, cache);
@@ -615,14 +616,16 @@ mod tests {
             a: a_mont,
             b: b_mont,
         };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::add_montgomery(root, &inputs_wire.a, &inputs_wire.b);
-            let mut output_ids = Vec::new();
-            output_ids.extend(result_wires.x.iter());
-            output_ids.extend(result_wires.y.iter());
-            output_ids.extend(result_wires.z.iter());
-            output_ids
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires =
+                    G1Projective::add_montgomery(root, &inputs_wire.a, &inputs_wire.b);
+                let mut output_ids = Vec::new();
+                output_ids.extend(result_wires.x.iter());
+                output_ids.extend(result_wires.y.iter());
+                output_ids.extend(result_wires.z.iter());
+                output_ids
+            });
 
         let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, c_mont);
@@ -682,14 +685,15 @@ mod tests {
         }
 
         let inputs = OneG1Input { a: a_mont };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::double_montgomery(root, &inputs_wire.a);
-            let mut output_ids = Vec::new();
-            output_ids.extend(result_wires.x.iter());
-            output_ids.extend(result_wires.y.iter());
-            output_ids.extend(result_wires.z.iter());
-            output_ids
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G1Projective::double_montgomery(root, &inputs_wire.a);
+                let mut output_ids = Vec::new();
+                output_ids.extend(result_wires.x.iter());
+                output_ids.extend(result_wires.y.iter());
+                output_ids.extend(result_wires.z.iter());
+                output_ids
+            });
 
         let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, c_mont);
@@ -766,14 +770,16 @@ mod tests {
         }
 
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
-            let mut output_ids = Vec::new();
-            output_ids.extend(result_wires.x.iter());
-            output_ids.extend(result_wires.y.iter());
-            output_ids.extend(result_wires.z.iter());
-            output_ids
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires =
+                    G1Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
+                let mut output_ids = Vec::new();
+                output_ids.extend(result_wires.x.iter());
+                output_ids.extend(result_wires.y.iter());
+                output_ids.extend(result_wires.z.iter());
+                output_ids
+            });
 
         let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, expected);
@@ -817,8 +823,8 @@ mod tests {
         }
 
         let inputs = ScalarInput { s };
-        let circuit_result =
-            CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G1Projective::scalar_mul_by_constant_base_montgomery::<10, _>(
                     root,
                     &inputs_wire.s,
@@ -884,8 +890,8 @@ mod tests {
         }
 
         let inputs = MsmInputs { scalars };
-        let circuit_result =
-            CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
+        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G1Projective::msm_with_constant_bases_montgomery::<10, _>(
                     root,
                     &inputs_wire.scalars,
@@ -913,10 +919,11 @@ mod tests {
         let neg_a_mont = G1Projective::as_montgomery(neg_a);
 
         let inputs = G1Input { points: [a_mont] };
-        let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |root, inputs_wire| {
-            let result_wires = G1Projective::neg(root, &inputs_wire.points[0]);
-            result_wires.to_wires_vec()
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G1Projective::neg(root, &inputs_wire.points[0]);
+                result_wires.to_wires_vec()
+            });
 
         let actual_result = G1Projective::from_bits_unchecked(result.output_wires.clone());
         assert_eq!(actual_result, neg_a_mont);

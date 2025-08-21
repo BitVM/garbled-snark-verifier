@@ -7,10 +7,10 @@
 use std::env;
 
 use ark_ff::{UniformRand, Zero};
-use garbled_snark_verifier::{self as gsv, WireId};
+use garbled_snark_verifier::{self as gsv, WireId, circuit::streaming::StreamingResult};
 use gsv::{
     Fq,
-    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, Execute},
+    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput},
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -70,15 +70,16 @@ fn main() {
 
     let inputs = Inputs { vals };
 
-    let result = CircuitBuilder::<Execute>::streaming_execute(inputs, |ctx, wires| {
-        // compute inverses and return all wires
-        let mut out_ids = Vec::new();
-        for fq in &wires.vals {
-            let inv = Fq::inverse(ctx, fq);
-            out_ids.extend(inv.0.iter());
-        }
-        out_ids
-    });
+    let result: StreamingResult<_, _, Vec<bool>> =
+        CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+            // compute inverses and return all wires
+            let mut out_ids = Vec::new();
+            for fq in &wires.vals {
+                let inv = Fq::inverse(ctx, fq);
+                out_ids.extend(inv.0.iter());
+            }
+            out_ids
+        });
 
     // Use the output so optimizer can't drop it
     println!("outputs={} wires", result.output_wires.len());

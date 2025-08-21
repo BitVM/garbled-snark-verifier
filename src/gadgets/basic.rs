@@ -63,12 +63,27 @@ pub fn full_subtracter<C: CircuitContext>(
 }
 
 pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: WireId) -> WireId {
+    log::trace!("selector: inputs a={}, b={}, c={}", a.0, b.0, c.0);
+
     let [d, f, g] = array::from_fn(|_| circuit.issue_wire());
 
-    circuit.add_gate(Gate::nand(a, c, d));
-    circuit.add_gate(Gate::and_variant(c, b, f, [true, false, true]));
-    circuit.add_gate(Gate::nand(d, f, g));
+    log::trace!("selector: issued wires d={}, f={}, g={}", d.0, f.0, g.0);
 
+    circuit.add_gate(Gate::nand(a, c, d));
+    log::trace!("selector: added gate Nand({}, {}) -> {}", a.0, c.0, d.0);
+
+    circuit.add_gate(Gate::and_variant(c, b, f, [true, false, true]));
+    log::trace!(
+        "selector: added gate AndVariant({}, {}) -> {}",
+        c.0,
+        b.0,
+        f.0
+    );
+
+    circuit.add_gate(Gate::nand(d, f, g));
+    log::trace!("selector: added gate Nand({}, {}) -> {}", d.0, f.0, g.0);
+
+    log::trace!("selector: returning wire {}", g.0);
     g
 }
 
@@ -107,24 +122,32 @@ mod tests {
 
     #[test]
     fn not_not() {
-        let not_not = CircuitBuilder::streaming_execute([true], |circuit, wire| {
-            let [mut wire] = *wire;
-            circuit.add_gate(Gate::not(&mut wire));
-            circuit.add_gate(Gate::not(&mut wire));
+        let not_not = CircuitBuilder::streaming_execute::<[bool; 1], _, Vec<bool>>(
+            [true],
+            10_000,
+            |circuit, wire| {
+                let [mut wire] = *wire;
+                circuit.add_gate(Gate::not(&mut wire));
+                circuit.add_gate(Gate::not(&mut wire));
 
-            vec![wire]
-        })
+                vec![wire]
+            },
+        )
         .output_wires[0];
         assert!(not_not);
 
-        let not_not_not = CircuitBuilder::streaming_execute([true], |circuit, wire| {
-            let [mut wire] = *wire;
-            circuit.add_gate(Gate::not(&mut wire));
-            circuit.add_gate(Gate::not(&mut wire));
-            circuit.add_gate(Gate::not(&mut wire));
+        let not_not_not = CircuitBuilder::streaming_execute::<[bool; 1], _, Vec<bool>>(
+            [true],
+            10_000,
+            |circuit, wire| {
+                let [mut wire] = *wire;
+                circuit.add_gate(Gate::not(&mut wire));
+                circuit.add_gate(Gate::not(&mut wire));
+                circuit.add_gate(Gate::not(&mut wire));
 
-            vec![wire]
-        })
+                vec![wire]
+            },
+        )
         .output_wires[0];
 
         assert!(!not_not_not);
@@ -132,20 +155,24 @@ mod tests {
 
     #[test]
     fn xnor_connection_test() {
-        let result = CircuitBuilder::streaming_execute([true, true], |circuit, wires| {
-            let [mut a_wire, mut b_wire] = *wires;
+        let result = CircuitBuilder::streaming_execute::<[bool; 2], _, Vec<bool>>(
+            [true, true],
+            10_000,
+            |circuit, wires| {
+                let [mut a_wire, mut b_wire] = *wires;
 
-            circuit.add_gate(Gate::not(&mut a_wire));
-            circuit.add_gate(Gate::not(&mut a_wire));
+                circuit.add_gate(Gate::not(&mut a_wire));
+                circuit.add_gate(Gate::not(&mut a_wire));
 
-            circuit.add_gate(Gate::not(&mut b_wire));
-            circuit.add_gate(Gate::not(&mut b_wire));
+                circuit.add_gate(Gate::not(&mut b_wire));
+                circuit.add_gate(Gate::not(&mut b_wire));
 
-            let res = circuit.issue_wire();
-            circuit.add_gate(Gate::and(a_wire, b_wire, res));
+                let res = circuit.issue_wire();
+                circuit.add_gate(Gate::and(a_wire, b_wire, res));
 
-            vec![res]
-        })
+                vec![res]
+            },
+        )
         .output_wires[0];
 
         assert!(result);
@@ -161,11 +188,15 @@ mod tests {
         ];
 
         for ((a, b), (expected_result, expected_carry)) in test_cases {
-            let outputs = CircuitBuilder::streaming_execute([a, b], |circuit, wires| {
-                let [a_wire, b_wire] = *wires;
-                let (result_wire, carry_wire) = half_adder(circuit, a_wire, b_wire);
-                vec![result_wire, carry_wire]
-            })
+            let outputs: Vec<bool> = CircuitBuilder::streaming_execute::<[bool; 2], _, Vec<bool>>(
+                [a, b],
+                10_000,
+                |circuit, wires| {
+                    let [a_wire, b_wire] = *wires;
+                    let (result_wire, carry_wire) = half_adder(circuit, a_wire, b_wire);
+                    vec![result_wire, carry_wire]
+                },
+            )
             .output_wires;
 
             assert_eq!(outputs[0], expected_result);
@@ -187,11 +218,15 @@ mod tests {
         ];
 
         for ((a, b, c), (expected_result, expected_carry)) in test_cases {
-            let outputs = CircuitBuilder::streaming_execute([a, b, c], |circuit, wires| {
-                let [a_wire, b_wire, c_wire] = *wires;
-                let (result_wire, carry_wire) = full_adder(circuit, a_wire, b_wire, c_wire);
-                vec![result_wire, carry_wire]
-            })
+            let outputs: Vec<bool> = CircuitBuilder::streaming_execute::<[bool; 3], _, Vec<bool>>(
+                [a, b, c],
+                10_000,
+                |circuit, wires| {
+                    let [a_wire, b_wire, c_wire] = *wires;
+                    let (result_wire, carry_wire) = full_adder(circuit, a_wire, b_wire, c_wire);
+                    vec![result_wire, carry_wire]
+                },
+            )
             .output_wires;
 
             assert_eq!(outputs[0], expected_result);
@@ -209,11 +244,15 @@ mod tests {
         ];
 
         for ((a, b), (expected_result, expected_borrow)) in test_cases {
-            let outputs = CircuitBuilder::streaming_execute([a, b], |circuit, wires| {
-                let [a_wire, b_wire] = *wires;
-                let (result_wire, borrow_wire) = half_subtracter(circuit, a_wire, b_wire);
-                vec![result_wire, borrow_wire]
-            })
+            let outputs: Vec<bool> = CircuitBuilder::streaming_execute::<[bool; 2], _, Vec<bool>>(
+                [a, b],
+                10_000,
+                |circuit, wires| {
+                    let [a_wire, b_wire] = *wires;
+                    let (result_wire, borrow_wire) = half_subtracter(circuit, a_wire, b_wire);
+                    vec![result_wire, borrow_wire]
+                },
+            )
             .output_wires;
 
             assert_eq!(outputs[0], expected_result);
@@ -235,11 +274,16 @@ mod tests {
         ];
 
         for ((a, b, c), (expected_result, expected_carry)) in test_cases {
-            let outputs = CircuitBuilder::streaming_execute([a, b, c], |circuit, wires| {
-                let [a_wire, b_wire, c_wire] = *wires;
-                let (result_wire, carry_wire) = full_subtracter(circuit, a_wire, b_wire, c_wire);
-                vec![result_wire, carry_wire]
-            })
+            let outputs: Vec<bool> = CircuitBuilder::streaming_execute::<[bool; 3], _, Vec<bool>>(
+                [a, b, c],
+                10_000,
+                |circuit, wires| {
+                    let [a_wire, b_wire, c_wire] = *wires;
+                    let (result_wire, carry_wire) =
+                        full_subtracter(circuit, a_wire, b_wire, c_wire);
+                    vec![result_wire, carry_wire]
+                },
+            )
             .output_wires;
 
             assert_eq!(outputs[0], expected_result);
@@ -261,11 +305,15 @@ mod tests {
         ];
 
         for ((a, b, c), expected_result) in test_cases {
-            let output = CircuitBuilder::streaming_execute([a, b, c], |circuit, wires| {
-                let [a_wire, b_wire, c_wire] = *wires;
-                let result_wire = selector(circuit, a_wire, b_wire, c_wire);
-                vec![result_wire]
-            })
+            let output = CircuitBuilder::streaming_execute::<[bool; 3], _, Vec<bool>>(
+                [a, b, c],
+                10_000,
+                |circuit, wires| {
+                    let [a_wire, b_wire, c_wire] = *wires;
+                    let result_wire = selector(circuit, a_wire, b_wire, c_wire);
+                    vec![result_wire]
+                },
+            )
             .output_wires[0];
 
             assert_eq!(output, expected_result);
@@ -341,13 +389,17 @@ mod tests {
             select: select_values,
         };
 
-        let output = CircuitBuilder::streaming_execute(inputs, |circuit, wires| {
-            let data_wires = wires.data.to_vec();
-            let select_wires = wires.select.to_vec();
+        let output = CircuitBuilder::streaming_execute::<MuxInputs, _, Vec<bool>>(
+            inputs,
+            10_000,
+            |circuit, wires| {
+                let data_wires = wires.data.to_vec();
+                let select_wires = wires.select.to_vec();
 
-            let result_wire = multiplexer(circuit, &data_wires, &select_wires, 3);
-            vec![result_wire]
-        })
+                let result_wire = multiplexer(circuit, &data_wires, &select_wires, 3);
+                vec![result_wire]
+            },
+        )
         .output_wires[0];
 
         assert_eq!(output, expected);
