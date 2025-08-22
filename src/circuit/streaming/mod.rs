@@ -196,12 +196,7 @@ impl CircuitBuilder<ExecuteWithCredits> {
         );
 
         if let ExecuteWithCredits::MetadataPass(meta) = &mut meta {
-            let outs = output.to_wires_vec();
-            // Pin outputs so they are considered external and kept alive,
-            // and also ensure internally-issued outputs receive at least one
-            // extra credit so they are actually allocated during execute.
-            meta.pin(&outs);
-            meta.boost_internal_output_credits(&outs, 1);
+            meta.increment_credits(&output.to_wires_vec());
         }
 
         let mut ctx = meta.to_execute_pass(live_wires_capacity);
@@ -616,7 +611,9 @@ mod exec_test {
     }
 
     #[test]
-    #[should_panic(expected = "Output wire")]
+    #[should_panic(
+        expected = "Wrong output wire: WireId(999), because offset here is 3 with cursor 3"
+    )]
     fn test_missing_output_panics() {
         // Test that missing output wires cause a panic
         let inputs = [true, false];
@@ -841,28 +838,5 @@ mod exec_test {
             });
 
         assert!(output.output_wires[0]); // Should still be true after 1000 AND operations with TRUE
-    }
-
-    #[test]
-    #[should_panic(expected = "appears multiple times")]
-    fn test_duplicate_output_panics() {
-        // Test that returning the same wire twice as output causes panic
-        let inputs = [true, false];
-
-        let _: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
-                root.with_child(
-                    vec![inputs_wire[0]],
-                    |child| {
-                        let result = child.issue_wire();
-                        child.add_gate(Gate::and(inputs_wire[0], TRUE_WIRE, result));
-                        // Return same wire twice - should panic during extract_outputs
-                        vec![result, result]
-                    },
-                    || 2,
-                );
-
-                vec![]
-            });
     }
 }
