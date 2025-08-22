@@ -1,4 +1,4 @@
-use std::{cell::RefCell, iter};
+use std::{cell::RefCell, iter, time::Instant};
 
 use itertools::Itertools;
 use log::{debug, error, trace};
@@ -241,6 +241,7 @@ impl CircuitContext for ExecuteWithCredits {
             return O::from_wires(&mock_output).unwrap();
         }
 
+        let instance = Instant::now();
         debug!("with_named_child: enter name={name} arity={arity}");
 
         let pre_alloc_output_credits = {
@@ -311,13 +312,14 @@ impl CircuitContext for ExecuteWithCredits {
         }
 
         debug!(
-            "with_named_child: exit name={} outputs={:?}",
+            "with_named_child: exit name={} outputs={:?}, duration = {:?} ms",
             name,
             output
                 .to_wires_vec()
                 .iter()
                 .map(|w| w.0)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            instance.elapsed()
         );
         output
     }
