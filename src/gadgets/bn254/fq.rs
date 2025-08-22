@@ -1,4 +1,5 @@
 use std::{
+    iter,
     ops::{Deref, DerefMut},
     str::FromStr,
 };
@@ -641,16 +642,24 @@ pub(super) mod tests {
                 repr: &Self::WireRepr,
                 cache: &mut M,
             ) {
-                let bits = bits_from_biguint_with_len(&self.value, self.len).unwrap();
-                repr.iter().zip_eq(bits).for_each(|(w, b)| {
-                    trace!("we feed wire={w:?} to {b}");
-                    cache.feed_wire(*w, b);
-                });
+                assert_eq!(repr.len(), self.len);
+
+                repr.iter()
+                    .zip(
+                        bits_from_biguint_with_len(&self.value, self.len)
+                            .unwrap()
+                            .into_iter()
+                            .chain(iter::repeat(false)),
+                    )
+                    .for_each(|(w, b)| {
+                        trace!("we feed wire={w:?} to {b}");
+                        cache.feed_wire(*w, b);
+                    });
             }
         }
 
         let input = BigIntInput {
-            len: 2 * Fq::N_BITS,
+            len: Fq::N_BITS * 2,
             value: input_value,
         };
 

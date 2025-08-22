@@ -3,7 +3,10 @@ use log::debug;
 use num_bigint::BigUint;
 
 use super::BigIntWires;
-use crate::{CircuitContext, Gate, WireId, gadgets::bigint::bits_from_biguint_with_len};
+use crate::{
+    CircuitContext, Gate, WireId,
+    gadgets::{basic, bigint::bits_from_biguint_with_len},
+};
 
 #[bn_component(arity = "a.len()")]
 pub fn self_or_zero<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, s: WireId) -> BigIntWires {
@@ -177,7 +180,7 @@ pub fn select<C: CircuitContext>(
             .zip(b.iter())
             .enumerate()
             .map(|(i, (a_i, b_i))| {
-                let result = crate::gadgets::basic::selector(circuit, *a_i, *b_i, s);
+                let result = basic::selector(circuit, *a_i, *b_i, s);
                 debug!(
                     "select: selector[{}] ({}, {}, {}) -> {}",
                     i, a_i.0, b_i.0, s.0, result.0

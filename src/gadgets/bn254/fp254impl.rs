@@ -3,6 +3,7 @@ use std::str::FromStr;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use circuit_component_macro::{bn_component, component};
 use itertools::Itertools;
+use log::debug;
 use num_bigint::{BigInt, BigUint};
 use num_traits::{One, Zero};
 

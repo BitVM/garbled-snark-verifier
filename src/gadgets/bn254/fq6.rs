@@ -533,6 +533,7 @@ impl Fq6 {
 #[cfg(test)]
 mod tests {
     use ark_ff::{AdditiveGroup, Field, Fp12Config};
+    use test_log::test;
 
     use super::*;
     use crate::{

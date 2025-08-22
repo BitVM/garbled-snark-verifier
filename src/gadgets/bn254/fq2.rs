@@ -33,11 +33,12 @@ pub struct Fq2(pub [Fq; 2]);
 
 impl WiresObject for &Fq2 {
     fn to_wires_vec(&self) -> Vec<WireId> {
-        self.0[0]
-            .to_wires_vec()
-            .into_iter()
-            .chain(self.0[1].to_wires_vec())
-            .collect()
+        let [
+            Fq(BigIntWires { bits: bits1 }),
+            Fq(BigIntWires { bits: bits2 }),
+        ] = &self.0;
+
+        bits1.iter().chain(bits2.iter()).copied().collect()
     }
 
     fn from_wires(_wires: &[WireId]) -> Option<Self> {
@@ -48,17 +49,16 @@ impl WiresObject for &Fq2 {
 
 impl WiresObject for Fq2 {
     fn to_wires_vec(&self) -> Vec<WireId> {
-        self.0[0]
-            .to_wires_vec()
-            .into_iter()
-            .chain(self.0[1].to_wires_vec())
-            .collect()
+        let [
+            Fq(BigIntWires { bits: bits1 }),
+            Fq(BigIntWires { bits: bits2 }),
+        ] = &self.0;
+
+        bits1.iter().chain(bits2.iter()).copied().collect()
     }
 
     fn from_wires(wires: &[WireId]) -> Option<Self> {
-        if wires.len() != 2 * Fq::N_BITS * 5 {
-            return None;
-        }
+        assert_eq!(wires.len(), Self::N_BITS);
 
         let mid = wires.len() / 2;
         let fq0 = Fq::from_wires(&wires[0..mid])?;

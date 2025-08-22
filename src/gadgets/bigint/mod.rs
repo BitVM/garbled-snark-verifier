@@ -43,7 +43,6 @@ pub fn bits_from_biguint_with_len(u: &BigUint, bit_count: usize) -> Result<BitVe
     }
 
     let mut bytes = u.to_bytes_le();
-    //let byte_count = (bit_count + 7) / 8;
     let byte_count = bit_count.div_ceil(8);
     bytes.resize(byte_count, 0);
     Ok(BitVec::from_vec(bytes))
@@ -51,7 +50,7 @@ pub fn bits_from_biguint_with_len(u: &BigUint, bit_count: usize) -> Result<BitVe
 
 #[derive(Debug, Clone)]
 pub struct BigIntWires {
-    bits: Vec<WireId>,
+    pub bits: Vec<WireId>,
 }
 
 impl BigIntWires {
