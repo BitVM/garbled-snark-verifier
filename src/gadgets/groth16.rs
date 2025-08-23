@@ -135,7 +135,6 @@ mod tests {
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
-    use test_log::test;
 
     use super::*;
     use crate::{

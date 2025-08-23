@@ -1,7 +1,7 @@
 use std::{cell::RefCell, iter, time::Instant};
 
 use itertools::Itertools;
-use log::{debug, error, trace};
+use log::{debug, error};
 
 use crate::{
     CircuitContext, Gate, WireId,
@@ -36,7 +36,6 @@ pub enum ExecuteWithCredits {
 
 impl ExecuteWithCredits {
     pub fn new(capacity: usize) -> Self {
-        debug!("ExecuteWithCredits::new capacity={}", capacity);
         Self::ExecutePass {
             storage: RefCell::new(Storage::new(capacity)),
             stack: vec![],
@@ -45,10 +44,6 @@ impl ExecuteWithCredits {
 
     pub fn to_execute_pass(self, capacity: usize) -> Self {
         if let Self::MetadataPass(meta) = self {
-            debug!(
-                "ExecuteWithCredits::to_execute_pass: start execute with stack depth=1 capacity={}",
-                capacity
-            );
             Self::ExecutePass {
                 storage: RefCell::new(Storage::new(capacity)),
                 stack: vec![meta],
@@ -67,12 +62,6 @@ impl ExecuteWithCredits {
                 // Normal allocation path
                 if let Some(credit) = meta.next_credit() {
                     let wire_id = storage.borrow_mut().allocate(OptionalBoolean::None, credit);
-                    debug!(
-                        "issue_wire_with_credit: allocated wire_id={} credits={} stack_depth={}",
-                        wire_id.0,
-                        credit,
-                        stack.len()
-                    );
                     (wire_id, credit)
                 } else {
                     unreachable!("{self:?}")
@@ -102,23 +91,9 @@ impl CircuitMode for ExecuteWithCredits {
             wire => match self {
                 Self::MetadataPass(_) => None,
                 Self::ExecutePass { storage, .. } => {
-                    trace!("lookup_wire: wire_id={} -> get()", wire.0);
-
                     match storage.borrow_mut().get(wire).as_deref() {
-                        Ok(&OptionalBoolean::True) => {
-                            trace!("lookup_wire: wire_id={} = True", wire.0);
-                            if wire.0 >= 18 && wire.0 <= 33 {
-                                debug!("RESULT_WIRE lookup_wire: wire_id={} = True", wire.0);
-                            }
-                            Some(&true)
-                        }
-                        Ok(&OptionalBoolean::False) => {
-                            trace!("lookup_wire: wire_id={} = False", wire.0);
-                            if wire.0 >= 18 && wire.0 <= 33 {
-                                debug!("RESULT_WIRE lookup_wire: wire_id={} = False", wire.0);
-                            }
-                            Some(&false)
-                        }
+                        Ok(&OptionalBoolean::True) => Some(&true),
+                        Ok(&OptionalBoolean::False) => Some(&false),
                         Ok(&OptionalBoolean::None) => {
                             error!("lookup_wire: wire_id={} has no value yet", wire.0);
                             panic!("value not writed: {wire:?}")
@@ -142,12 +117,6 @@ impl CircuitMode for ExecuteWithCredits {
         }
 
         if let Self::ExecutePass { storage, .. } = self {
-            trace!("feed_wire: wire_id={} value={}", wire.0, value);
-
-            // Debug logging for specific wires we're interested in
-            if wire.0 >= 18 && wire.0 <= 33 {
-                debug!("RESULT_WIRE feed_wire: wire_id={} value={}", wire.0, value);
-            }
             storage
                 .borrow_mut()
                 .set(wire, |data| {
@@ -187,10 +156,6 @@ impl CircuitMode for ExecuteWithCredits {
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
-        trace!(
-            "evaluate_gate: kind={:?} a={} b={} -> c={}",
-            gate.gate_type, gate.wire_a.0, gate.wire_b.0, gate.wire_c.0
-        );
         assert_ne!(gate.wire_a, WireId::UNREACHABLE);
         assert_ne!(gate.wire_b, WireId::UNREACHABLE);
 
@@ -291,7 +256,6 @@ impl CircuitContext for ExecuteWithCredits {
                 }
 
                 if wire_id != &WireId::UNREACHABLE {
-                    trace!("unpin input: wire_id={wire_id:?} -> get()");
                     storage.get(*wire_id).unwrap(); // Take off the credit that was for the input
                 }
             }
@@ -303,10 +267,6 @@ impl CircuitContext for ExecuteWithCredits {
         let output = f(self);
 
         if let Self::ExecutePass { stack, .. } = self {
-            trace!(
-                "with_named_child[exec]: pop child meta; stack_depth={}",
-                stack.len() - 1
-            );
             let used_child_meta = stack.pop();
             assert!(used_child_meta.unwrap().credits_stack.is_empty());
         }

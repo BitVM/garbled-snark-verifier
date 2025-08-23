@@ -998,7 +998,7 @@ mod tests {
 
         let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
-            10_000,
+            1_000_000,
             |ctx, input| {
                 let Fq2SqrtZeroWire { value, is_qr } = input;
                 Fq2::sqrt_c1_zero_montgomery(ctx, value, *is_qr)
