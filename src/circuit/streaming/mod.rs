@@ -744,7 +744,7 @@ mod exec_test {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "Unknown input wire")]
     fn test_parent_wire_access_panics() {
         // Test that child cannot access parent wires not in input_wires
         let inputs = [true, false];
