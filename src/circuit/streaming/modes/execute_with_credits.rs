@@ -149,15 +149,6 @@ impl CircuitMode for ExecuteWithCredits {
         }
     }
 
-    fn push_frame(&mut self, _name: &'static str, _inputs: &[WireId]) {
-        // Not used in this prototype mode
-    }
-
-    fn pop_frame(&mut self, _outputs: &[WireId]) -> Vec<(WireId, Self::WireValue)> {
-        // Not used in this prototype mode
-        vec![]
-    }
-
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
         assert_ne!(gate.wire_a, WireId::UNREACHABLE);
         assert_ne!(gate.wire_b, WireId::UNREACHABLE);

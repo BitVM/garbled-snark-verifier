@@ -117,7 +117,7 @@ impl GateCount {
 
     fn and_variants_count(&self) -> u64 {
         let mut sum = 0u64;
-        for x in &self.0[0..8] {
+        for x in &self.0[0..=7] {
             sum += x;
         }
         sum
@@ -129,50 +129,6 @@ impl GateCount {
 
     fn xor_variants_count(&self) -> u64 {
         self.0[GateType::Xor as usize] + self.0[GateType::Xnor as usize]
-    }
-
-    pub fn and_count(&self) -> u64 {
-        self.0[GateType::And as usize]
-    }
-
-    pub fn nand_count(&self) -> u64 {
-        self.0[GateType::Nand as usize]
-    }
-
-    pub fn nimp_count(&self) -> u64 {
-        self.0[GateType::Nimp as usize]
-    }
-
-    pub fn imp_count(&self) -> u64 {
-        self.0[GateType::Imp as usize]
-    }
-
-    pub fn ncimp_count(&self) -> u64 {
-        self.0[GateType::Ncimp as usize]
-    }
-
-    pub fn cimp_count(&self) -> u64 {
-        self.0[GateType::Cimp as usize]
-    }
-
-    pub fn nor_count(&self) -> u64 {
-        self.0[GateType::Nor as usize]
-    }
-
-    pub fn or_count(&self) -> u64 {
-        self.0[GateType::Or as usize]
-    }
-
-    pub fn xor_count(&self) -> u64 {
-        self.0[GateType::Xor as usize]
-    }
-
-    pub fn xnor_count(&self) -> u64 {
-        self.0[GateType::Xnor as usize]
-    }
-
-    pub fn not_count(&self) -> u64 {
-        self.0[GateType::Not as usize]
     }
 }
 

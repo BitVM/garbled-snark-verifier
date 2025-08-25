@@ -23,10 +23,6 @@ pub trait CircuitMode {
 
     fn current_size(&self) -> usize;
 
-    fn push_frame(&mut self, name: &'static str, input_wires: &[WireId]);
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, Self::WireValue)>;
-
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()>;
 }
 
@@ -196,15 +192,6 @@ impl CircuitMode for Garble {
         self.wires.last().map(|w| w.size()).unwrap_or_default()
     }
 
-    fn push_frame(&mut self, _name: &'static str, inputs: &[WireId]) {
-        let inputs = self.prepare_frame_inputs(inputs);
-        self.push_frame(inputs);
-    }
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, GarbledWire)> {
-        self.pop_frame(outputs)
-    }
-
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
         let gate_id = self.next_gate_index();
 
@@ -286,15 +273,6 @@ impl CircuitMode for Evaluate {
 
     fn current_size(&self) -> usize {
         self.wires.last().map(|w| w.len()).unwrap_or_default()
-    }
-
-    fn push_frame(&mut self, _name: &'static str, inputs: &[WireId]) {
-        let inputs = self.prepare_frame_inputs(inputs);
-        self.push_frame(inputs);
-    }
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, EvaluatedWire)> {
-        self.pop_frame(outputs)
     }
 
     fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {
