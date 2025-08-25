@@ -254,7 +254,7 @@ mod tests {
             CircuitBuilder, CircuitInput,
             streaming::{
                 CircuitMode, CircuitOutput, EncodeInput, StreamingResult, WiresObject,
-                modes::ExecuteWithCredits,
+                modes::Execute,
             },
         },
         gadgets::bigint::bits_from_biguint_with_len,
@@ -302,7 +302,7 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u64,
-        operation: impl Fn(&mut ExecuteWithCredits, &BigIntWires, &BigIntWires) -> BigIntWires,
+        operation: impl Fn(&mut Execute, &BigIntWires, &BigIntWires) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val, b_val]);
 
@@ -311,7 +311,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
@@ -353,7 +353,7 @@ mod tests {
         b_val: u64,
         expected: u64,
         operation: impl Fn(
-            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &mut crate::circuit::streaming::modes::Execute,
             &BigIntWires,
             &BigUint,
         ) -> BigIntWires,
@@ -366,7 +366,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
@@ -470,10 +470,7 @@ mod tests {
         n_bits: usize,
         a_val: u64,
         expected: u64,
-        operation: impl Fn(
-            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
-            &BigIntWires,
-        ) -> BigIntWires,
+        operation: impl Fn(&mut crate::circuit::streaming::modes::Execute, &BigIntWires) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val]);
 
@@ -482,7 +479,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
@@ -556,10 +553,10 @@ mod tests {
             k: BigUint,
         }
 
-        impl CircuitOutput<ExecuteWithCredits> for DivOut {
+        impl CircuitOutput<Execute> for DivOut {
             type WireRepr = [BigIntWires; 2];
 
-            fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
+            fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
                 let [odd, k] = wires;
 
                 let odd = BigUint::decode(odd, cache);

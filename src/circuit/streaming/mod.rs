@@ -6,7 +6,7 @@ use log::debug;
 
 use crate::{
     WireId,
-    circuit::streaming::{component_meta::ComponentMeta, modes::ExecuteWithCredits},
+    circuit::streaming::{component_meta::ComponentMeta, modes::Execute},
     core::gate_type::GateCount,
 };
 
@@ -75,27 +75,27 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
     pub one_constant: M::WireValue,
 }
 
-impl CircuitBuilder<ExecuteWithCredits> {
+impl CircuitBuilder<Execute> {
     pub fn streaming_execute<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         f: F,
-    ) -> StreamingResult<ExecuteWithCredits, I, O>
+    ) -> StreamingResult<Execute, I, O>
     where
         I: CircuitInput + EncodeInput<bool>,
-        O: CircuitOutput<ExecuteWithCredits>,
+        O: CircuitOutput<Execute>,
         O::WireRepr: Debug,
-        F: Fn(&mut ExecuteWithCredits, &I::WireRepr) -> O::WireRepr,
+        F: Fn(&mut Execute, &I::WireRepr) -> O::WireRepr,
     {
         debug!(
             "streaming_process_with_credits: start metadata pass capacity={}",
             live_wires_capacity
         );
-        let mut meta = ExecuteWithCredits::MetadataPass(ComponentMeta::new(&[], &[]));
+        let mut meta = Execute::MetadataPass(ComponentMeta::new(&[], &[]));
         let allocated_inputs = inputs.allocate(|| {
             let wire_id = meta.issue_wire();
 
-            if let ExecuteWithCredits::MetadataPass(meta) = &mut meta {
+            if let Execute::MetadataPass(meta) = &mut meta {
                 meta.increment_credits(&[wire_id]);
             }
 
@@ -121,7 +121,7 @@ impl CircuitBuilder<ExecuteWithCredits> {
                 .collect::<Vec<_>>()
         );
 
-        if let ExecuteWithCredits::MetadataPass(meta) = &mut meta {
+        if let Execute::MetadataPass(meta) = &mut meta {
             meta.increment_credits(&output.to_wires_vec());
         }
 
@@ -246,7 +246,7 @@ mod exec_test {
     use test_log::test;
 
     use super::*;
-    use crate::{Gate, circuit::streaming::modes::ExecuteWithCredits};
+    use crate::{Gate, circuit::streaming::modes::Execute};
 
     /// Example input structure with mixed types
     pub struct Inputs {
@@ -395,7 +395,7 @@ mod exec_test {
             nonce: 0xDEADBEEF12345678,
         };
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 // Create some logic using the allocated wires
                 // Test flag AND first bit of nonce
@@ -431,7 +431,7 @@ mod exec_test {
         // Test that child components cannot access parent wires not in input_wires
         let inputs = [true, false];
 
-        let _: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let _: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let parent_secret = root.issue_wire();
                 root.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], parent_secret));
@@ -460,7 +460,7 @@ mod exec_test {
         // Test that missing output wires cause a panic
         let inputs = [true, false];
 
-        let _: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let _: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 root.with_child(
                     vec![inputs_wire[0]],
@@ -480,7 +480,7 @@ mod exec_test {
         // Test that TRUE_WIRE and FALSE_WIRE are accessible in child components
         let inputs = [true, false];
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
                 let result = root.with_child(
                     vec![],
@@ -504,7 +504,7 @@ mod exec_test {
         // Test deep component nesting
         let inputs = [true, false];
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let mut current = inputs_wire[0];
 
@@ -526,7 +526,7 @@ mod exec_test {
 
         assert!(output.output_wires[0]);
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let mut current = inputs_wire[1];
 
@@ -553,7 +553,7 @@ mod exec_test {
         // Test that sibling components cannot see each other's wires
         let inputs = [true, false];
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 // First child creates a wire
                 let child1_output = root.with_child(
@@ -591,7 +591,7 @@ mod exec_test {
         // Test that child cannot access parent wires not in input_wires
         let inputs = [true, false];
 
-        let _: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let _: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
                 // Parent issues a wire but doesn't pass it to child
                 let _parent_secret = root.issue_wire();
@@ -617,7 +617,7 @@ mod exec_test {
         let inputs = [true, false];
 
         // Run a simple circuit
-        let _output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let _output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result = root.issue_wire();
                 root.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], result));
@@ -630,7 +630,7 @@ mod exec_test {
         // Test that constants are protected and work correctly
         let inputs = [true, false];
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
                 // Use constants in parent
                 let parent_result = root.issue_wire();
@@ -659,7 +659,7 @@ mod exec_test {
         // Test very deep component nesting (1000 levels)
         let inputs = [true, true];
 
-        let output: StreamingResult<ExecuteWithCredits, _, Vec<bool>> =
+        let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let mut current = inputs_wire[0];
 

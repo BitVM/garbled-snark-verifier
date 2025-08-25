@@ -10,7 +10,7 @@ use crate::{
 };
 
 mod execute_with_credits;
-pub use execute_with_credits::ExecuteWithCredits;
+pub use execute_with_credits::Execute;
 
 pub trait CircuitMode {
     type WireValue: Clone;

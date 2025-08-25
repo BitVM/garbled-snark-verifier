@@ -401,7 +401,7 @@ mod tests {
         b_val: u64,
         expected: u128,
         operation: impl Fn(
-            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &mut crate::circuit::streaming::modes::Execute,
             &BigIntWires,
             &BigIntWires,
         ) -> BigIntWires,
@@ -418,7 +418,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
@@ -517,7 +517,7 @@ mod tests {
         c_val: u64,
         expected: u128,
         operation: impl Fn(
-            &mut crate::circuit::streaming::modes::ExecuteWithCredits,
+            &mut crate::circuit::streaming::modes::Execute,
             &BigIntWires,
             &BigUint,
         ) -> BigIntWires,
@@ -530,7 +530,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
@@ -779,7 +779,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
@@ -832,7 +832,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
@@ -886,7 +886,7 @@ mod tests {
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {

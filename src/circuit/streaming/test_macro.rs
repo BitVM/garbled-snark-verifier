@@ -96,7 +96,7 @@ mod tests {
         }
 
         let result: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
@@ -128,7 +128,7 @@ mod tests {
         }
 
         let result: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
@@ -160,7 +160,7 @@ mod tests {
         }
 
         let result: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::ExecuteWithCredits,
+            crate::circuit::streaming::modes::Execute,
             _,
             Vec<bool>,
         > = CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
@@ -277,7 +277,7 @@ mod tests {
 
         for &input in &[false, true] {
             let out: crate::circuit::streaming::StreamingResult<
-                crate::circuit::streaming::modes::ExecuteWithCredits,
+                crate::circuit::streaming::modes::Execute,
                 _,
                 Vec<bool>,
             > = CircuitBuilder::streaming_execute(OneInput { x: input }, 10_000, |root, iw| {
@@ -367,7 +367,7 @@ mod tests {
 
         for &input in &[false, true] {
             let out: crate::circuit::streaming::StreamingResult<
-                crate::circuit::streaming::modes::ExecuteWithCredits,
+                crate::circuit::streaming::modes::Execute,
                 _,
                 Vec<bool>,
             > = CircuitBuilder::streaming_execute(OneInput { x: input }, 10_000, |root, iw| {

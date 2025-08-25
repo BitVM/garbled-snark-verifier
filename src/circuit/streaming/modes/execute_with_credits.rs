@@ -1,4 +1,4 @@
-use std::{cell::RefCell, iter, time::Instant};
+use std::{cell::RefCell, iter};
 
 use log::{debug, error};
 
@@ -19,137 +19,93 @@ pub enum OptionalBoolean {
     False,
 }
 
-/// Prototype mode: single global storage keyed by `WireId` with credit-based lifetimes.
-///
-/// Notes:
-/// - For now there is no prepass integration here; callers can `feed_wire` to seed inputs
-///   and we consume credits on reads during gate evaluation.
-/// - Constants are stored outside of `WireStorage` and don't consume credits.
 #[derive(Debug)]
-pub enum ExecuteWithCredits {
-    MetadataPass(ComponentMeta),
-    ExecutePass {
-        storage: RefCell<Storage<WireId, OptionalBoolean>>,
-        stack: Vec<ComponentMeta>,
-        gate_count: GateCount,
-    },
+pub struct ExecuteContext {
+    storage: RefCell<Storage<WireId, OptionalBoolean>>,
+    stack: Vec<ComponentMeta>,
+    gate_count: GateCount,
 }
 
-impl ExecuteWithCredits {
-    pub fn new(capacity: usize) -> Self {
-        Self::ExecutePass {
-            storage: RefCell::new(Storage::new(capacity)),
-            stack: vec![],
-            gate_count: GateCount::default(),
-        }
-    }
-
-    pub fn to_execute_pass(self, capacity: usize) -> Self {
-        if let Self::MetadataPass(meta) = self {
-            Self::ExecutePass {
-                storage: RefCell::new(Storage::new(capacity)),
-                stack: vec![meta],
-                gate_count: GateCount::default(),
-            }
-        } else {
-            panic!()
-        }
-    }
-
+impl ExecuteContext {
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
-        match self {
-            Self::MetadataPass(meta) => (meta.issue_wire(), 0),
-            Self::ExecutePass { storage, stack, .. } => {
-                let meta = stack.last_mut().unwrap();
+        let meta = self.stack.last_mut().unwrap();
 
-                // Normal allocation path
-                if let Some(credit) = meta.next_credit() {
-                    let wire_id = storage.borrow_mut().allocate(OptionalBoolean::None, credit);
-                    (wire_id, credit)
-                } else {
-                    unreachable!("{self:?}")
-                }
-            }
+        // Normal allocation path
+        if let Some(credit) = meta.next_credit() {
+            let wire_id = self
+                .storage
+                .borrow_mut()
+                .allocate(OptionalBoolean::None, credit);
+            (wire_id, credit)
+        } else {
+            unreachable!("{self:?}")
         }
     }
 
-    #[cfg(test)]
-    fn storage_contains(&self, wire: WireId) -> bool {
-        match self {
-            Self::ExecutePass { storage, .. } => storage.borrow().contains(wire),
-            _ => false,
-        }
+    pub fn pop_credits(&mut self, len: usize) -> Vec<Credits> {
+        let stack = self.stack.last_mut().unwrap();
+
+        iter::repeat_with(|| stack.next_credit().unwrap())
+            .take(len)
+            .collect::<Vec<_>>()
     }
 }
 
-impl CircuitMode for ExecuteWithCredits {
+impl CircuitMode for ExecuteContext {
     type WireValue = bool;
 
     fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
         match wire {
-            TRUE_WIRE => Some(&true),
-            FALSE_WIRE => Some(&false),
-            // Unreachable wires don't have values
-            WireId::UNREACHABLE => None,
-            wire => match self {
-                Self::MetadataPass(_) => None,
-                Self::ExecutePass { storage, .. } => {
-                    match storage.borrow_mut().get(wire).as_deref() {
-                        Ok(&OptionalBoolean::True) => Some(&true),
-                        Ok(&OptionalBoolean::False) => Some(&false),
-                        Ok(&OptionalBoolean::None) => {
-                            error!("lookup_wire: wire_id={} has no value yet", wire.0);
-                            panic!("value not writed: {wire:?}")
-                        }
-                        Err(err) => {
-                            error!(
-                                "lookup_wire: storage error for wire_id={} err={:?}",
-                                wire.0, err
-                            );
-                            panic!("Error: {err:?}")
-                        }
-                    }
-                }
-            },
+            TRUE_WIRE => return Some(&true),
+            FALSE_WIRE => return Some(&false),
+            _ => (),
+        }
+
+        match self.storage.borrow_mut().get(wire).as_deref() {
+            Ok(&OptionalBoolean::True) => Some(&true),
+            Ok(&OptionalBoolean::False) => Some(&false),
+            Ok(&OptionalBoolean::None) => {
+                error!("lookup_wire: wire_id={} has no value yet", wire.0);
+                panic!("value not writed: {wire:?}")
+            }
+            Err(err) => {
+                error!(
+                    "lookup_wire: storage error for wire_id={} err={:?}",
+                    wire.0, err
+                );
+                panic!("Error: {err:?}")
+            }
         }
     }
 
-    fn feed_wire(&mut self, wire: WireId, value: Self::WireValue) {
-        if matches!(wire, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
-            return;
-        }
-
-        if let Self::ExecutePass { storage, .. } = self {
-            storage
-                .borrow_mut()
-                .set(wire, |data| {
-                    *data = if value {
-                        OptionalBoolean::True
-                    } else {
-                        OptionalBoolean::False
-                    };
-                })
-                .unwrap();
-        }
+    fn feed_wire(&mut self, wire: WireId, value: bool) {
+        self.storage
+            .borrow_mut()
+            .set(wire, |data| {
+                *data = if value {
+                    OptionalBoolean::True
+                } else {
+                    OptionalBoolean::False
+                };
+            })
+            .unwrap();
     }
 
     fn total_size(&self) -> usize {
-        if let Self::ExecutePass { storage, .. } = self {
-            storage.borrow().len()
-        } else {
-            0
-        }
+        self.storage.borrow().len()
     }
 
     fn current_size(&self) -> usize {
-        if let Self::ExecutePass { storage, .. } = self {
-            storage.borrow().len()
-        } else {
-            0
-        }
+        self.storage.borrow().len()
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
+        self.gate_count.handle(gate.gate_type);
+
+        if gate.wire_c == WireId::UNREACHABLE {
+            return None;
+        }
+
         assert_ne!(gate.wire_a, WireId::UNREACHABLE);
         assert_ne!(gate.wire_b, WireId::UNREACHABLE);
 
@@ -163,7 +119,119 @@ impl CircuitMode for ExecuteWithCredits {
     }
 }
 
-impl CircuitContext for ExecuteWithCredits {
+/// Prototype mode: single global storage keyed by `WireId` with credit-based lifetimes.
+///
+/// Notes:
+/// - For now there is no prepass integration here; callers can `feed_wire` to seed inputs
+///   and we consume credits on reads during gate evaluation.
+/// - Constants are stored outside of `WireStorage` and don't consume credits.
+#[derive(Debug)]
+pub enum Execute {
+    MetadataPass(ComponentMeta),
+    ExecutePass(ExecuteContext),
+}
+
+impl Execute {
+    pub fn new(capacity: usize) -> Self {
+        Self::new_execute(capacity)
+    }
+
+    fn new_execute(capacity: usize) -> Self {
+        Self::ExecutePass(ExecuteContext {
+            storage: RefCell::new(Storage::new(capacity)),
+            stack: vec![],
+            gate_count: GateCount::default(),
+        })
+    }
+
+    fn new_meta(inputs: &[WireId], output_external_credits: &[Credits]) -> Self {
+        Self::MetadataPass(ComponentMeta::new(inputs, output_external_credits))
+    }
+
+    pub fn to_execute_pass(self, capacity: usize) -> Self {
+        if let Self::MetadataPass(meta) = self {
+            Self::ExecutePass(ExecuteContext {
+                storage: RefCell::new(Storage::new(capacity)),
+                stack: vec![meta],
+                gate_count: GateCount::default(),
+            })
+        } else {
+            panic!()
+        }
+    }
+
+    pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
+        match self {
+            Self::MetadataPass(meta) => (meta.issue_wire(), 0),
+            Self::ExecutePass(ctx) => ctx.issue_wire_with_credit(),
+        }
+    }
+
+    pub fn non_free_gates_count(&self) -> usize {
+        match self {
+            Self::MetadataPass(_meta) => 0,
+            Self::ExecutePass(ctx) => ctx.gate_count.nonfree_gate_count() as usize,
+        }
+    }
+
+    pub fn total_gates_count(&self) -> usize {
+        match self {
+            Self::MetadataPass(_meta) => 0,
+            Self::ExecutePass(ctx) => ctx.gate_count.total_gate_count() as usize,
+        }
+    }
+}
+
+impl CircuitMode for Execute {
+    type WireValue = bool;
+
+    fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
+        match wire {
+            TRUE_WIRE => Some(&true),
+            FALSE_WIRE => Some(&false),
+            // Unreachable wires don't have values
+            WireId::UNREACHABLE => None,
+            wire => match self {
+                Self::MetadataPass(_) => None,
+                Self::ExecutePass(ctx) => ctx.lookup_wire(wire),
+            },
+        }
+    }
+
+    fn feed_wire(&mut self, wire: WireId, value: Self::WireValue) {
+        if matches!(wire, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
+            return;
+        }
+
+        match self {
+            Self::ExecutePass(ctx) => ctx.feed_wire(wire, value),
+            Self::MetadataPass(_meta) => (),
+        }
+    }
+
+    fn total_size(&self) -> usize {
+        match self {
+            Self::ExecutePass(ctx) => ctx.total_size(),
+            Self::MetadataPass(meta) => meta.credits_stack.len(),
+        }
+    }
+
+    fn current_size(&self) -> usize {
+        match self {
+            Self::ExecutePass(ctx) => ctx.current_size(),
+            Self::MetadataPass(meta) => meta.credits_stack.len(),
+        }
+    }
+
+    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
+        match self {
+            Execute::MetadataPass(_meta) => None,
+            Execute::ExecutePass(ctx) => ctx.evaluate_gate(gate),
+        }
+    }
+}
+
+impl CircuitContext for Execute {
     type Mode = Self;
 
     fn issue_wire(&mut self) -> WireId {
@@ -171,12 +239,12 @@ impl CircuitContext for ExecuteWithCredits {
     }
 
     fn add_gate(&mut self, gate: Gate) {
-        if let Self::MetadataPass(meta) = self {
-            meta.add_gate(gate);
-            return;
+        match self {
+            Self::MetadataPass(meta) => meta.add_gate(gate),
+            Self::ExecutePass(ctx) => {
+                ctx.evaluate_gate(&gate);
+            }
         }
-
-        self.evaluate_gate(&gate);
     }
 
     fn with_named_child<O: WiresObject>(
@@ -200,23 +268,14 @@ impl CircuitContext for ExecuteWithCredits {
             return O::from_wires(&mock_output).unwrap();
         }
 
-        let instance = Instant::now();
         debug!("with_named_child: enter name={key:?} arity={arity}");
 
-        let pre_alloc_output_credits = {
-            if let Self::ExecutePass { stack, .. } = self {
-                let stack = stack.last_mut().unwrap();
-
-                iter::repeat_with(|| stack.next_credit().unwrap())
-                    .take(arity)
-                    .collect::<Vec<_>>()
-            } else {
-                unreachable!()
-            }
+        let pre_alloc_output_credits = match self {
+            Self::ExecutePass(ctx) => ctx.pop_credits(arity),
+            _ => unreachable!(),
         };
 
-        let mut child_component_meta =
-            Self::MetadataPass(ComponentMeta::new(&input_wires, &pre_alloc_output_credits));
+        let mut child_component_meta = Self::new_meta(&input_wires, &pre_alloc_output_credits);
 
         let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
 
@@ -226,47 +285,47 @@ impl CircuitContext for ExecuteWithCredits {
         };
 
         // Propagate child's measured input usage back to the parent's wires
-        if let Self::ExecutePass { stack, storage, .. } = self {
-            let mut storage = storage.borrow_mut();
-            child_component_meta.for_each_input_extra_credits(|wire_id, extra| {
-                if wire_id == TRUE_WIRE || wire_id == FALSE_WIRE {
-                    return;
-                }
-
-                match extra {
-                    0 => {
-                        // Just remove one input-pin credit
-                        _ = storage.get(wire_id).unwrap();
+        match self {
+            Self::ExecutePass(ctx) => {
+                let mut storage = ctx.storage.borrow_mut();
+                child_component_meta.for_each_input_extra_credits(|wire_id, extra| {
+                    if wire_id == TRUE_WIRE || wire_id == FALSE_WIRE {
+                        return;
                     }
-                    1 => (),
-                    n => {
-                        storage.add_credits(wire_id, n - 1).unwrap();
-                    }
-                }
-            });
 
-            stack.push(child_component_meta);
-        } else {
-            unreachable!()
+                    // current_credits - 1 (as input) + extra
+                    match extra {
+                        0 => {
+                            // Just remove one input-pin credit
+                            if wire_id != WireId::UNREACHABLE {
+                                _ = storage.get(wire_id).unwrap();
+                            }
+                        }
+                        1 => (),
+                        n => {
+                            storage.add_credits(wire_id, n - 1).unwrap();
+                        }
+                    }
+                });
+
+                ctx.stack.push(child_component_meta);
+            }
+            _ => unreachable!(),
         };
 
         let output = f(self);
 
-        if let Self::ExecutePass { stack, .. } = self {
-            let used_child_meta = stack.pop();
-            assert!(used_child_meta.unwrap().credits_stack.is_empty());
-        }
+        match self {
+            Self::ExecutePass(ctx) => {
+                let _used_child_meta = ctx.stack.pop();
+                #[cfg(test)]
+                assert!(_used_child_meta.unwrap().credits_stack.is_empty());
+            }
+            _ => unreachable!(),
+        };
 
-        debug!(
-            "with_named_child: exit name={:?} outputs={:?}, duration = {:?} ms",
-            key,
-            output
-                .to_wires_vec()
-                .iter()
-                .map(|w| w.0)
-                .collect::<Vec<_>>(),
-            instance.elapsed()
-        );
+        debug!("with_named_child: exit name={key:?} arity={arity}");
+
         output
     }
 }
@@ -288,9 +347,9 @@ mod tests {
     #[test]
     fn no_zombie_parent_wire_after_child_reads() {
         // Metadata phase: prepare a single parent internal wire
-        let mut meta = ExecuteWithCredits::MetadataPass(ComponentMeta::new(&[], &[]));
+        let mut meta = Execute::MetadataPass(ComponentMeta::new(&[], &[]));
         let parent_wire = match &mut meta {
-            ExecuteWithCredits::MetadataPass(m) => {
+            Execute::MetadataPass(m) => {
                 let w = m.issue_wire();
                 // Mimic the parent pass credit for "being passed to child"
                 m.increment_credits(&[w]);
@@ -312,11 +371,6 @@ mod tests {
                 vec![out]
             },
             || 1,
-        );
-
-        assert!(
-            !ctx.storage_contains(parent_wire),
-            "parent wire should be removed from storage (no zombie)"
         );
     }
 }

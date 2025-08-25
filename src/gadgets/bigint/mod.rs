@@ -7,9 +7,7 @@ pub use num_bigint::BigUint;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{
-        CircuitMode, CircuitOutput, FALSE_WIRE, TRUE_WIRE, modes::ExecuteWithCredits,
-    },
+    circuit::streaming::{CircuitMode, CircuitOutput, FALSE_WIRE, TRUE_WIRE, modes::Execute},
 };
 
 mod add;
@@ -191,10 +189,10 @@ impl AsRef<[WireId]> for BigIntWires {
     }
 }
 
-impl CircuitOutput<ExecuteWithCredits> for BigUint {
+impl CircuitOutput<Execute> for BigUint {
     type WireRepr = BigIntWires;
 
-    fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
+    fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
         let bit_len = wires.len();
         let mut bytes = vec![0u8; bit_len.div_ceil(8)];
 

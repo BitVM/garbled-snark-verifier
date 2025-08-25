@@ -548,7 +548,7 @@ mod tests {
         CircuitContext,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, ExecuteWithCredits},
+            modes::{CircuitMode, Execute},
         },
         gadgets::bigint::BigUint as BigUintOutput,
         test_utils::trng,
@@ -655,10 +655,10 @@ mod tests {
         pub point: ark_bn254::G2Projective,
     }
 
-    impl CircuitOutput<ExecuteWithCredits> for G2Output {
+    impl CircuitOutput<Execute> for G2Output {
         type WireRepr = G2Projective;
 
-        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
             // Decode Fq2 components
             let x_c0 = BigUintOutput::decode(wires.x.c0().0.clone(), cache);
             let x_c1 = BigUintOutput::decode(wires.x.c1().0.clone(), cache);

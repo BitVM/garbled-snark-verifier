@@ -461,7 +461,7 @@ mod tests {
         CircuitContext,
         circuit::streaming::{
             CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, ExecuteWithCredits},
+            modes::{CircuitMode, Execute},
         },
         gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,
@@ -540,18 +540,12 @@ mod tests {
         value: ark_bn254::Fq2,
     }
 
-    impl CircuitOutput<ExecuteWithCredits> for Fq2Output {
+    impl CircuitOutput<Execute> for Fq2Output {
         type WireRepr = Fq2;
 
-        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
-            let c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
-                wires.0[0].0.clone(),
-                cache,
-            );
-            let c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
-                wires.0[1].0.clone(),
-                cache,
-            );
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            let c0 = <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0.clone(), cache);
+            let c1 = <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0.clone(), cache);
             let value = ark_bn254::Fq2::new(ark_bn254::Fq::from(c0), ark_bn254::Fq::from(c1));
             Self { value }
         }
@@ -562,12 +556,11 @@ mod tests {
         value: ark_bn254::Fq,
     }
 
-    impl CircuitOutput<ExecuteWithCredits> for FqOutput {
+    impl CircuitOutput<Execute> for FqOutput {
         type WireRepr = Fq;
 
-        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
-            let biguint =
-                <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(wires.0, cache);
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            let biguint = <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0, cache);
             let value = ark_bn254::Fq::from(biguint);
             Self { value }
         }

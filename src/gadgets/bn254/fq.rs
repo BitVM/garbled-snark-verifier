@@ -323,7 +323,7 @@ pub(super) mod tests {
         CircuitContext,
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{CircuitMode, CircuitOutput, EncodeInput, modes::ExecuteWithCredits},
+            streaming::{CircuitMode, CircuitOutput, EncodeInput, modes::Execute},
         },
         gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,
@@ -373,10 +373,10 @@ pub(super) mod tests {
         value: ark_bn254::Fq,
     }
 
-    impl CircuitOutput<ExecuteWithCredits> for FqOutput {
+    impl CircuitOutput<Execute> for FqOutput {
         type WireRepr = Fq;
 
-        fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
             // Decode BigIntWires to BigUint, then convert to ark_bn254::Fq
             let biguint = BigUintOutput::decode(wires.0, cache);
             let value = ark_bn254::Fq::from(biguint);

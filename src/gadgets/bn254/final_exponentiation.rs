@@ -174,7 +174,7 @@ mod tests {
         WireId,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitMode, CircuitOutput, EncodeInput, StreamingResult,
-            modes::ExecuteWithCredits,
+            modes::Execute,
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -288,34 +288,31 @@ mod tests {
                 encode_fq6_to_wires(&f_m.c1, &repr.f.0[1], cache);
             }
         }
-        impl CircuitOutput<ExecuteWithCredits> for Out {
+        impl CircuitOutput<Execute> for Out {
             type WireRepr = Fq12Wires;
-            fn decode(wires: Self::WireRepr, cache: &ExecuteWithCredits) -> Self {
-                fn decode_fq6_from_wires(
-                    wires: &Fq6Wires,
-                    cache: &ExecuteWithCredits,
-                ) -> ark_bn254::Fq6 {
-                    let c0_c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+            fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+                fn decode_fq6_from_wires(wires: &Fq6Wires, cache: &Execute) -> ark_bn254::Fq6 {
+                    let c0_c0 = <BigUintOutput as CircuitOutput<Execute>>::decode(
                         wires.0[0].0[0].0.clone(),
                         cache,
                     );
-                    let c0_c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+                    let c0_c1 = <BigUintOutput as CircuitOutput<Execute>>::decode(
                         wires.0[0].0[1].0.clone(),
                         cache,
                     );
-                    let c1_c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+                    let c1_c0 = <BigUintOutput as CircuitOutput<Execute>>::decode(
                         wires.0[1].0[0].0.clone(),
                         cache,
                     );
-                    let c1_c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+                    let c1_c1 = <BigUintOutput as CircuitOutput<Execute>>::decode(
                         wires.0[1].0[1].0.clone(),
                         cache,
                     );
-                    let c2_c0 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+                    let c2_c0 = <BigUintOutput as CircuitOutput<Execute>>::decode(
                         wires.0[2].0[0].0.clone(),
                         cache,
                     );
-                    let c2_c1 = <BigUintOutput as CircuitOutput<ExecuteWithCredits>>::decode(
+                    let c2_c1 = <BigUintOutput as CircuitOutput<Execute>>::decode(
                         wires.0[2].0[1].0.clone(),
                         cache,
                     );
