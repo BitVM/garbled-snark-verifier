@@ -91,6 +91,50 @@ pub fn generate_bn_wrapper(
     // The arity expression should be evaluated in context to get the actual length
     let arity_closure = arity_expr;
 
+    // Generate key generation code based on whether there are ignored parameters
+    let key_generation = if sig.ignored_params.is_empty() {
+        // No ignored params: just use the component name
+        quote! {
+            crate::circuit::streaming::generate_component_key(
+                concat!(module_path!(), "::", #fn_name_str),
+                [] as [(&str, &[u8]); 0]
+            )
+        }
+    } else {
+        // Get the ignored parameter names from the signature
+        let ignored_param_names: Vec<Ident> = sig
+            .ignored_params
+            .iter()
+            .filter_map(|param| extract_param_name(param).ok())
+            .collect();
+
+        // Generate code to collect parameter bytes using OffCircuitParam trait
+        quote! {
+            {
+                use crate::circuit::streaming::OffCircuitParam;
+
+                // Collect parameter bytes
+                let mut params = Vec::new();
+                #(
+                    params.push((
+                        stringify!(#ignored_param_names),
+                        #ignored_param_names.to_key_bytes()
+                    ));
+                )*
+
+                // Convert to the format expected by generate_component_key
+                let params_refs: Vec<(&str, &[u8])> = params.iter()
+                    .map(|(name, bytes)| (*name, bytes.as_slice()))
+                    .collect();
+
+                crate::circuit::streaming::generate_component_key(
+                    concat!(module_path!(), "::", #fn_name_str),
+                    params_refs
+                )
+            }
+        }
+    };
+
     let wrapper = quote! {
         #(#fn_attrs)*
         #fn_vis fn #fn_name #impl_generics(
@@ -100,7 +144,7 @@ pub fn generate_bn_wrapper(
             let input_wires = #input_wire_collection;
             let arity_fn = || #arity_closure;
 
-            #context_param_name.with_named_child(concat!(module_path!(), "::", #fn_name_str), input_wires, |comp| {
+            #context_param_name.with_named_child(&(#key_generation), input_wires, |comp| {
                 #transformed_body
             }, arity_fn)
         }

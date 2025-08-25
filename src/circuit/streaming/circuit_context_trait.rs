@@ -18,20 +18,25 @@ pub trait CircuitContext: Sized {
     /// Adds a gate to the current component
     fn add_gate(&mut self, gate: Gate);
 
+    fn with_named_child<O: WiresObject>(
+        &mut self,
+        key: &[u8; 16],
+        input_wires: Vec<WireId>,
+        f: impl Fn(&mut Self) -> O,
+        arity: impl FnOnce() -> usize,
+    ) -> O;
+
+    /// Compatibility wrapper for old with_child method used in tests
+    /// Uses a default key based on "test_child"
+    #[cfg(test)]
     fn with_child<O: WiresObject>(
         &mut self,
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
         arity: impl FnOnce() -> usize,
     ) -> O {
-        self.with_named_child("anon", input_wires, f, arity)
+        use crate::circuit::streaming::generate_component_key;
+        let key = generate_component_key("test_child", [] as [(&str, &[u8]); 0]);
+        self.with_named_child(&key, input_wires, f, arity)
     }
-
-    fn with_named_child<O: WiresObject>(
-        &mut self,
-        name: &'static str,
-        input_wires: Vec<WireId>,
-        f: impl Fn(&mut Self) -> O,
-        arity: impl FnOnce() -> usize,
-    ) -> O;
 }

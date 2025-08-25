@@ -256,7 +256,7 @@ impl Fq12 {
         Fq12::from_components(new_c0, new_c1)
     }
 
-    #[component(ignore = "c4")]
+    #[component(offcircuit_args = "c4")]
     pub fn mul_by_034_constant4_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &Fq12,

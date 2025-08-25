@@ -19,9 +19,9 @@ use std::collections::{HashMap, VecDeque};
 use log::trace;
 
 use crate::{
-    circuit::streaming::{CircuitMode, WiresObject, FALSE_WIRE, TRUE_WIRE},
-    storage::Credits,
     CircuitContext, Gate, WireId,
+    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject},
+    storage::Credits,
 };
 
 #[derive(Debug)]
@@ -219,10 +219,7 @@ impl CircuitContext for ComponentMeta {
     fn add_gate(&mut self, gate: Gate) {
         trace!(
             "ComponentMeta::add_gate kind={:?} a={} b={} c={}",
-            gate.gate_type,
-            gate.wire_a.0,
-            gate.wire_b.0,
-            gate.wire_c.0
+            gate.gate_type, gate.wire_a.0, gate.wire_b.0, gate.wire_c.0
         );
 
         // Avoid the slice loop/allocation in hot path.

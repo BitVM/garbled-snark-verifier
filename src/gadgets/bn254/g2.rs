@@ -393,7 +393,7 @@ impl G2Projective {
         G2Projective { x: xr, y: yr, z }
     }
 
-    #[component(ignore = "w")]
+    #[component(offcircuit_args = "w")]
     pub fn multiplexer<C: CircuitContext>(
         circuit: &mut C,
         a: &[G2Projective],
@@ -448,7 +448,7 @@ impl G2Projective {
         }
     }
 
-    #[component(ignore = "base")]
+    #[component(offcircuit_args = "base")]
     pub fn scalar_mul_by_constant_base_montgomery<C: CircuitContext, const W: usize>(
         circuit: &mut C,
         s: &Fr,

@@ -174,7 +174,7 @@ mod tests {
     // Minimal, streaming garbling stress: builds a very large circuit structure
     // and also exercises input allocation in garble mode.
     //#[test]
-    //#[ignore = "tmp wip"]
+    //#[offcircuit_args = "tmp wip"]
     //fn test_streaming_garble_large_circuit() {
     //    // Single-boolean input to exercise input allocation in garble mode too
     //    struct OneInput {

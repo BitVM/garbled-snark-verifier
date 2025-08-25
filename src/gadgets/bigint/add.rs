@@ -39,7 +39,7 @@ pub fn add_without_carry<C: CircuitContext>(
     c
 }
 
-#[bn_component(arity = "a.len() + 1", ignore = "b")]
+#[bn_component(arity = "a.len() + 1", offcircuit_args = "b")]
 pub fn add_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,

@@ -280,7 +280,7 @@ impl G1Projective {
         G1Projective { x: xr, y: yr, z }
     }
 
-    #[component(ignore = "w")]
+    #[component(offcircuit_args = "w")]
     pub fn multiplexer<C: CircuitContext>(
         circuit: &mut C,
         a: &[G1Projective],
@@ -313,7 +313,7 @@ impl G1Projective {
         }
     }
 
-    #[component(ignore = "base")]
+    #[component(offcircuit_args = "base")]
     pub fn scalar_mul_by_constant_base_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
         s: &Fr,
@@ -369,7 +369,7 @@ impl G1Projective {
         acc
     }
 
-    #[component(ignore = "bases")]
+    #[component(offcircuit_args = "bases")]
     pub fn msm_with_constant_bases_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
         scalars: &[Fr],

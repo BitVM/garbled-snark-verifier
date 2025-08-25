@@ -205,7 +205,7 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
     }
 }
 
-#[bn_component(arity = "a.len() * 2", ignore = "c")]
+#[bn_component(arity = "a.len() * 2", offcircuit_args = "c")]
 pub fn mul_by_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -237,7 +237,7 @@ pub fn mul_by_constant<C: CircuitContext>(
         input.extend_from_slice(&acc_in);
 
         acc = circuit.with_named_child(
-            "mul_by_const_chunk",
+            &crate::component_key!("mul_by_const_chunk"),
             input,
             move |ctx| {
                 let mut res = acc_in.clone();
@@ -264,7 +264,7 @@ pub fn mul_by_constant<C: CircuitContext>(
     BigIntWires { bits: acc }
 }
 
-#[bn_component(arity = "power", ignore = "c,power")]
+#[bn_component(arity = "power", offcircuit_args = "c,power")]
 pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -302,7 +302,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
         let chunk_indices: Vec<usize> = chunk.to_vec();
 
         result_bits = circuit.with_named_child(
-            "mul_by_const_mod_2p",
+            &crate::component_key!("mul_by_const_mod_2p"),
             input,
             move |ctx| {
                 let mut res = prev.clone();

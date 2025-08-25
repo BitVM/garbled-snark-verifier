@@ -87,7 +87,7 @@ pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: Wir
     g
 }
 
-#[component(ignore = "w")]
+#[component(offcircuit_args = "w")]
 pub fn multiplexer<C: CircuitContext>(
     circuit: &mut C,
     a: &[WireId],

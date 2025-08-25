@@ -3,11 +3,11 @@ use std::{cell::RefCell, iter, time::Instant};
 use log::{debug, error};
 
 use crate::{
+    CircuitContext, Gate, WireId,
     circuit::streaming::{
-        component_meta::ComponentMeta, CircuitMode, WiresObject, FALSE_WIRE, TRUE_WIRE,
+        CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_meta::ComponentMeta,
     },
     storage::{Credits, Storage},
-    CircuitContext, Gate, WireId,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -186,7 +186,7 @@ impl CircuitContext for ExecuteWithCredits {
 
     fn with_named_child<O: WiresObject>(
         &mut self,
-        name: &'static str,
+        key: &[u8; 16],
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
         output_arity: impl FnOnce() -> usize,

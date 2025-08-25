@@ -28,7 +28,7 @@ use crate::{
 /// - `vk`: verifying key with constant elements (host-provided arkworks types).
 ///
 /// Returns a boolean wire that is 1 iff the proof verifies.
-#[component(ignore = "proof_b, vk")]
+#[component(offcircuit_args = "proof_b, vk")]
 pub fn groth16_verify<C: CircuitContext>(
     circuit: &mut C,
     public: &[Fr],
@@ -107,7 +107,7 @@ pub fn decompress_g1_from_compressed<C: CircuitContext>(
 
 /// Convenience wrapper: verify using compressed A and C (x, y_flag). B remains host-provided `G2Affine`.
 #[allow(clippy::too_many_arguments)]
-#[component(ignore = "proof_b, vk")]
+#[component(offcircuit_args = "proof_b, vk")]
 pub fn groth16_verify_compressed<C: CircuitContext>(
     circuit: &mut C,
     public: &[Fr],

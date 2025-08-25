@@ -118,7 +118,7 @@ impl ComponentSignature {
                         ));
                     }
                 },
-                Meta::NameValue(nv) if nv.path.is_ident("ignore") => match &nv.value {
+                Meta::NameValue(nv) if nv.path.is_ident("offcircuit_args") => match &nv.value {
                     syn::Expr::Lit(expr_lit) => match &expr_lit.lit {
                         Lit::Str(lit_str) => {
                             // Parse comma-separated list of parameter names
@@ -129,21 +129,21 @@ impl ComponentSignature {
                         _ => {
                             return Err(Error::new_spanned(
                                 &expr_lit.lit,
-                                "ignore parameter must be a string literal with comma-separated parameter names",
+                                "offcircuit_args parameter must be a string literal with comma-separated parameter names",
                             ));
                         }
                     },
                     _ => {
                         return Err(Error::new_spanned(
                             &nv.value,
-                            "ignore parameter must be a string literal with comma-separated parameter names",
+                            "offcircuit_args parameter must be a string literal with comma-separated parameter names",
                         ));
                     }
                 },
                 _ => {
                     return Err(Error::new_spanned(
                         arg,
-                        "Unknown attribute parameter. Only 'outputs' and 'ignore' are supported.",
+                        "Unknown attribute parameter. Only 'outputs' and 'offcircuit_args' are supported.",
                     ));
                 }
             }

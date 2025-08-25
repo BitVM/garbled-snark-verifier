@@ -58,7 +58,7 @@ pub fn equal<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWire
     equal_constant(circuit, &BigIntWires { bits: xor_bits }, &BigUint::ZERO)
 }
 
-#[component(ignore = "b")]
+#[component(offcircuit_args = "b")]
 pub fn equal_constant<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigUint) -> WireId {
     if b == &BigUint::ZERO {
         return equal_zero(circuit, a);
@@ -133,7 +133,7 @@ pub fn greater_than<C: CircuitContext>(
     sum.last().unwrap()
 }
 
-#[component(ignore = "b")]
+#[component(offcircuit_args = "b")]
 pub fn less_than_constant<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
@@ -191,7 +191,7 @@ pub fn select<C: CircuitContext>(
     }
 }
 
-#[bn_component(arity = "a[0].len()", ignore = "w")]
+#[bn_component(arity = "a[0].len()", offcircuit_args = "w")]
 pub fn multiplexer<C: CircuitContext>(
     circuit: &mut C,
     a: &[BigIntWires],

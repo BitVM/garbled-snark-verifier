@@ -96,7 +96,7 @@ fn new_fq12_constant_montgomery(v: ark_bn254::Fq12) -> Fq12 {
 }
 
 /// Miller loop over BN254 with constant Q and variable G1 wires.
-#[component(ignore = "q")]
+#[component(offcircuit_args = "q")]
 pub fn miller_loop_const_q<C: CircuitContext>(
     circuit: &mut C,
     p: &G1Projective,
@@ -132,7 +132,7 @@ pub fn miller_loop_const_q<C: CircuitContext>(
 }
 
 /// Multi Miller loop with constant Qs and variable G1 wires.
-#[component(ignore = "qs")]
+#[component(offcircuit_args = "qs")]
 pub fn multi_miller_loop_const_q<C: CircuitContext>(
     circuit: &mut C,
     ps: &[G1Projective],
@@ -193,7 +193,7 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
 // Final exponentiation logic has moved to gadgets::bn254::final_exponentiation
 
 /// Full pairing with constant `Q`: Miller loop followed by final exponentiation.
-#[component(ignore = "q")]
+#[component(offcircuit_args = "q")]
 pub fn pairing_const_q<C: CircuitContext>(
     circuit: &mut C,
     p: &G1Projective,
@@ -204,7 +204,7 @@ pub fn pairing_const_q<C: CircuitContext>(
 }
 
 /// Multi-pairing aggregation with constant `Q_i` and variable `P_i`.
-#[component(ignore = "qs")]
+#[component(offcircuit_args = "qs")]
 pub fn multi_pairing_const_q<C: CircuitContext>(
     circuit: &mut C,
     ps: &[G1Projective],

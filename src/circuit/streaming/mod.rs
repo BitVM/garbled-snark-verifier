@@ -16,6 +16,40 @@ pub use into_wire_list::{WiresArity, WiresObject};
 mod circuit_context_trait;
 pub use circuit_context_trait::{CircuitContext, FALSE_WIRE, TRUE_WIRE};
 
+mod component_key;
+pub use component_key::{generate_component_key, hash_param};
+
+mod offcircuit_param;
+pub use offcircuit_param::OffCircuitParam;
+
+/// Macro for generating component keys with optional parameters
+///
+/// # Examples
+///
+/// Simple usage without parameters:
+/// ```
+/// let key = component_key!("my_component");
+/// ```
+///
+/// With a single parameter (common case):
+/// ```
+/// let key = component_key!("multiplexer", w = window_size);
+/// ```
+///
+/// The macro handles conversion to bytes for common types automatically.
+#[macro_export]
+macro_rules! component_key {
+    // Simple case: just name
+    ($name:expr) => {
+        $crate::circuit::streaming::generate_component_key($name, [] as [(&str, &[u8]); 0])
+    };
+
+    // Single parameter (most common case)
+    ($name:expr, $param_name:ident = $param_value:expr) => {
+        $crate::circuit::streaming::hash_param($name, stringify!($param_name), $param_value)
+    };
+}
+
 pub mod components;
 use components::{Action, Component, ComponentId, ComponentPool};
 
@@ -52,7 +86,7 @@ impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
 
     fn with_named_child<O: WiresObject>(
         &'_ mut self,
-        _name: &'static str,
+        _key: &[u8; 16],
         _input_wires: Vec<WireId>,
         _f: impl Fn(&mut Self) -> O,
         _arity: impl FnOnce() -> usize,

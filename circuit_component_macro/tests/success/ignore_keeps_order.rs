@@ -21,7 +21,7 @@ impl Gate {
 // The ignored parameter `x` is in the middle. The wrapper must keep
 // the original argument order: (a, x, b). If it reorders to (a, b, x),
 // the call in `use_it` will fail to type-check due to mismatched types.
-#[component(ignore = "x")]
+#[component(offcircuit_args = "x")]
 fn gadget(ctx: &mut impl CircuitContext, a: A, x: X, b: B) -> (A, B) {
     // body can be empty for compile-time validation in trybuild
     (a, b)

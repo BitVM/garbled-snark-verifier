@@ -117,7 +117,7 @@ pub trait Fp254Impl {
         bigint::select(circuit, &wires1, &wires2, s)
     }
 
-    #[bn_component(arity = "Self::N_BITS", ignore = "b")]
+    #[bn_component(arity = "Self::N_BITS", offcircuit_args = "b")]
     fn add_constant<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -254,7 +254,7 @@ pub trait Fp254Impl {
     ///
     /// # Returns
     /// Product in Montgomery form
-    #[bn_component(arity = "Self::N_BITS", ignore = "b")]
+    #[bn_component(arity = "Self::N_BITS", offcircuit_args = "b")]
     fn mul_by_constant_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
@@ -401,7 +401,7 @@ pub trait Fp254Impl {
         for chunk in (0..2 * Self::N_BITS).chunks(PER_CHUNK).into_iter() {
             let chunk = chunk.into_iter().collect::<Vec<_>>();
             input = circuit.with_named_child(
-                "inverse_iteration",
+                &crate::component_key!("inverse_iteration"),
                 input.to_wires_vec(),
                 |circuit| {
                     let IterationContext {
@@ -540,7 +540,7 @@ pub trait Fp254Impl {
 
         // divide result by even part
         let s = circuit.with_named_child(
-            "inverse::divide_result_by_even_part",
+            &crate::component_key!("inverse::divide_result_by_even_part"),
             [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat(),
             |circuit| {
                 let mut s = s.clone();
@@ -550,7 +550,7 @@ pub trait Fp254Impl {
                     let chunk = chunk.into_iter().collect::<Vec<_>>();
 
                     let (new_s, new_even_part) = circuit.with_named_child(
-                        "inverse::divide_result_by_even_part::chunk",
+                        &crate::component_key!("inverse::divide_result_by_even_part::chunk"),
                         [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat(),
                         |circuit| {
                             let mut s = s.clone();
@@ -587,7 +587,7 @@ pub trait Fp254Impl {
         );
 
         circuit.with_named_child(
-            "inverse::divide_result_by_2^k",
+            &crate::component_key!("inverse::divide_result_by_2^k"),
             [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat(),
             |circuit| {
                 let mut s = s.clone();
@@ -598,7 +598,7 @@ pub trait Fp254Impl {
                     let chunk = chunk.collect::<Vec<_>>();
 
                     let (new_s, new_k) = circuit.with_named_child(
-                        "inverse::divide_result_by_2^k::chunk",
+                        &crate::component_key!("inverse::divide_result_by_2^k::chunk"),
                         [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat(),
                         |circuit| {
                             let mut s = s.clone();
@@ -660,7 +660,7 @@ pub trait Fp254Impl {
     }
 
     /// Exponentiation by constant in Montgomery form
-    #[bn_component(arity = "Self::N_BITS", ignore = "exp")]
+    #[bn_component(arity = "Self::N_BITS", offcircuit_args = "exp")]
     fn exp_by_constant_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &BigIntWires,
