@@ -38,15 +38,16 @@ impl InputIndex {
             1..64 => {
                 let mut credits = Vec::<(WireId, Credits)>::with_capacity(inputs.len());
                 for wire_id in inputs {
-                    if wire_id == &WireId::UNREACHABLE {
-                        continue;
-                    }
-
-                    match credits.binary_search_by(|(w, _c)| w.cmp(wire_id)) {
-                        Err(err) => credits.insert(err, (*wire_id, 0)),
-                        Ok(_) => {
-                            continue;
-                        }
+                    match *wire_id {
+                        WireId::UNREACHABLE => continue,
+                        TRUE_WIRE => continue,
+                        FALSE_WIRE => continue,
+                        wire_id => match credits.binary_search_by(|(w, _c)| w.cmp(&wire_id)) {
+                            Err(err) => credits.insert(err, (wire_id, 0)),
+                            Ok(_) => {
+                                continue;
+                            }
+                        },
                     }
                 }
 
@@ -55,10 +56,14 @@ impl InputIndex {
             64.. => {
                 let mut map = HashMap::new();
                 for wire_id in inputs {
-                    if wire_id == &WireId::UNREACHABLE {
-                        continue;
+                    match *wire_id {
+                        WireId::UNREACHABLE => continue,
+                        TRUE_WIRE => continue,
+                        FALSE_WIRE => continue,
+                        wire_id => {
+                            map.insert(wire_id, 0);
+                        }
                     }
-                    map.insert(*wire_id, 0);
                 }
 
                 Self::Map(map)
@@ -264,13 +269,6 @@ impl CircuitMode for Empty {
     }
     fn current_size(&self) -> usize {
         0
-    }
-
-    /// This function is called on the component's input
-    fn push_frame(&mut self, _name: &'static str, _inputs: &[WireId]) {}
-
-    fn pop_frame(&mut self, _outputs: &[WireId]) -> Vec<(WireId, Self::WireValue)> {
-        vec![]
     }
 
     fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {
