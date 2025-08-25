@@ -14,7 +14,7 @@
 //! - If an id less than `offset` is encountered that is not among the I/Os, a panic is generated - such a wire is unknown to the current component.
 //! - Calls to child components increase credits only for input wires passed to them; child internals are not analyzed in this mode.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use log::trace;
 
@@ -99,7 +99,7 @@ impl InputIndex {
 #[derive(Debug)]
 pub struct ComponentMeta {
     /// During real execution, we take from here (stack-like) lifetime (credits) for real wires.
-    pub credits_stack: VecDeque<Credits>,
+    pub credits_stack: Vec<Credits>,
 
     /// Input external credits stored in the same order the input is provided.
     extra_input_credits: InputIndex,
@@ -127,7 +127,7 @@ impl ComponentMeta {
         };
 
         Self {
-            credits_stack: VecDeque::new(),
+            credits_stack: Vec::new(),
             extra_input_credits: InputIndex::build(inputs),
             extra_output_credits: output_external_credits.to_vec(),
             cursor: offset,
@@ -167,7 +167,16 @@ impl ComponentMeta {
 
     #[inline]
     pub fn next_credit(&mut self) -> Option<Credits> {
-        self.credits_stack.pop_front()
+        if self.credits_stack.is_empty() {
+            None
+        } else {
+            Some(self.credits_stack.remove(0))
+        }
+    }
+
+    #[inline]
+    pub fn get_credit(&self, index: usize) -> Option<Credits> {
+        self.credits_stack.get(index).copied()
     }
 
     /// * Args
@@ -209,7 +218,7 @@ impl CircuitContext for ComponentMeta {
     fn issue_wire(&mut self) -> WireId {
         let next = self.cursor;
         self.cursor.0 += 1;
-        self.credits_stack.push_back(0);
+        self.credits_stack.push(0);
 
         trace!(
             "ComponentMeta::issue_wire -> {} (stack_len={})",
