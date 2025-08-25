@@ -1,14 +1,13 @@
 use std::{cell::RefCell, iter, time::Instant};
 
-use itertools::Itertools;
 use log::{debug, error};
 
 use crate::{
-    CircuitContext, Gate, WireId,
     circuit::streaming::{
-        CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_meta::ComponentMeta,
+        component_meta::ComponentMeta, CircuitMode, WiresObject, FALSE_WIRE, TRUE_WIRE,
     },
     storage::{Credits, Storage},
+    CircuitContext, Gate, WireId,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -195,7 +194,7 @@ impl CircuitContext for ExecuteWithCredits {
         let arity = output_arity();
 
         if let Self::MetadataPass(meta) = self {
-            debug!("with_named_child: metapass enter name={name} arity={arity}");
+            debug!("with_named_child: metapass enter name={key:?} arity={arity}");
             meta.increment_credits(&input_wires);
 
             // We just pre-alloc all outputs for handle credits
@@ -207,7 +206,7 @@ impl CircuitContext for ExecuteWithCredits {
         }
 
         let instance = Instant::now();
-        debug!("with_named_child: enter name={name} arity={arity}");
+        debug!("with_named_child: enter name={key:?} arity={arity}");
 
         let pre_alloc_output_credits = {
             if let Self::ExecutePass { stack, .. } = self {
@@ -241,24 +240,23 @@ impl CircuitContext for ExecuteWithCredits {
         // Propagate child's measured input usage back to the parent's wires
         if let Self::ExecutePass { stack, storage } = self {
             let mut storage = storage.borrow_mut();
-            // TODO Simplify this code with
-            for (extra, wire_id) in child_component_meta
-                .extra_input_credits()
-                .iter()
-                .zip_eq(input_wires.iter())
-            {
-                if wire_id == &TRUE_WIRE || wire_id == &FALSE_WIRE {
-                    continue;
+            child_component_meta.for_each_input_extra_credits(|wire_id, extra| {
+                if wire_id == TRUE_WIRE || wire_id == FALSE_WIRE {
+                    return;
                 }
 
-                if *extra != 0 {
-                    storage.add_credits(*wire_id, *extra).unwrap();
+                match extra {
+                    0 => {
+                        // Just remove one input-pin credit
+                        _ = storage.get(wire_id).unwrap();
+                    }
+                    1 => (),
+                    n => {
+                        storage.add_credits(wire_id, n - 1).unwrap();
+                    }
                 }
+            });
 
-                if wire_id != &WireId::UNREACHABLE {
-                    storage.get(*wire_id).unwrap(); // Take off the credit that was for the input
-                }
-            }
             stack.push(child_component_meta);
         } else {
             unreachable!()
@@ -272,8 +270,8 @@ impl CircuitContext for ExecuteWithCredits {
         }
 
         debug!(
-            "with_named_child: exit name={} outputs={:?}, duration = {:?} ms",
-            name,
+            "with_named_child: exit name={:?} outputs={:?}, duration = {:?} ms",
+            key,
             output
                 .to_wires_vec()
                 .iter()

@@ -14,91 +14,79 @@
 //! - If an id less than `offset` is encountered that is not among the I/Os, a panic is generated - such a wire is unknown to the current component.
 //! - Calls to child components increase credits only for input wires passed to them; child internals are not analyzed in this mode.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use log::trace;
 
 use crate::{
-    CircuitContext, Gate, WireId,
-    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject},
+    circuit::streaming::{CircuitMode, WiresObject, FALSE_WIRE, TRUE_WIRE},
     storage::Credits,
+    CircuitContext, Gate, WireId,
 };
 
-/// Fast index for input wire -> its position in `inputs_wires`.
-/// Picks the fastest strategy based on density of input IDs.
 #[derive(Debug)]
 enum InputIndex {
-    /// Dense array index: O(1) lookups, store index+1 (0 means "none").
-    Dense { base: WireId, slots: Box<[usize]> },
-    /// Sparse index: O(log n) lookups, avoids requiring `Hash` for `WireId`.
-    Sparse(BTreeMap<WireId, usize>),
-    /// No inputs.
+    Vec(Box<[(WireId, Credits)]>),
+    Map(HashMap<WireId, Credits>),
     Empty,
 }
 
 impl InputIndex {
     fn build(inputs: &[WireId]) -> Self {
-        // Filter special/unreachable out of the index.
-        let filtered: Vec<(usize, WireId)> = inputs
-            .iter()
-            .copied()
-            .enumerate()
-            .filter(|(_, w)| *w != WireId::UNREACHABLE)
-            .collect();
+        match inputs.len() {
+            0 => Self::Empty,
+            1..64 => {
+                let mut credits = Vec::<(WireId, Credits)>::with_capacity(inputs.len());
+                for wire_id in inputs {
+                    if wire_id == &WireId::UNREACHABLE {
+                        continue;
+                    }
 
-        if filtered.is_empty() {
-            return InputIndex::Empty;
+                    match credits.binary_search_by(|(w, _c)| w.cmp(wire_id)) {
+                        Err(err) => credits.insert(err, (*wire_id, 0)),
+                        Ok(_) => {
+                            continue;
+                        }
+                    }
+                }
+
+                Self::Vec(credits.into_boxed_slice())
+            }
+            64.. => {
+                let mut map = HashMap::new();
+                for wire_id in inputs {
+                    if wire_id == &WireId::UNREACHABLE {
+                        continue;
+                    }
+                    map.insert(*wire_id, 0);
+                }
+
+                Self::Map(map)
+            }
         }
+    }
 
-        // Compute min/max to see if a dense table is feasible.
-        let min_id = filtered.iter().map(|&(_, w)| w).min().unwrap();
-        let max_id = filtered.iter().map(|&(_, w)| w).max().unwrap();
-
-        // Range length in IDs.
-        let range_len = max_id.0 - min_id.0 + 1;
-
-        // Heuristic: go dense if the address space is reasonably tight compared to count.
-        // With <5000 inputs average, this works very well when IDs are sequential-ish.
-        let inputs_len = filtered.len();
-        let dense_threshold = inputs_len.saturating_mul(8).max(4096);
-        if range_len <= dense_threshold {
-            // Dense path.
-            let mut slots = vec![0usize; range_len].into_boxed_slice();
-            for (i, w) in filtered.iter().copied() {
-                let idx = w.0 - min_id.0;
-                // Store index+1 (0 means absent).
-                slots[idx] = i + 1;
-            }
-            InputIndex::Dense {
-                base: min_id,
-                slots,
-            }
-        } else {
-            // Sparse path using BTreeMap (WireId already Ord).
-            let mut map = BTreeMap::new();
-            for (i, w) in filtered {
-                map.insert(w, i);
-            }
-            InputIndex::Sparse(map)
+    fn for_each(&self, mut map: impl FnMut(WireId, Credits)) {
+        match self {
+            InputIndex::Vec(values) => values
+                .iter()
+                .for_each(move |(wire_id, credits)| map(*wire_id, *credits)),
+            InputIndex::Map(hash_map) => hash_map
+                .iter()
+                .for_each(move |(wire_id, credits)| map(*wire_id, *credits)),
+            InputIndex::Empty => (),
         }
     }
 
     #[inline(always)]
-    fn get(&self, wire: WireId) -> Option<usize> {
+    fn get_mut(&mut self, wire: WireId) -> Option<&mut Credits> {
         match self {
             InputIndex::Empty => None,
-            InputIndex::Dense { base, slots } => {
-                if wire.0 < base.0 {
-                    return None;
-                }
-                let idx = wire.0 - base.0;
-                if idx >= slots.len() {
-                    return None;
-                }
-                let v = unsafe { *slots.get_unchecked(idx) };
-                if v == 0 { None } else { Some(v - 1) }
-            }
-            InputIndex::Sparse(map) => map.get(&wire).copied(),
+            InputIndex::Vec(credits) => match credits.binary_search_by(|(w, _c)| w.cmp(&wire)) {
+                Ok(index) => Some(&mut credits[index].1),
+                Err(_) => None,
+            },
+            InputIndex::Map(map) => map.get_mut(&wire),
         }
     }
 }
@@ -109,14 +97,10 @@ pub struct ComponentMeta {
     pub credits_stack: VecDeque<Credits>,
 
     /// Input external credits stored in the same order the input is provided.
-    inputs_wires: Vec<WireId>,
-    extra_input_credits: Vec<Credits>,
+    extra_input_credits: InputIndex,
 
     /// Output external credits stored in the same order outputs are provided.
     extra_output_credits: Vec<Credits>,
-
-    /// Fast wire-id -> input index mapping (for wire ids < offset).
-    input_index: InputIndex,
 
     offset: WireId,
     cursor: WireId,
@@ -137,23 +121,13 @@ impl ComponentMeta {
             Some(wire_id) => WireId(wire_id.0 + 1),
         };
 
-        let inputs_wires = inputs.to_vec();
-        let input_index = InputIndex::build(&inputs_wires);
-
         Self {
             credits_stack: VecDeque::new(),
-            inputs_wires,
-            extra_input_credits: vec![0; inputs.len()],
+            extra_input_credits: InputIndex::build(inputs),
             extra_output_credits: output_external_credits.to_vec(),
-            input_index,
             cursor: offset,
             offset,
         }
-    }
-
-    #[inline]
-    pub fn extra_input_credits(&self) -> &[Credits] {
-        &self.extra_input_credits
     }
 
     #[inline(always)]
@@ -161,28 +135,12 @@ impl ComponentMeta {
         self.add_credits(wires, 1);
     }
 
-    /// O(1) or O(log n) depending on index strategy.
-    #[inline(always)]
-    pub fn find_input_wire_index(&self, wire_id: WireId) -> Option<usize> {
-        if wire_id < self.offset {
-            self.input_index.get(wire_id)
-        } else {
-            None
-        }
-    }
-
     #[inline(always)]
     fn bump_credit_for_wire(&mut self, wire_id: WireId, credit: Credits) {
         match wire_id {
             TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE => {}
             id if id < self.offset => {
-                let pos = self.find_input_wire_index(id).unwrap_or_else(|| {
-                    panic!("Unknown input wire id {id} for offset {}", self.offset);
-                });
-                unsafe {
-                    // SAFETY: pos is produced by our index and must be within bounds.
-                    *self.extra_input_credits.get_unchecked_mut(pos) += credit;
-                }
+                *self.extra_input_credits.get_mut(id).unwrap() += credit;
             }
             id => {
                 let idx = id.0 - self.offset.0;
@@ -219,13 +177,7 @@ impl ComponentMeta {
             let extra = self.extra_output_credits[index];
 
             if output_wire < self.offset {
-                let index_in_input = self.find_input_wire_index(output_wire).unwrap_or_else(|| {
-                    panic!(
-                        "Output wire {output_wire:?} is < offset {}, but not present in inputs",
-                        self.offset
-                    )
-                });
-                self.extra_input_credits[index_in_input] += extra;
+                *self.extra_input_credits.get_mut(output_wire).unwrap() += extra;
             } else if output_wire >= self.offset && output_wire < self.cursor {
                 // Internal output wire that had already been issued -> add credits.
                 self.bump_credit_for_wire(output_wire, extra);
@@ -238,6 +190,10 @@ impl ComponentMeta {
         }
 
         self
+    }
+
+    pub fn for_each_input_extra_credits(&self, map: impl FnMut(WireId, Credits)) {
+        self.extra_input_credits.for_each(map);
     }
 }
 
@@ -263,7 +219,10 @@ impl CircuitContext for ComponentMeta {
     fn add_gate(&mut self, gate: Gate) {
         trace!(
             "ComponentMeta::add_gate kind={:?} a={} b={} c={}",
-            gate.gate_type, gate.wire_a.0, gate.wire_b.0, gate.wire_c.0
+            gate.gate_type,
+            gate.wire_a.0,
+            gate.wire_b.0,
+            gate.wire_c.0
         );
 
         // Avoid the slice loop/allocation in hot path.
@@ -273,7 +232,7 @@ impl CircuitContext for ComponentMeta {
 
     fn with_named_child<O: WiresObject>(
         &mut self,
-        _name: &'static str,
+        _k: &[u8; 16],
         input_wires: Vec<WireId>,
         _f: impl Fn(&mut Self) -> O,
         arity: impl FnOnce() -> usize,
