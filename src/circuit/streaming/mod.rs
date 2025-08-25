@@ -5,7 +5,7 @@ use std::{array, fmt::Debug};
 use log::debug;
 
 use crate::{
-    Gate, WireId,
+    WireId,
     circuit::streaming::{component_meta::ComponentMeta, modes::ExecuteWithCredits},
     core::gate_type::GateCount,
 };
@@ -51,7 +51,6 @@ macro_rules! component_key {
 }
 
 pub mod components;
-use components::{Action, Component, ComponentId, ComponentPool};
 
 mod cache;
 pub use cache::WireStack;
@@ -61,114 +60,7 @@ pub use modes::{CircuitMode, Evaluate, Garble};
 
 pub mod component_meta;
 
-pub struct ComponentHandle<'a, M: CircuitMode> {
-    id: ComponentId,
-    builder: &'a mut CircuitBuilder<M>,
-}
-
-impl<'a, M: CircuitMode> ComponentHandle<'a, M> {
-    /// Direct access to the underlying component (for metadata operations)
-    pub fn get_component(&mut self) -> &mut Component {
-        self.builder.pool.get_mut(self.id)
-    }
-}
-
-impl<'a, M: CircuitMode> CircuitContext for ComponentHandle<'a, M> {
-    type Mode = M;
-
-    fn issue_wire(&mut self) -> WireId {
-        self.builder.allocate_wire()
-    }
-
-    fn add_gate(&mut self, gate: Gate) {
-        self.builder.add_gate_to_component(self.id, gate);
-    }
-
-    fn with_named_child<O: WiresObject>(
-        &'_ mut self,
-        _key: &[u8; 16],
-        _input_wires: Vec<WireId>,
-        _f: impl Fn(&mut Self) -> O,
-        _arity: impl FnOnce() -> usize,
-    ) -> O {
-        todo!()
-        //let mut child = Component::empty_root();
-
-        //child.name = name;
-        //child.input_wires = input_wires.clone();
-        //child.internal_wire_offset = self.builder.next_wire_id;
-
-        //let child_id = self.builder.pool.insert(child);
-        //self.builder.stack.push(child_id);
-        //self.builder
-        //    .pool
-        //    .get_mut(self.id)
-        //    .actions
-        //    .push(Action::Call { id: child_id });
-
-        //// Track parent cache size and start time for tracing
-        //let start_time = Instant::now();
-
-        //self.builder.mode.push_frame(name, &input_wires);
-
-        //let mut child_handle = ComponentHandle {
-        //    id: child_id,
-        //    builder: self.builder,
-        //};
-
-        //let output_wires = f(&mut child_handle);
-
-        //let output_wire_ids = output_wires.to_wires_vec();
-
-        //let child_component = self.builder.pool.get_mut(child_id);
-        //child_component.output_wires = output_wire_ids.clone();
-        //child_component.num_wire = self.builder.next_wire_id - child_component.internal_wire_offset;
-
-        //// Capture current frame cache usage before popping the frame
-        //let child_cache_entries = self.builder.mode.current_size();
-
-        //let total_cahce_size = self.builder.mode.total_size();
-
-        //let extracted_outputs = self.builder.mode.pop_frame(&output_wire_ids);
-
-        //// Feed output values back into parent frame
-        //for (wire_id, value) in extracted_outputs {
-        //    self.builder.mode.feed_wire(wire_id, value);
-        //}
-
-        //self.builder
-        //    .stack
-        //    .pop()
-        //    .expect("unbalanced component stack");
-
-        //let component = self.builder.pool.remove(child_id);
-
-        //// Count actions separately: gates and nested calls
-        //let gates = component
-        //    .actions
-        //    .iter()
-        //    .filter(|a| matches!(a, Action::Gate(_)))
-        //    .count();
-        //let calls = component
-        //    .actions
-        //    .iter()
-        //    .filter(|a| matches!(a, Action::Call { .. }))
-        //    .count();
-
-        //let duration_ms = start_time.elapsed().as_nanos();
-
-        //info!(
-        //    "component_metrics name={} gates={gates} calls={calls} cache_entries={child_cache_entries} total_cache={total_cahce_size} duration_ns={duration_ms}",
-        //    component.name
-        //);
-
-        //output_wires
-    }
-}
-
 pub struct CircuitBuilder<M: CircuitMode> {
-    pool: ComponentPool,
-    stack: Vec<ComponentId>,
     mode: M,
     next_wire_id: usize,
     gate_count: GateCount,
@@ -264,90 +156,6 @@ impl CircuitBuilder<ExecuteWithCredits> {
     }
 }
 
-//impl<M: CircuitMode> CircuitBuilder<M> {
-//    /// Convenience wrapper using the generic streaming path for Evaluate mode
-//    pub fn streaming_process<I, F, O>(inputs: I, wire_cache: M, f: F) -> StreamingResult<M, I, O>
-//    where
-//        I: CircuitInput + EncodeInput<M::WireValue>,
-//        O: CircuitOutput<M>,
-//        F: FnOnce(&mut ComponentHandle<M>, &I::WireRepr) -> O::WireRepr,
-//    {
-//        let mut builder = Self {
-//            pool: ComponentPool::new(),
-//            stack: vec![],
-//            mode: wire_cache,
-//            next_wire_id: 2, // 0&1 reserved for constants
-//            gate_count: GateCount::default(),
-//        };
-//
-//        let root_id = builder.pool.insert(Component::empty_root());
-//        builder.stack.push(root_id);
-//
-//        // Initialize root frame with mode-specific constants
-//        builder.mode.push_frame("root", &[]);
-//
-//        let mut root_handle = ComponentHandle {
-//            id: root_id,
-//            builder: &mut builder,
-//        };
-//
-//        // Allocate input wires using the input type
-//        let input_wires = I::allocate(&inputs, || root_handle.issue_wire());
-//        root_handle.get_component().input_wires = I::collect_wire_ids(&input_wires);
-//        inputs.encode(&input_wires, &mut root_handle.builder.mode);
-//
-//        let output = f(&mut root_handle, &input_wires);
-//        root_handle.get_component().output_wires = output.to_wires_vec();
-//
-//        let output_wires_ids = root_handle.get_component().output_wires.clone();
-//
-//        StreamingResult {
-//            input_wires,
-//            output_wires: O::decode(output, &builder.mode),
-//            output_wires_ids,
-//            one_constant: builder.mode.lookup_wire(TRUE_WIRE).unwrap().clone(),
-//            zero_constant: builder.mode.lookup_wire(FALSE_WIRE).unwrap().clone(),
-//        }
-//    }
-//
-//    pub fn global_input(&self) -> &[WireId] {
-//        let root = self.stack.first().unwrap();
-//        &self.pool.get(*root).input_wires
-//    }
-//}
-
-impl<M: CircuitMode> CircuitBuilder<M> {
-    pub fn current_component(&mut self) -> ComponentHandle<'_, M> {
-        let current_id = *self.stack.last().unwrap();
-        ComponentHandle {
-            id: current_id,
-            builder: self,
-        }
-    }
-
-    pub fn allocate_wire(&mut self) -> WireId {
-        let wire = WireId(self.next_wire_id);
-        self.next_wire_id += 1;
-        wire
-    }
-
-    pub fn gate_count(&self) -> &GateCount {
-        &self.gate_count
-    }
-
-    pub fn add_gate_to_component(&mut self, component_id: ComponentId, gate: Gate) {
-        self.gate_count.handle(gate.gate_type);
-        self.mode.evaluate_gate(&gate).unwrap();
-
-        self.pool
-            .get_mut(component_id)
-            .actions
-            .push(Action::Gate(gate));
-    }
-}
-
-// ――― Input Provisioning System ―――
-
 /// Trait for types that can be converted to bit vectors
 pub trait ToBits {
     fn to_bits_le(&self) -> Vec<bool>;
@@ -438,7 +246,7 @@ mod exec_test {
     use test_log::test;
 
     use super::*;
-    use crate::circuit::streaming::modes::ExecuteWithCredits;
+    use crate::{Gate, circuit::streaming::modes::ExecuteWithCredits};
 
     /// Example input structure with mixed types
     pub struct Inputs {

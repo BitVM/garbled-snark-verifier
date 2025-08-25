@@ -7,6 +7,7 @@ use crate::{
     circuit::streaming::{
         CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_meta::ComponentMeta,
     },
+    core::gate_type::GateCount,
     storage::{Credits, Storage},
 };
 
@@ -30,6 +31,7 @@ pub enum ExecuteWithCredits {
     ExecutePass {
         storage: RefCell<Storage<WireId, OptionalBoolean>>,
         stack: Vec<ComponentMeta>,
+        gate_count: GateCount,
     },
 }
 
@@ -38,6 +40,7 @@ impl ExecuteWithCredits {
         Self::ExecutePass {
             storage: RefCell::new(Storage::new(capacity)),
             stack: vec![],
+            gate_count: GateCount::default(),
         }
     }
 
@@ -46,6 +49,7 @@ impl ExecuteWithCredits {
             Self::ExecutePass {
                 storage: RefCell::new(Storage::new(capacity)),
                 stack: vec![meta],
+                gate_count: GateCount::default(),
             }
         } else {
             panic!()
@@ -55,7 +59,7 @@ impl ExecuteWithCredits {
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
         match self {
             Self::MetadataPass(meta) => (meta.issue_wire(), 0),
-            Self::ExecutePass { storage, stack } => {
+            Self::ExecutePass { storage, stack, .. } => {
                 let meta = stack.last_mut().unwrap();
 
                 // Normal allocation path
@@ -220,13 +224,6 @@ impl CircuitContext for ExecuteWithCredits {
             }
         };
 
-        let mistake = input_wires
-            .iter()
-            .enumerate()
-            .filter_map(|(i, wire_id)| wire_id.eq(&WireId::UNREACHABLE).then_some(i))
-            .collect::<Vec<_>>();
-        assert!(mistake.is_empty(), "{:?}", mistake);
-
         let mut child_component_meta =
             Self::MetadataPass(ComponentMeta::new(&input_wires, &pre_alloc_output_credits));
 
@@ -238,7 +235,7 @@ impl CircuitContext for ExecuteWithCredits {
         };
 
         // Propagate child's measured input usage back to the parent's wires
-        if let Self::ExecutePass { stack, storage } = self {
+        if let Self::ExecutePass { stack, storage, .. } = self {
             let mut storage = storage.borrow_mut();
             child_component_meta.for_each_input_extra_credits(|wire_id, extra| {
                 if wire_id == TRUE_WIRE || wire_id == FALSE_WIRE {

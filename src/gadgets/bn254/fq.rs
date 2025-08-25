@@ -323,9 +323,7 @@ pub(super) mod tests {
         CircuitContext,
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{
-                CircuitMode, CircuitOutput, ComponentHandle, EncodeInput, modes::ExecuteWithCredits,
-            },
+            streaming::{CircuitMode, CircuitOutput, EncodeInput, modes::ExecuteWithCredits},
         },
         gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,
