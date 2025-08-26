@@ -1,15 +1,18 @@
-use std::{cell::RefCell, iter};
+use std::{cell::RefCell, collections::HashMap, iter};
 
-use log::{debug, error};
+use log::{debug, error, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::{
-        CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_meta::ComponentMeta,
+        CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE, WiresObject,
+        component_meta::{ComponentMetaBuilder, ComponentMetaInstance, ComponentMetaTemplate},
     },
     core::gate_type::GateCount,
     storage::{Credits, Storage},
 };
+
+const ROOT_KEY: [u8; 16] = [0u8; 16];
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum OptionalBoolean {
@@ -22,7 +25,8 @@ pub enum OptionalBoolean {
 #[derive(Debug)]
 pub struct ExecuteContext {
     storage: RefCell<Storage<WireId, OptionalBoolean>>,
-    stack: Vec<ComponentMeta>,
+    stack: Vec<ComponentMetaInstance>,
+    templates: HashMap<[u8; 16], ComponentMetaTemplate>,
     gate_count: GateCount,
 }
 
@@ -30,12 +34,12 @@ impl ExecuteContext {
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
         let meta = self.stack.last_mut().unwrap();
 
-        // Normal allocation path
         if let Some(credit) = meta.next_credit() {
             let wire_id = self
                 .storage
                 .borrow_mut()
                 .allocate(OptionalBoolean::None, credit);
+            trace!("issue wire {wire_id:?} with {credit} credit");
             (wire_id, credit)
         } else {
             unreachable!("{self:?}")
@@ -79,6 +83,7 @@ impl CircuitMode for ExecuteContext {
     }
 
     fn feed_wire(&mut self, wire: WireId, value: bool) {
+        trace!("feed wire {wire:?} with value: {value}");
         self.storage
             .borrow_mut()
             .set(wire, |data| {
@@ -127,7 +132,7 @@ impl CircuitMode for ExecuteContext {
 /// - Constants are stored outside of `WireStorage` and don't consume credits.
 #[derive(Debug)]
 pub enum Execute {
-    MetadataPass(ComponentMeta),
+    MetadataPass(ComponentMetaBuilder),
     ExecutePass(ExecuteContext),
 }
 
@@ -140,21 +145,60 @@ impl Execute {
         Self::ExecutePass(ExecuteContext {
             storage: RefCell::new(Storage::new(capacity)),
             stack: vec![],
+            templates: HashMap::default(),
             gate_count: GateCount::default(),
         })
     }
 
-    fn new_meta(inputs: &[WireId], output_external_credits: &[Credits]) -> Self {
-        Self::MetadataPass(ComponentMeta::new(inputs, output_external_credits))
+    fn new_meta(inputs: &[WireId]) -> Self {
+        Self::MetadataPass(ComponentMetaBuilder::new(inputs))
     }
 
-    pub fn to_execute_pass(self, capacity: usize) -> Self {
+    pub fn to_root_ctx<I: EncodeInput<<Self as CircuitMode>::WireValue>>(
+        self,
+        capacity: usize,
+        input: &I,
+        meta_input_wires: &[WireId],
+        meta_output_wires: &[WireId],
+    ) -> (Self, I::WireRepr) {
         if let Self::MetadataPass(meta) = self {
-            Self::ExecutePass(ExecuteContext {
+            let meta = meta.build(meta_output_wires);
+
+            let mut input_credits = vec![0; meta_input_wires.len()];
+
+            let mut instance = meta.to_instance(
+                meta_input_wires,
+                &vec![1; meta_output_wires.len()],
+                |wire_id, credits| {
+                    let index = wire_id.0 - WireId::MIN.0;
+                    let rev_index = meta_input_wires.len() - 1 - index;
+                    input_credits[rev_index] += credits;
+                },
+            );
+
+            instance.credits_stack.extend_from_slice(&input_credits);
+
+            trace!("meta before input encode: {instance:?}");
+
+            let mut ctx = Self::ExecutePass(ExecuteContext {
                 storage: RefCell::new(Storage::new(capacity)),
-                stack: vec![meta],
+                stack: vec![instance],
+                templates: {
+                    let mut map = HashMap::default();
+                    map.insert(ROOT_KEY, meta);
+                    map
+                },
                 gate_count: GateCount::default(),
-            })
+            });
+
+            let input_repr = input.allocate(|| ctx.issue_wire());
+            input.encode(&input_repr, &mut ctx);
+
+            if let Self::ExecutePass(ctx) = &ctx {
+                trace!("meta after input encode: {:?}", ctx.stack.last().unwrap());
+            }
+
+            (ctx, input_repr)
         } else {
             panic!()
         }
@@ -275,40 +319,44 @@ impl CircuitContext for Execute {
             _ => unreachable!(),
         };
 
-        let mut child_component_meta = Self::new_meta(&input_wires, &pre_alloc_output_credits);
-
-        let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
-
-        let child_component_meta = match child_component_meta {
-            Self::MetadataPass(meta) => meta.finalize(&meta_wires_output),
-            _ => unreachable!(),
-        };
-
-        // Propagate child's measured input usage back to the parent's wires
         match self {
             Self::ExecutePass(ctx) => {
+                trace!("Start component {key:?} meta take");
+
+                let child_component_meta_template =
+                    ctx.templates.entry(*key).or_insert_with(|| {
+                        trace!("For key {key:?} generate template");
+                        let mut child_component_meta = Self::new_meta(&input_wires);
+
+                        let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
+
+                        match child_component_meta {
+                            Self::MetadataPass(meta) => meta.build(&meta_wires_output),
+                            _ => unreachable!(),
+                        }
+                    });
+
                 let mut storage = ctx.storage.borrow_mut();
-                child_component_meta.for_each_input_extra_credits(|wire_id, extra| {
-                    if wire_id == TRUE_WIRE || wire_id == FALSE_WIRE {
-                        return;
-                    }
+                let instance = child_component_meta_template.to_instance(
+                    &input_wires,
+                    &pre_alloc_output_credits,
+                    |wire_id, credits| {
+                        storage.add_credits(wire_id, credits).unwrap();
+                    },
+                );
 
-                    // current_credits - 1 (as input) + extra
-                    match extra {
-                        0 => {
-                            // Just remove one input-pin credit
-                            if wire_id != WireId::UNREACHABLE {
-                                _ = storage.get(wire_id).unwrap();
-                            }
-                        }
-                        1 => (),
-                        n => {
-                            storage.add_credits(wire_id, n - 1).unwrap();
+                // TODO Optimize unpin input
+                for input_wire_id in input_wires {
+                    match input_wire_id {
+                        WireId::UNREACHABLE => (),
+                        TRUE_WIRE => (),
+                        FALSE_WIRE => (),
+                        wire_id => {
+                            let _ = storage.get(wire_id).unwrap();
                         }
                     }
-                });
-
-                ctx.stack.push(child_component_meta);
+                }
+                ctx.stack.push(instance);
             }
             _ => unreachable!(),
         };
@@ -319,7 +367,7 @@ impl CircuitContext for Execute {
             Self::ExecutePass(ctx) => {
                 let _used_child_meta = ctx.stack.pop();
                 #[cfg(test)]
-                assert!(_used_child_meta.unwrap().credits_stack.is_empty());
+                assert!(_used_child_meta.unwrap().is_empty());
             }
             _ => unreachable!(),
         };
@@ -342,35 +390,5 @@ mod tests {
             wire_b: b,
             wire_c: c,
         }
-    }
-
-    #[test]
-    fn no_zombie_parent_wire_after_child_reads() {
-        // Metadata phase: prepare a single parent internal wire
-        let mut meta = Execute::MetadataPass(ComponentMeta::new(&[], &[]));
-        let parent_wire = match &mut meta {
-            Execute::MetadataPass(m) => {
-                let w = m.issue_wire();
-                // Mimic the parent pass credit for "being passed to child"
-                m.increment_credits(&[w]);
-                w
-            }
-            _ => unreachable!(),
-        };
-
-        // Switch to execute pass
-        let mut ctx = meta.to_execute_pass(8);
-        ctx.feed_wire(parent_wire, true);
-
-        // Child uses the parent wire twice; after child returns, parent wire must be fully consumed
-        let _out = ctx.with_child(
-            vec![parent_wire],
-            |child| {
-                let out = child.issue_wire();
-                child.add_gate(and(parent_wire, parent_wire, out));
-                vec![out]
-            },
-            || 1,
-        );
     }
 }

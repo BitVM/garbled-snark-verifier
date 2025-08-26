@@ -6,7 +6,7 @@ use log::debug;
 
 use crate::{
     WireId,
-    circuit::streaming::{component_meta::ComponentMeta, modes::Execute},
+    circuit::streaming::{component_meta::ComponentMetaBuilder, modes::Execute},
     core::gate_type::GateCount,
 };
 
@@ -91,54 +91,46 @@ impl CircuitBuilder<Execute> {
             "streaming_process_with_credits: start metadata pass capacity={}",
             live_wires_capacity
         );
-        let mut meta = Execute::MetadataPass(ComponentMeta::new(&[], &[]));
+        let mut cursor = WireId::MIN;
         let allocated_inputs = inputs.allocate(|| {
-            let wire_id = meta.issue_wire();
-
-            if let Execute::MetadataPass(meta) = &mut meta {
-                meta.increment_credits(&[wire_id]);
-            }
-
-            wire_id
+            let next = cursor;
+            cursor.0 += 1;
+            next
         });
-        debug!(
-            "metadata: allocated inputs = {:?}",
-            I::collect_wire_ids(&allocated_inputs)
-                .iter()
-                .map(|w| w.0)
-                .collect::<Vec<_>>()
-        );
 
-        inputs.encode(&allocated_inputs, &mut meta);
+        let meta_input_wires = I::collect_wire_ids(&allocated_inputs);
 
-        let output = f(&mut meta, &allocated_inputs);
+        let mut root_meta = Execute::MetadataPass({
+            let mut meta = ComponentMetaBuilder::new(&meta_input_wires);
+            meta.add_credits(&meta_input_wires, 1); // pin for use as input
+            meta
+        });
+
+        debug!("metadata: allocated inputs = {:?}", meta_input_wires);
+
+        let root_meta_output = f(&mut root_meta, &allocated_inputs);
+
         debug!(
             "metadata: declared outputs = {:?}",
-            output
+            root_meta_output
                 .to_wires_vec()
                 .iter()
                 .map(|w| w.0)
                 .collect::<Vec<_>>()
         );
 
-        if let Execute::MetadataPass(meta) = &mut meta {
-            meta.increment_credits(&output.to_wires_vec());
-        }
+        let root_meta_output_wires = root_meta_output.to_wires_vec();
 
-        let mut ctx = meta.to_execute_pass(live_wires_capacity);
-
-        let allocated_inputs = inputs.allocate(|| ctx.issue_wire());
-        debug!(
-            "execute: allocated inputs = {:?}",
-            I::collect_wire_ids(&allocated_inputs)
-                .iter()
-                .map(|w| w.0)
-                .collect::<Vec<_>>()
+        let (mut ctx, allocated_inputs) = root_meta.to_root_ctx(
+            live_wires_capacity,
+            &inputs,
+            &meta_input_wires,
+            &root_meta_output_wires,
         );
-        inputs.encode(&allocated_inputs, &mut ctx);
 
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
+
         debug!(
             "execute: output wires = {:?}",
             output_wires.iter().map(|w| w.0).collect::<Vec<_>>()

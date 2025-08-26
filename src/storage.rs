@@ -1,5 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData, num::NonZeroU32, ops::Deref};
 
+use log::trace;
 use slab::Slab;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -108,6 +109,7 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         match self.data.get(index) {
             None => Err(Error::NotFound { key: index }),
             Some(entry) if entry.credits == NonZeroU32::MIN => {
+                trace!("take {:?} from storage", self.to_key(index));
                 let Entry { data, .. } = self.data.remove(index);
                 Ok(Data::Owned(data))
             }
@@ -116,6 +118,8 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
                 // We know credits > 1 here.
                 entry.credits = NonZeroU32::new(entry.credits.get() - 1).unwrap();
+
+                trace!("get {:?} from storage with -1 credit", index + 2);
 
                 Ok(Data::Borrowed(&entry.data))
             }
