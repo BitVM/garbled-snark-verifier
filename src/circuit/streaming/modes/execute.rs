@@ -25,7 +25,7 @@ pub enum OptionalBoolean {
 
 #[derive(Debug)]
 pub struct ExecuteContext {
-    storage: Storage<WireId, OptionalBoolean>,
+    pub storage: Storage<WireId, OptionalBoolean>,
     stack: Vec<ComponentMetaInstance>,
     templates: HashMap<[u8; 16], ComponentMetaTemplate>,
     gate_count: GateCount,

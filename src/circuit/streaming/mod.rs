@@ -100,11 +100,7 @@ impl CircuitBuilder<Execute> {
 
         let meta_input_wires = I::collect_wire_ids(&allocated_inputs);
 
-        let mut root_meta = Execute::MetadataPass({
-            let mut meta = ComponentMetaBuilder::new(&meta_input_wires);
-            meta.add_credits(&meta_input_wires, 1); // pin for use as input
-            meta
-        });
+        let mut root_meta = Execute::MetadataPass(ComponentMetaBuilder::new(&meta_input_wires));
 
         debug!("metadata: allocated inputs = {:?}", meta_input_wires);
 

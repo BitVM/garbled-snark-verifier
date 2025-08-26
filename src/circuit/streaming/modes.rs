@@ -9,8 +9,8 @@ use crate::{
     core::gate::garbling::Blake3Hasher,
 };
 
-mod execute_with_credits;
-pub use execute_with_credits::Execute;
+mod execute;
+pub use execute::Execute;
 
 pub trait CircuitMode {
     type WireValue: Clone;
@@ -25,59 +25,6 @@ pub trait CircuitMode {
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()>;
 }
-
-// TODO GARBLE: Execute mode will be removed after refactoring
-// pub struct Execute(WireStack);
-//
-// impl Default for Execute {
-//     fn default() -> Self {
-//         let mut stack = WireStack::default();
-//         // Need to push a root frame first
-//         stack.push_frame("root", &[]);
-//         // Initialize constants
-//         stack.feed_wire(FALSE_WIRE, false);
-//         stack.feed_wire(TRUE_WIRE, true);
-//         Execute(stack)
-//     }
-// }
-//
-// impl CircuitMode for Execute {
-//     type WireValue = bool;
-//
-//     fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
-//         self.0.lookup_wire(wire)
-//     }
-//
-//     fn feed_wire(&mut self, wire: WireId, value: bool) {
-//         self.0.feed_wire(wire, value);
-//     }
-//
-//     fn total_size(&self) -> usize {
-//         self.0.total_size()
-//     }
-//
-//     fn current_size(&self) -> usize {
-//         self.0.current_size()
-//     }
-//
-//     fn push_frame(&mut self, name: &'static str, inputs: &[WireId]) {
-//         self.0.push_frame(name, inputs);
-//     }
-//
-//     fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, bool)> {
-//         self.0.pop_frame(outputs)
-//     }
-//
-//     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
-//         let wire_a_val = self.lookup_wire(gate.wire_a)?;
-//         let wire_b_val = self.lookup_wire(gate.wire_b)?;
-//         let result = (gate.gate_type.f())(*wire_a_val, *wire_b_val);
-//         self.feed_wire(gate.wire_c, result);
-//         Some(())
-//     }
-// }
-
-// Example modes to demonstrate the generic design
 
 pub struct Garble {
     rng: ChaChaRng,
@@ -129,35 +76,6 @@ impl Garble {
         self.wires.iter().map(|l| l.size()).sum()
     }
 
-    fn push_frame(&mut self, inputs: Vec<(WireId, GarbledWire)>) {
-        let mut new_cache = GarbledWires::new(self.component_max_live_wires);
-        inputs.into_iter().for_each(|(wire_id, value)| {
-            new_cache.init(wire_id, value).unwrap();
-        });
-
-        self.wires.push(new_cache);
-    }
-
-    fn pop_frame(&mut self, outputs: &[WireId]) -> Vec<(WireId, GarbledWire)> {
-        if self.wires.len() == 1 {
-            let last = self.wires.last().unwrap();
-
-            return outputs
-                .iter()
-                .copied()
-                .map(|wire_id| (wire_id, last.get(wire_id).unwrap().clone()))
-                .collect();
-        }
-
-        let last = self.wires.pop().unwrap();
-
-        outputs
-            .iter()
-            .copied()
-            .map(|wire_id| (wire_id, last.get(wire_id).unwrap().clone()))
-            .collect()
-    }
-
     fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
         input_wires
             .iter()
@@ -166,10 +84,6 @@ impl Garble {
                     .map(|value| (wire_id, value.clone()))
             })
             .collect()
-    }
-
-    fn extract_frame_outputs(&mut self, output_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
-        self.pop_frame(output_wires)
     }
 }
 
