@@ -15,7 +15,7 @@ pub use execute_with_credits::Execute;
 pub trait CircuitMode {
     type WireValue: Clone;
 
-    fn lookup_wire(&self, wire: WireId) -> Option<&Self::WireValue>;
+    fn lookup_wire(&mut self, wire: WireId) -> Option<&Self::WireValue>;
 
     fn feed_wire(&mut self, wire: WireId, value: Self::WireValue);
 
@@ -176,8 +176,8 @@ impl Garble {
 impl CircuitMode for Garble {
     type WireValue = GarbledWire;
 
-    fn lookup_wire(&self, wire: WireId) -> Option<&GarbledWire> {
-        self.lookup_wire(wire)
+    fn lookup_wire(&mut self, _wire: WireId) -> Option<&GarbledWire> {
+        todo!()
     }
 
     fn feed_wire(&mut self, wire: WireId, value: GarbledWire) {
@@ -259,8 +259,8 @@ impl Evaluate {
 impl CircuitMode for Evaluate {
     type WireValue = EvaluatedWire;
 
-    fn lookup_wire(&self, wire: WireId) -> Option<&EvaluatedWire> {
-        self.lookup_wire(wire)
+    fn lookup_wire(&mut self, _wire: WireId) -> Option<&EvaluatedWire> {
+        todo!()
     }
 
     fn feed_wire(&mut self, wire: WireId, value: EvaluatedWire) {

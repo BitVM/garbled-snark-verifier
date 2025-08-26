@@ -556,7 +556,7 @@ mod tests {
         impl CircuitOutput<Execute> for DivOut {
             type WireRepr = [BigIntWires; 2];
 
-            fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+            fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
                 let [odd, k] = wires;
 
                 let odd = BigUint::decode(odd, cache);

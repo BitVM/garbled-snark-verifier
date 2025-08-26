@@ -520,7 +520,7 @@ mod tests {
     impl CircuitOutput<Execute> for G1Output {
         type WireRepr = G1Projective;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
             let x = BigUintOutput::decode(wires.x.0, cache);
             let y = BigUintOutput::decode(wires.y.0, cache);
             let z = BigUintOutput::decode(wires.z.0, cache);

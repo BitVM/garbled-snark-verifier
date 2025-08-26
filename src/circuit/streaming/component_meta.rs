@@ -355,7 +355,7 @@ pub struct Empty;
 impl CircuitMode for Empty {
     type WireValue = bool;
 
-    fn lookup_wire(&self, _wire: WireId) -> Option<&Self::WireValue> {
+    fn lookup_wire(&mut self, _wire: WireId) -> Option<&Self::WireValue> {
         Some(&false)
     }
 

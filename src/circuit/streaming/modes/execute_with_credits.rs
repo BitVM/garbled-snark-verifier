@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, iter};
+use std::{collections::HashMap, iter};
 
 use blake3;
 use log::{debug, error, trace};
@@ -25,7 +25,7 @@ pub enum OptionalBoolean {
 
 #[derive(Debug)]
 pub struct ExecuteContext {
-    storage: RefCell<Storage<WireId, OptionalBoolean>>,
+    storage: Storage<WireId, OptionalBoolean>,
     stack: Vec<ComponentMetaInstance>,
     templates: HashMap<[u8; 16], ComponentMetaTemplate>,
     gate_count: GateCount,
@@ -36,10 +36,7 @@ impl ExecuteContext {
         let meta = self.stack.last_mut().unwrap();
 
         if let Some(credit) = meta.next_credit() {
-            let wire_id = self
-                .storage
-                .borrow_mut()
-                .allocate(OptionalBoolean::None, credit);
+            let wire_id = self.storage.allocate(OptionalBoolean::None, credit);
             trace!("issue wire {wire_id:?} with {credit} credit");
             (wire_id, credit)
         } else {
@@ -59,14 +56,14 @@ impl ExecuteContext {
 impl CircuitMode for ExecuteContext {
     type WireValue = bool;
 
-    fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
+    fn lookup_wire(&mut self, wire: WireId) -> Option<&bool> {
         match wire {
             TRUE_WIRE => return Some(&true),
             FALSE_WIRE => return Some(&false),
             _ => (),
         }
 
-        match self.storage.borrow_mut().get(wire).as_deref() {
+        match self.storage.get(wire).as_deref() {
             Ok(&OptionalBoolean::True) => Some(&true),
             Ok(&OptionalBoolean::False) => Some(&false),
             Ok(&OptionalBoolean::None) => {
@@ -86,7 +83,6 @@ impl CircuitMode for ExecuteContext {
     fn feed_wire(&mut self, wire: WireId, value: bool) {
         trace!("feed wire {wire:?} with value: {value}");
         self.storage
-            .borrow_mut()
             .set(wire, |data| {
                 *data = if value {
                     OptionalBoolean::True
@@ -98,11 +94,11 @@ impl CircuitMode for ExecuteContext {
     }
 
     fn total_size(&self) -> usize {
-        self.storage.borrow().len()
+        self.storage.len()
     }
 
     fn current_size(&self) -> usize {
-        self.storage.borrow().len()
+        self.storage.len()
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
@@ -115,10 +111,10 @@ impl CircuitMode for ExecuteContext {
         assert_ne!(gate.wire_a, WireId::UNREACHABLE);
         assert_ne!(gate.wire_b, WireId::UNREACHABLE);
 
-        let a = self.lookup_wire(gate.wire_a)?;
-        let b = self.lookup_wire(gate.wire_b)?;
+        let a = *self.lookup_wire(gate.wire_a)?;
+        let b = *self.lookup_wire(gate.wire_b)?;
 
-        let c = gate.execute(*a, *b);
+        let c = gate.execute(a, b);
         self.feed_wire(gate.wire_c, c);
 
         Some(())
@@ -144,7 +140,7 @@ impl Execute {
 
     fn new_execute(capacity: usize) -> Self {
         Self::ExecutePass(ExecuteContext {
-            storage: RefCell::new(Storage::new(capacity)),
+            storage: Storage::new(capacity),
             stack: vec![],
             templates: HashMap::default(),
             gate_count: GateCount::default(),
@@ -182,7 +178,7 @@ impl Execute {
             trace!("meta before input encode: {instance:?}");
 
             let mut ctx = Self::ExecutePass(ExecuteContext {
-                storage: RefCell::new(Storage::new(capacity)),
+                storage: Storage::new(capacity),
                 stack: vec![instance],
                 templates: {
                     let mut map = HashMap::default();
@@ -230,7 +226,7 @@ impl Execute {
 impl CircuitMode for Execute {
     type WireValue = bool;
 
-    fn lookup_wire(&self, wire: WireId) -> Option<&bool> {
+    fn lookup_wire(&mut self, wire: WireId) -> Option<&bool> {
         match wire {
             TRUE_WIRE => Some(&true),
             FALSE_WIRE => Some(&false),
@@ -361,7 +357,7 @@ impl CircuitContext for Execute {
                         }
                     });
 
-                let mut storage = ctx.storage.borrow_mut();
+                let storage = &mut ctx.storage;
 
                 let instance = child_component_meta_template.to_instance(
                     &input_wires,

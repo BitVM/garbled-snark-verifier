@@ -192,7 +192,7 @@ impl AsRef<[WireId]> for BigIntWires {
 impl CircuitOutput<Execute> for BigUint {
     type WireRepr = BigIntWires;
 
-    fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+    fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
         let bit_len = wires.len();
         let mut bytes = vec![0u8; bit_len.div_ceil(8)];
 

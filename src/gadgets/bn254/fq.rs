@@ -376,7 +376,7 @@ pub(super) mod tests {
     impl CircuitOutput<Execute> for FqOutput {
         type WireRepr = Fq;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
             // Decode BigIntWires to BigUint, then convert to ark_bn254::Fq
             let biguint = BigUintOutput::decode(wires.0, cache);
             let value = ark_bn254::Fq::from(biguint);

@@ -136,7 +136,7 @@ impl CircuitBuilder<Execute> {
             output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
         );
 
-        let output = O::decode(output_repr, &ctx);
+        let output = O::decode(output_repr, &mut ctx);
 
         StreamingResult {
             input_wires: allocated_inputs,
@@ -205,13 +205,13 @@ impl<const N: usize> EncodeInput<bool> for SimpleInputs<N> {
 pub trait CircuitOutput<M: CircuitMode>: Sized {
     type WireRepr: Clone + WiresObject;
 
-    fn decode(wires: Self::WireRepr, cache: &M) -> Self;
+    fn decode(wires: Self::WireRepr, cache: &mut M) -> Self;
 }
 
 impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
     type WireRepr = Vec<WireId>;
 
-    fn decode(wires: Self::WireRepr, cache: &M) -> Self {
+    fn decode(wires: Self::WireRepr, cache: &mut M) -> Self {
         wires
             .iter()
             .map(|w| {

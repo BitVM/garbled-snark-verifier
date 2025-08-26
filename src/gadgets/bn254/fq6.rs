@@ -660,7 +660,7 @@ mod tests {
     impl CircuitOutput<Execute> for Fq6Output {
         type WireRepr = Fq6;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
             let c0_c0 =
                 <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[0].0.clone(), cache);
             let c0_c1 =

@@ -551,7 +551,7 @@ mod tests {
     impl CircuitOutput<Execute> for Fq12Output {
         type WireRepr = Fq12;
 
-        fn decode(wires: Self::WireRepr, cache: &Execute) -> Self {
+        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
             let c0 = decode_fq6_from_wires(&wires.0[0], cache);
             let c1 = decode_fq6_from_wires(&wires.0[1], cache);
             let value = ark_bn254::Fq12::new(c0, c1);
@@ -559,7 +559,7 @@ mod tests {
         }
     }
 
-    fn decode_fq6_from_wires(wires: &Fq6, cache: &Execute) -> ark_bn254::Fq6 {
+    fn decode_fq6_from_wires(wires: &Fq6, cache: &mut Execute) -> ark_bn254::Fq6 {
         let c0_c0 =
             <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[0].0.clone(), cache);
         let c0_c1 =
