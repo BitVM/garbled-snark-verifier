@@ -1,5 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, iter};
 
+use blake3;
 use log::{debug, error, trace};
 
 use crate::{
@@ -296,9 +297,9 @@ impl CircuitContext for Execute {
         key: &[u8; 16],
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
-        output_arity: impl FnOnce() -> usize,
+        output_arity: usize,
     ) -> O {
-        let arity = output_arity();
+        let arity = output_arity;
 
         if let Self::MetadataPass(meta) = self {
             debug!("with_named_child: metapass enter name={key:?} arity={arity}");
@@ -323,9 +324,33 @@ impl CircuitContext for Execute {
             Self::ExecutePass(ctx) => {
                 trace!("Start component {key:?} meta take");
 
+                // Derive a template-cache key that mixes the provided key with arity.
+                // This avoids collisions between components that share the same key
+                // but differ in output arity, while preserving a compact 16-byte key.
+                let mut hasher = blake3::Hasher::new();
+                hasher.update(key);
+                hasher.update(&(arity as u64).to_le_bytes());
+                hasher.update(&(input_wires.len() as u64).to_le_bytes());
+                // Include the per-input "kind" (const true/false, unreachable, variable)
+                // so templates keyed by the same name/arity but different constant layouts
+                // don't collide and cause mismatched extra_input_credits.
+                for w in &input_wires {
+                    let tag: u8 = match *w {
+                        TRUE_WIRE => 0x01,
+                        FALSE_WIRE => 0x00,
+                        WireId::UNREACHABLE => 0x02,
+                        _ => 0x03,
+                    };
+                    hasher.update(&[tag]);
+                }
+                let hash = hasher.finalize();
+
+                let mut template_key = [0u8; 16];
+                template_key.copy_from_slice(&hash.as_bytes()[..16]);
+
                 let child_component_meta_template =
-                    ctx.templates.entry(*key).or_insert_with(|| {
-                        trace!("For key {key:?} generate template");
+                    ctx.templates.entry(template_key).or_insert_with(|| {
+                        trace!("For key {key:?} generate template: arity {arity}, input_wires_len: {}, hash: {hash}", input_wires.len());
                         let mut child_component_meta = Self::new_meta(&input_wires);
 
                         let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
@@ -337,6 +362,7 @@ impl CircuitContext for Execute {
                     });
 
                 let mut storage = ctx.storage.borrow_mut();
+
                 let instance = child_component_meta_template.to_instance(
                     &input_wires,
                     &pre_alloc_output_credits,
@@ -344,6 +370,21 @@ impl CircuitContext for Execute {
                         storage.add_credits(wire_id, credits).unwrap();
                     },
                 );
+
+                //#[cfg(test)]
+                //{
+                //    let child_component_meta_template = ctx.templates.get(&template_key).unwrap();
+
+                //    let instance_from_cache = child_component_meta_template.to_instance(
+                //        &input_wires,
+                //        &pre_alloc_output_credits,
+                //        |wire_id, credits| {
+                //            storage.add_credits(wire_id, credits).unwrap();
+                //        },
+                //    );
+
+                //    assert_eq!(instance, instance_from_cache);
+                //}
 
                 // TODO Optimize unpin input
                 for input_wire_id in input_wires {
@@ -391,4 +432,93 @@ mod tests {
             wire_c: c,
         }
     }
+
+    // Sanity check: internal wires created inside a child component are freed
+    // (no leftover credits in storage) once the child returns.
+    //#[test]
+    //fn no_zombie_credits_after_child_returns() {
+    //    // Prepare root inputs (two bits) and run a metadata pass identical to execution.
+    //    let inputs = SimpleInputs::<2>([true, true]);
+
+    //    // Allocate root input wire IDs for metadata pass
+    //    let mut cursor = WireId::MIN;
+    //    let allocated_inputs = <SimpleInputs<2> as CircuitInput>::allocate(&inputs, || {
+    //        let next = cursor;
+    //        cursor.0 += 1;
+    //        next
+    //    });
+    //    let meta_input_wires = <SimpleInputs<2> as CircuitInput>::collect_wire_ids(&allocated_inputs);
+
+    //    // Root meta builder mirrors streaming_execute: pin root inputs for one read
+    //    let mut root_meta = Execute::MetadataPass({
+    //        let mut meta = ComponentMetaBuilder::new(&meta_input_wires);
+    //        meta.add_credits(&meta_input_wires, 1);
+    //        meta
+    //    });
+
+    //    // Describe the circuit at meta time: one child that allocates two internal wires
+    //    // and returns a result derived from them.
+    //    let root_meta_output = root_meta.with_child(
+    //        meta_input_wires.clone(),
+    //        |child| {
+    //            let w1 = child.issue_wire();
+    //            let w2 = child.issue_wire();
+    //            let out = child.issue_wire();
+    //            child.add_gate(Gate::and(meta_input_wires[0], TRUE_WIRE, w1));
+    //            child.add_gate(Gate::and(w1, meta_input_wires[1], w2));
+    //            child.add_gate(Gate::xor(w1, w2, out));
+    //            vec![out]
+    //        },
+    //        1,
+    //    );
+
+    //    let root_meta_output_wires = root_meta_output.clone();
+
+    //    // Create execution context from metadata and encode inputs
+    //    let (mut ctx, exec_inputs) = root_meta.to_root_ctx(
+    //        10_000,
+    //        &inputs,
+    //        &meta_input_wires,
+    //        &root_meta_output_wires,
+    //    );
+
+    //    // Track internal wires issued inside the child during execution
+    //    use std::cell::RefCell;
+    //    let internals: RefCell<Vec<WireId>> = RefCell::new(Vec::new());
+
+    //    // Execute same child logic as in metadata
+    //    let _exec_output = ctx.with_child(
+    //        exec_inputs.to_vec(),
+    //        |child| {
+    //            let w1 = child.issue_wire();
+    //            let w2 = child.issue_wire();
+    //            internals.borrow_mut().extend([w1, w2]);
+    //            let out = child.issue_wire();
+    //            child.add_gate(Gate::and(exec_inputs[0], TRUE_WIRE, w1));
+    //            child.add_gate(Gate::and(w1, exec_inputs[1], w2));
+    //            child.add_gate(Gate::xor(w1, w2, out));
+    //            vec![out]
+    //        },
+    //        1,
+    //    );
+
+    //    // After child returns, its internal wires must have been fully consumed
+    //    let [w1, w2]: [WireId; 2] = internals
+    //        .borrow()
+    //        .as_slice()
+    //        .try_into()
+    //        .expect("expected exactly two internals");
+
+    //    if let Execute::ExecutePass(exec) = &ctx {
+    //        let storage = exec.storage.borrow();
+    //        assert!(
+    //            !storage.contains(w1) && !storage.contains(w2),
+    //            "child internals should not remain in storage: w1={w1:?} present={} w2={w2:?} present={}",
+    //            storage.contains(w1),
+    //            storage.contains(w2)
+    //        );
+    //    } else {
+    //        panic!("expected ExecutePass context");
+    //    }
+    //}
 }

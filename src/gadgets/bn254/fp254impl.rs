@@ -532,7 +532,7 @@ pub trait Fp254Impl {
 
                     IterationContext { u, v, r, s, k }
                 },
-                || 5 * Self::N_BITS, // IterationContext has 5 BigIntWires fields
+                5 * Self::N_BITS, // IterationContext has 5 BigIntWires fields
             );
         }
 
@@ -547,10 +547,19 @@ pub trait Fp254Impl {
                 let mut even_part = even_part.clone();
 
                 for chunk in (0..Self::N_BITS).chunks(PER_CHUNK).into_iter() {
-                    let chunk = chunk.into_iter().collect::<Vec<_>>();
+                    let mut key = vec![];
+                    let chunk = chunk
+                        .into_iter()
+                        .inspect(|ch| {
+                            key.extend_from_slice(&ch.to_le_bytes());
+                        })
+                        .collect::<Vec<_>>();
 
                     let (new_s, new_even_part) = circuit.with_named_child(
-                        &crate::component_key!("inverse::divide_result_by_even_part::chunk"),
+                        &crate::component_key!(
+                            "inverse::divide_result_by_even_part::chunk",
+                            key = &key
+                        ),
                         [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat(),
                         |circuit| {
                             let mut s = s.clone();
@@ -574,7 +583,7 @@ pub trait Fp254Impl {
 
                             (s, even_part)
                         },
-                        || 2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
+                        2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
                     );
 
                     s = new_s;
@@ -583,7 +592,7 @@ pub trait Fp254Impl {
 
                 s
             },
-            || Self::N_BITS, // Returns single BigIntWires
+            Self::N_BITS, // Returns single BigIntWires
         );
 
         circuit.with_named_child(
@@ -618,7 +627,7 @@ pub trait Fp254Impl {
 
                             (s, k)
                         },
-                        || 2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
+                        2 * Self::N_BITS, // Returns tuple of 2 BigIntWires
                     );
 
                     s = new_s;
@@ -627,7 +636,7 @@ pub trait Fp254Impl {
 
                 s
             },
-            || Self::N_BITS, // Returns single BigIntWires
+            Self::N_BITS, // Returns single BigIntWires
         )
     }
 

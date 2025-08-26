@@ -23,7 +23,7 @@ pub trait CircuitContext: Sized {
         key: &[u8; 16],
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
-        arity: impl FnOnce() -> usize,
+        arity: usize,
     ) -> O;
 
     /// Compatibility wrapper for old with_child method used in tests
@@ -33,7 +33,7 @@ pub trait CircuitContext: Sized {
         &mut self,
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
-        arity: impl FnOnce() -> usize,
+        arity: usize,
     ) -> O {
         use crate::circuit::streaming::generate_component_key;
         let key = generate_component_key("test_child", [] as [(&str, &[u8]); 0]);

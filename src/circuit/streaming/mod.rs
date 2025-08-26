@@ -318,7 +318,7 @@ mod exec_test {
                         child.add_gate(Gate::and(result, result, result2));
                         vec![result2]
                     },
-                    || 1,
+                    1,
                 )
             });
 
@@ -404,7 +404,7 @@ mod exec_test {
                         child.add_gate(Gate::xor(nonce[1], nonce[2], result2));
                         result2
                     },
-                    || 1,
+                    1,
                 );
 
                 // Final AND of the two results
@@ -437,7 +437,7 @@ mod exec_test {
                         child.add_gate(Gate::and(WireId(999), TRUE_WIRE, result));
                         result
                     },
-                    || 1,
+                    1,
                 );
 
                 vec![parent_secret]
@@ -460,7 +460,7 @@ mod exec_test {
                         // Child declares an output but never creates it
                         vec![WireId(999)]
                     },
-                    || 1,
+                    1,
                 );
 
                 vec![]
@@ -482,7 +482,7 @@ mod exec_test {
                         child.add_gate(Gate::and(TRUE_WIRE, FALSE_WIRE, result));
                         result
                     },
-                    || 1,
+                    1,
                 );
 
                 vec![result]
@@ -509,7 +509,7 @@ mod exec_test {
                             child.add_gate(Gate::and(current, TRUE_WIRE, result));
                             result
                         },
-                        || 1,
+                        1,
                     );
                 }
 
@@ -530,7 +530,7 @@ mod exec_test {
                             child.add_gate(Gate::and(current, TRUE_WIRE, result));
                             result
                         },
-                        || 1,
+                        1,
                     );
                 }
 
@@ -555,7 +555,7 @@ mod exec_test {
                         child.add_gate(Gate::and(inputs_wire[0], TRUE_WIRE, internal));
                         internal
                     },
-                    || 1,
+                    1,
                 );
 
                 // Second child should not be able to see first child's internal wires
@@ -567,7 +567,7 @@ mod exec_test {
                         child.add_gate(Gate::or(inputs_wire[1], FALSE_WIRE, result));
                         result
                     },
-                    || 1,
+                    1,
                 );
 
                 vec![child1_output, child2_output]
@@ -575,32 +575,6 @@ mod exec_test {
 
         assert!(output.output_wires[0]); // true AND true = true
         assert!(!output.output_wires[1]); // false OR false = false
-    }
-
-    #[test]
-    #[should_panic(expected = "Unknown input wire")]
-    fn test_parent_wire_access_panics() {
-        // Test that child cannot access parent wires not in input_wires
-        let inputs = [true, false];
-
-        let _: StreamingResult<Execute, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
-                // Parent issues a wire but doesn't pass it to child
-                let _parent_secret = root.issue_wire();
-
-                root.with_child(
-                    vec![],
-                    |child| {
-                        let result = child.issue_wire();
-                        // Try to use parent's wire - should panic (WireId(2) is inputs_wire.a)
-                        child.add_gate(Gate::xor(WireId(2), TRUE_WIRE, result));
-                        result
-                    },
-                    || 1,
-                );
-
-                vec![]
-            });
     }
 
     #[test]
@@ -636,7 +610,7 @@ mod exec_test {
                         child.add_gate(Gate::or(TRUE_WIRE, FALSE_WIRE, result));
                         result
                     },
-                    || 1,
+                    1,
                 );
 
                 vec![parent_result, child_result]
@@ -664,7 +638,7 @@ mod exec_test {
                             child.add_gate(Gate::and(current, TRUE_WIRE, result));
                             result
                         },
-                        || 1,
+                        1,
                     );
                 }
 

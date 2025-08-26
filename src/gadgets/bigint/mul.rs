@@ -231,13 +231,15 @@ pub fn mul_by_constant<C: CircuitContext>(
     }
 
     // We artificially chunk the function to reduce the `Frame` size
-    for chunk in ones.chunks(PER_CHUNK) {
+    for (i, chunk) in ones.chunks(PER_CHUNK).enumerate() {
         let acc_in = acc;
         let mut input = a.to_wires_vec();
         input.extend_from_slice(&acc_in);
 
+        let key = [i.to_le_bytes().to_vec(), c.to_bytes_be()].concat();
+
         acc = circuit.with_named_child(
-            &crate::component_key!("mul_by_const_chunk"),
+            &crate::component_key!("mul_by_const_chunk", key = &key),
             input,
             move |ctx| {
                 let mut res = acc_in.clone();
@@ -257,7 +259,7 @@ pub fn mul_by_constant<C: CircuitContext>(
 
                 res
             },
-            || len * 2,
+            len * 2,
         );
     }
 
@@ -301,8 +303,13 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
         // Own the chunk indices to avoid lifetime fuss.
         let chunk_indices: Vec<usize> = chunk.to_vec();
 
+        let mut key = [a.len().to_le_bytes(), power.to_le_bytes()].concat();
+        chunk_indices.iter().for_each(|i| {
+            key.extend_from_slice(&i.to_le_bytes());
+        });
+
         result_bits = circuit.with_named_child(
-            &crate::component_key!("mul_by_const_mod_2p"),
+            &crate::component_key!("mul_by_const_mod_2p", key = &key),
             input,
             move |ctx| {
                 let mut res = prev.clone();
@@ -336,7 +343,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
 
                 res
             },
-            || power,
+            power,
         );
     }
 

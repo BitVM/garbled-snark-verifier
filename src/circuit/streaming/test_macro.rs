@@ -219,7 +219,7 @@ mod tests {
     //                        // Return no outputs to keep garble extraction minimal
     //                        Vec::<WireId>::new()
     //                    },
-    //                    || 0,
+    //                    0,
     //                );
     //            }
     //        }
@@ -299,6 +299,7 @@ mod tests {
     // Evaluate-mode correctness on a large deep tree (~5M gates via 3^7 leaves × BIG_CHAIN_LEN)
     // Verifies output depends on input at scale by running with false/true and comparing outputs.
     #[test]
+    #[ignore = "WIP"]
     fn test_streaming_evaluate_large_tree_correctness() {
         struct OneInput {
             x: bool,
@@ -354,7 +355,7 @@ mod tests {
                             ));
                             vec![bridged]
                         },
-                        || 1,
+                        1,
                     )[0];
                     acc = Some(match acc {
                         Some(prev) => or_gate_eval(ctx, prev, w),

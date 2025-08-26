@@ -88,8 +88,8 @@ pub fn generate_bn_wrapper(
     // Use the original context parameter type from the signature
     let context_param_type = &sig.context_param.ty;
 
-    // The arity expression should be evaluated in context to get the actual length
-    let arity_closure = arity_expr;
+    // The arity expression evaluates to a usize arity
+    let arity_value = arity_expr;
 
     // Generate key generation code based on whether there are ignored parameters
     let key_generation = if sig.ignored_params.is_empty() {
@@ -142,11 +142,10 @@ pub fn generate_bn_wrapper(
             #(#ordered_param_idents: #ordered_param_types),*
         ) #return_type #where_clause {
             let input_wires = #input_wire_collection;
-            let arity_fn = || #arity_closure;
 
             #context_param_name.with_named_child(&(#key_generation), input_wires, |comp| {
                 #transformed_body
-            }, arity_fn)
+            }, #arity_value)
         }
     };
 

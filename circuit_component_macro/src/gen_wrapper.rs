@@ -75,12 +75,12 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     // Determine return type based on the original function
     let return_type = &original_fn.sig.output;
 
-    // Generate arity expression based on return type
+    // Generate arity expression based on return type (usize, not closure)
     let arity_expr = match return_type {
-        syn::ReturnType::Default => quote! { || 0 },
+        syn::ReturnType::Default => quote! { 0usize },
         syn::ReturnType::Type(_, ty) => {
             // For now, assume all non-BigIntWires types have WiresArity
-            quote! { || <#ty as crate::circuit::streaming::WiresArity>::ARITY }
+            quote! { <#ty as crate::circuit::streaming::WiresArity>::ARITY }
         }
     };
 
