@@ -1,19 +1,19 @@
 use std::{collections::HashMap, iter};
 
-use blake3;
 use log::{debug, error, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::{
         CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE, WiresObject,
+        component_key::ComponentKey,
         component_meta::{ComponentMetaBuilder, ComponentMetaInstance, ComponentMetaTemplate},
     },
     core::gate_type::GateCount,
     storage::{Credits, Storage},
 };
 
-const ROOT_KEY: [u8; 16] = [0u8; 16];
+const ROOT_KEY: ComponentKey = [0u8; 8];
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum OptionalBoolean {
@@ -27,7 +27,7 @@ pub enum OptionalBoolean {
 pub struct ExecuteContext {
     pub storage: Storage<WireId, OptionalBoolean>,
     stack: Vec<ComponentMetaInstance>,
-    templates: HashMap<[u8; 16], ComponentMetaTemplate>,
+    templates: HashMap<ComponentKey, ComponentMetaTemplate>,
     gate_count: GateCount,
 }
 
@@ -290,7 +290,7 @@ impl CircuitContext for Execute {
 
     fn with_named_child<O: WiresObject>(
         &mut self,
-        key: &[u8; 16],
+        key: ComponentKey,
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
         output_arity: usize,
@@ -319,46 +319,25 @@ impl CircuitContext for Execute {
         match self {
             Self::ExecutePass(ctx) => {
                 trace!("Start component {key:?} meta take");
+                let build_template = || {
+                    trace!(
+                        "For key {key:?} generate template: arity {arity}, input_wires_len: {}",
+                        input_wires.len()
+                    );
+                    let mut child_component_meta = Self::new_meta(&input_wires);
 
-                // Derive a template-cache key that mixes the provided key with arity.
-                // This avoids collisions between components that share the same key
-                // but differ in output arity, while preserving a compact 16-byte key.
-                let mut hasher = blake3::Hasher::new();
-                hasher.update(key);
-                hasher.update(&(arity as u64).to_le_bytes());
-                hasher.update(&(input_wires.len() as u64).to_le_bytes());
-                // Include the per-input "kind" (const true/false, unreachable, variable)
-                // so templates keyed by the same name/arity but different constant layouts
-                // don't collide and cause mismatched extra_input_credits.
-                for w in &input_wires {
-                    let tag: u8 = match *w {
-                        TRUE_WIRE => 0x01,
-                        FALSE_WIRE => 0x00,
-                        WireId::UNREACHABLE => 0x02,
-                        _ => 0x03,
-                    };
-                    hasher.update(&[tag]);
-                }
-                let hash = hasher.finalize();
+                    let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
 
-                let mut template_key = [0u8; 16];
-                template_key.copy_from_slice(&hash.as_bytes()[..16]);
+                    match child_component_meta {
+                        Self::MetadataPass(meta) => meta.build(&meta_wires_output),
+                        _ => unreachable!(),
+                    }
+                };
 
                 let child_component_meta_template =
-                    ctx.templates.entry(template_key).or_insert_with(|| {
-                        trace!("For key {key:?} generate template: arity {arity}, input_wires_len: {}, hash: {hash}", input_wires.len());
-                        let mut child_component_meta = Self::new_meta(&input_wires);
-
-                        let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
-
-                        match child_component_meta {
-                            Self::MetadataPass(meta) => meta.build(&meta_wires_output),
-                            _ => unreachable!(),
-                        }
-                    });
+                    ctx.templates.entry(key).or_insert_with(&build_template);
 
                 let storage = &mut ctx.storage;
-
                 let instance = child_component_meta_template.to_instance(
                     &input_wires,
                     &pre_alloc_output_credits,
@@ -367,20 +346,17 @@ impl CircuitContext for Execute {
                     },
                 );
 
-                //#[cfg(test)]
-                //{
-                //    let child_component_meta_template = ctx.templates.get(&template_key).unwrap();
-
-                //    let instance_from_cache = child_component_meta_template.to_instance(
-                //        &input_wires,
-                //        &pre_alloc_output_credits,
-                //        |wire_id, credits| {
-                //            storage.add_credits(wire_id, credits).unwrap();
-                //        },
-                //    );
-
-                //    assert_eq!(instance, instance_from_cache);
-                //}
+                #[cfg(test)]
+                assert_eq!(
+                    &build_template().to_instance(
+                        &input_wires,
+                        &pre_alloc_output_credits,
+                        |wire_id, credits| {
+                            storage.add_credits(wire_id, credits).unwrap();
+                        },
+                    ),
+                    &instance
+                );
 
                 // TODO Optimize unpin input
                 for input_wire_id in input_wires {

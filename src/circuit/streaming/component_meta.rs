@@ -21,7 +21,9 @@ use log::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject},
+    circuit::streaming::{
+        CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_key::ComponentKey,
+    },
     storage::Credits,
 };
 
@@ -260,6 +262,14 @@ impl ComponentMetaTemplate {
             .iter()
             .zip_eq(self.extra_input_credits.iter().copied())
         {
+            if input_wire_id == &TRUE_WIRE {
+                continue;
+            }
+
+            if input_wire_id == &FALSE_WIRE {
+                continue;
+            }
+
             if extra_credits > 0 {
                 trace!("bump input_wire_id {input_wire_id:?} with {extra_credits} credits");
                 add_credit_to_input(*input_wire_id, extra_credits);
@@ -333,7 +343,7 @@ impl CircuitContext for ComponentMetaBuilder {
 
     fn with_named_child<O: WiresObject>(
         &mut self,
-        _k: &[u8; 16],
+        _k: ComponentKey,
         input_wires: Vec<WireId>,
         _f: impl Fn(&mut Self) -> O,
         arity: usize,

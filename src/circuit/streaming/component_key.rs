@@ -1,4 +1,6 @@
-use blake3;
+use std::hash::{DefaultHasher, Hasher};
+
+pub type ComponentKey = [u8; 8];
 
 /// Generate a 16-byte key from component name and optional parameters
 ///
@@ -16,27 +18,24 @@ pub fn generate_component_key<'a>(
     params: impl IntoIterator<Item = (&'a str, &'a [u8])>,
     output_arity: usize,
     input_wires_len: usize,
-) -> [u8; 16] {
-    let mut hasher = blake3::Hasher::new();
+) -> ComponentKey {
+    let mut hasher = DefaultHasher::default();
 
     // Hash the component name
-    hasher.update(name.as_bytes());
-    hasher.update(&output_arity.to_le_bytes());
-    hasher.update(&input_wires_len.to_le_bytes());
+    hasher.write(name.as_bytes());
+    hasher.write(&output_arity.to_le_bytes());
+    hasher.write(&input_wires_len.to_le_bytes());
 
     // Hash each parameter name and value
     for (param_name, param_bytes) in params {
-        hasher.update(b"|"); // separator to avoid collisions
-        hasher.update(param_name.as_bytes());
-        hasher.update(b"=");
-        hasher.update(param_bytes);
+        hasher.write(b"|"); // separator to avoid collisions
+        hasher.write(param_name.as_bytes());
+        hasher.write(b"=");
+        hasher.write(param_bytes);
     }
 
     // Extract first 16 bytes as the key
-    let hash = hasher.finalize();
-    let mut key = [0u8; 16];
-    key.copy_from_slice(&hash.as_bytes()[..16]);
-    key
+    hasher.finish().to_le_bytes()
 }
 
 /// Helper function to hash a single parameter value
@@ -47,7 +46,7 @@ pub fn hash_param(
     param_bytes: &[u8],
     output_arity: usize,
     input_wires_len: usize,
-) -> [u8; 16] {
+) -> ComponentKey {
     generate_component_key(
         name,
         [(param_name, param_bytes)],

@@ -241,7 +241,7 @@ pub fn mul_by_constant<C: CircuitContext>(
         let c_bytes = c.to_bytes_be();
 
         acc = circuit.with_named_child(
-            &crate::component_key!("mul_by_const_chunk", i = &i_bytes[..], c = &c_bytes[..] ; len * 2, input_wires_len),
+            crate::component_key!("mul_by_const_chunk", i = &i_bytes[..], c = &c_bytes[..] ; len * 2, input_wires_len),
             input,
             move |ctx| {
                 let mut res = acc_in.clone();
@@ -311,7 +311,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
         let chunk_idx_bytes = chunk_idx.to_le_bytes();
 
         result_bits = circuit.with_named_child(
-            &crate::component_key!("mul_by_const_mod_2p", a_len = &a_len_bytes[..], power = &power_bytes[..], chunk_idx = &chunk_idx_bytes[..] ; power, input_wires_len),
+            crate::component_key!("mul_by_const_mod_2p", a_len = &a_len_bytes[..], power = &power_bytes[..], chunk_idx = &chunk_idx_bytes[..] ; power, input_wires_len),
             input,
             move |ctx| {
                 let mut res = prev.clone();

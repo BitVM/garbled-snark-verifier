@@ -147,7 +147,7 @@ pub fn generate_bn_wrapper(
         ) #return_type #where_clause {
             let input_wires = #input_wire_collection;
 
-            #context_param_name.with_named_child(&(#key_generation), input_wires, |comp| {
+            #context_param_name.with_named_child((#key_generation), input_wires, |comp| {
                 #transformed_body
             }, #arity_value)
         }

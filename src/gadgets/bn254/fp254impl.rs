@@ -403,7 +403,7 @@ pub trait Fp254Impl {
             let input_wires = input.to_wires_vec();
             let input_wires_len = input_wires.len();
             input = circuit.with_named_child(
-                &crate::component_key!("inverse_iteration", 5 * Self::N_BITS, input_wires_len),
+                crate::component_key!("inverse_iteration", 5 * Self::N_BITS, input_wires_len),
                 input_wires,
                 |circuit| {
                     let IterationContext {
@@ -544,7 +544,7 @@ pub trait Fp254Impl {
         let input_wires = [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat();
         let input_wires_len = input_wires.len();
         let s = circuit.with_named_child(
-            &crate::component_key!(
+            crate::component_key!(
                 "inverse::divide_result_by_even_part",
                 2 * Self::N_BITS,
                 input_wires_len
@@ -564,7 +564,7 @@ pub trait Fp254Impl {
                     let input_wires_len = input_wires.len();
                     let chunk_idx_bytes = chunk_idx.to_le_bytes();
                     let (new_s, new_even_part) = circuit.with_named_child(
-                        &crate::component_key!(
+                        crate::component_key!(
                             "inverse::divide_result_by_even_part::chunk",
                             chunk_idx = &chunk_idx_bytes[..] ;
                             2 * Self::N_BITS,
@@ -608,7 +608,7 @@ pub trait Fp254Impl {
         let input_wires = [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat();
         let input_wires_len = input_wires.len();
         circuit.with_named_child(
-            &crate::component_key!(
+            crate::component_key!(
                 "inverse::divide_result_by_2^k",
                 2 * Self::N_BITS,
                 input_wires_len
@@ -625,7 +625,7 @@ pub trait Fp254Impl {
                     let input_wires = [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat();
                     let input_wires_len = input_wires.len();
                     let (new_s, new_k) = circuit.with_named_child(
-                        &crate::component_key!(
+                        crate::component_key!(
                             "inverse::divide_result_by_2^k::chunk",
                             2 * Self::N_BITS,
                             input_wires_len

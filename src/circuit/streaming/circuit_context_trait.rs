@@ -4,7 +4,7 @@ pub const TRUE_WIRE: WireId = WireId(1);
 
 use crate::{
     Gate, WireId,
-    circuit::streaming::{CircuitMode, WiresObject},
+    circuit::streaming::{CircuitMode, WiresObject, component_key::ComponentKey},
 };
 
 /// Simplified CircuitContext trait for hierarchical circuit building
@@ -20,7 +20,7 @@ pub trait CircuitContext: Sized {
 
     fn with_named_child<O: WiresObject>(
         &mut self,
-        key: &[u8; 16],
+        key: ComponentKey,
         input_wires: Vec<WireId>,
         f: impl Fn(&mut Self) -> O,
         arity: usize,
@@ -42,6 +42,6 @@ pub trait CircuitContext: Sized {
             arity,
             input_wires.len(),
         );
-        self.with_named_child(&key, input_wires, f, arity)
+        self.with_named_child(key, input_wires, f, arity)
     }
 }
