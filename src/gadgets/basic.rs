@@ -98,19 +98,27 @@ pub fn multiplexer<C: CircuitContext>(
     assert_eq!(a.len(), n);
     assert_eq!(s.len(), w);
 
-    if w == 1 {
-        return selector(circuit, a[1], a[0], s[0]);
+    // Iteratively reduce pairs controlled by selector bits from LSB to MSB.
+    // Use an in-place reduction to avoid allocating a new Vec each level.
+    let mut cur: Vec<WireId> = a.to_vec();
+    let mut cur_len = cur.len();
+    for &sel in s.iter() {
+        // For each adjacent pair, write the selected result into the front half.
+        let mut i = 0;
+        let mut j = 0;
+        while i < cur_len {
+            let low = cur[i];
+            let high = cur[i + 1];
+            cur[j] = selector(circuit, high, low, sel);
+            i += 2;
+            j += 1;
+        }
+        cur_len /= 2;
+        cur.truncate(cur_len);
     }
 
-    let a1 = &a[0..(n / 2)];
-    let a2 = &a[(n / 2)..n];
-    let su = &s[0..w - 1];
-    let sv = s[w - 1];
-
-    let b1 = multiplexer(circuit, a1, su, w - 1);
-    let b2 = multiplexer(circuit, a2, su, w - 1);
-
-    selector(circuit, b2, b1, sv)
+    debug_assert_eq!(cur_len, 1);
+    cur[0]
 }
 
 #[cfg(test)]

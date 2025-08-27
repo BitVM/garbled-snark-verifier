@@ -301,9 +301,9 @@ impl ComponentMetaTemplate {
             }
         }
 
-        ComponentMetaInstance {
-            credits_stack: credits_stack.into_iter().rev().collect::<Vec<_>>(),
-        }
+        credits_stack.reverse();
+
+        ComponentMetaInstance { credits_stack }
     }
 }
 
