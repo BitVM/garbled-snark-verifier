@@ -36,7 +36,12 @@ pub trait CircuitContext: Sized {
         arity: usize,
     ) -> O {
         use crate::circuit::streaming::generate_component_key;
-        let key = generate_component_key("test_child", [] as [(&str, &[u8]); 0]);
+        let key = generate_component_key(
+            "test_child",
+            [] as [(&str, &[u8]); 0],
+            arity,
+            input_wires.len(),
+        );
         self.with_named_child(&key, input_wires, f, arity)
     }
 }

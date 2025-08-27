@@ -39,14 +39,21 @@ pub use offcircuit_param::OffCircuitParam;
 /// The macro handles conversion to bytes for common types automatically.
 #[macro_export]
 macro_rules! component_key {
-    // Simple case: just name
-    ($name:expr) => {
-        $crate::circuit::streaming::generate_component_key($name, [] as [(&str, &[u8]); 0])
+    // Simple case: just name with arity and input_len
+    ($name:expr, $arity:expr, $input_len:expr) => {
+        $crate::circuit::streaming::generate_component_key($name, [] as [(&str, &[u8]); 0], $arity, $input_len)
     };
 
-    // Single parameter (most common case)
-    ($name:expr, $param_name:ident = $param_value:expr) => {
-        $crate::circuit::streaming::hash_param($name, stringify!($param_name), $param_value)
+    // Parameters with arity and input_len - use semicolon to separate params from arity/len
+    ($name:expr, $($param_name:ident = $param_value:expr),+ ; $arity:expr, $input_len:expr) => {
+        {
+            let params = vec![
+                $(
+                    (stringify!($param_name), $param_value as &[u8]),
+                )+
+            ];
+            $crate::circuit::streaming::generate_component_key($name, params, $arity, $input_len)
+        }
     };
 }
 

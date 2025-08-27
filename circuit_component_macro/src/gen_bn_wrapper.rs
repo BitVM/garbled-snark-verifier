@@ -97,7 +97,9 @@ pub fn generate_bn_wrapper(
         quote! {
             crate::circuit::streaming::generate_component_key(
                 concat!(module_path!(), "::", #fn_name_str),
-                [] as [(&str, &[u8]); 0]
+                [] as [(&str, &[u8]); 0],
+                #arity_value,
+                input_wires.len()
             )
         }
     } else {
@@ -129,7 +131,9 @@ pub fn generate_bn_wrapper(
 
                 crate::circuit::streaming::generate_component_key(
                     concat!(module_path!(), "::", #fn_name_str),
-                    params_refs
+                    params_refs,
+                    #arity_value,
+                    input_wires.len()
                 )
             }
         }

@@ -236,10 +236,12 @@ pub fn mul_by_constant<C: CircuitContext>(
         let mut input = a.to_wires_vec();
         input.extend_from_slice(&acc_in);
 
-        let key = [i.to_le_bytes().to_vec(), c.to_bytes_be()].concat();
+        let input_wires_len = input.len();
+        let i_bytes = i.to_le_bytes();
+        let c_bytes = c.to_bytes_be();
 
         acc = circuit.with_named_child(
-            &crate::component_key!("mul_by_const_chunk", key = &key),
+            &crate::component_key!("mul_by_const_chunk", i = &i_bytes[..], c = &c_bytes[..] ; len * 2, input_wires_len),
             input,
             move |ctx| {
                 let mut res = acc_in.clone();
@@ -294,7 +296,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     }
 
     // Process the 1-bits in chunks to keep each child frame small.
-    for chunk in ones.chunks(PER_CHUNK) {
+    for (chunk_idx, chunk) in ones.chunks(PER_CHUNK).enumerate() {
         // Move current accumulator into the child and also pass `a` wires.
         let prev = result_bits;
         let mut input = a.to_wires_vec();
@@ -303,13 +305,13 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
         // Own the chunk indices to avoid lifetime fuss.
         let chunk_indices: Vec<usize> = chunk.to_vec();
 
-        let mut key = [a.len().to_le_bytes(), power.to_le_bytes()].concat();
-        chunk_indices.iter().for_each(|i| {
-            key.extend_from_slice(&i.to_le_bytes());
-        });
+        let input_wires_len = input.len();
+        let a_len_bytes = a.len().to_le_bytes();
+        let power_bytes = power.to_le_bytes();
+        let chunk_idx_bytes = chunk_idx.to_le_bytes();
 
         result_bits = circuit.with_named_child(
-            &crate::component_key!("mul_by_const_mod_2p", key = &key),
+            &crate::component_key!("mul_by_const_mod_2p", a_len = &a_len_bytes[..], power = &power_bytes[..], chunk_idx = &chunk_idx_bytes[..] ; power, input_wires_len),
             input,
             move |ctx| {
                 let mut res = prev.clone();
