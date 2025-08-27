@@ -144,6 +144,8 @@ impl CircuitBuilder<Execute> {
 
         let output = O::decode(output_repr, &mut ctx);
 
+        assert!(ctx.is_storage_empty());
+
         StreamingResult {
             input_wires: allocated_inputs,
             output_wires: output,
@@ -216,6 +218,8 @@ impl CircuitBuilder<Garble> {
         );
 
         let output = O::decode(output_repr, &mut ctx);
+
+        assert!(ctx.is_storage_empty());
 
         StreamingResult {
             input_wires: allocated_inputs,
