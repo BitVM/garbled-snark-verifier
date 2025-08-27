@@ -341,6 +341,10 @@ impl CircuitContext for ComponentMetaBuilder {
             gate.gate_type, gate.wire_a.0, gate.wire_b.0, gate.wire_c.0
         );
 
+        // Match execution path: inputs must be real wires when the output is real.
+        assert_ne!(gate.wire_a, WireId::UNREACHABLE);
+        assert_ne!(gate.wire_b, WireId::UNREACHABLE);
+
         self.bump_credit_for_wire(gate.wire_a, 1);
         self.bump_credit_for_wire(gate.wire_b, 1);
     }

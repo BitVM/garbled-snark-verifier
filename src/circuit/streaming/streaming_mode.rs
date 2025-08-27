@@ -133,6 +133,17 @@ impl<M: CircuitMode> StreamingMode<M> {
             StreamingMode::ExecutionPass(streaming_context) => streaming_context.storage.is_empty(),
         }
     }
+
+    pub fn iter_storage(&self) -> impl IntoIterator<Item = (WireId, M::StorageValue)> {
+        match self {
+            StreamingMode::ExecutionPass(streaming_context) => {
+                streaming_context.storage.clone().to_iter()
+            }
+            StreamingMode::MetadataPass(_component_meta_builder) => {
+                todo!()
+            }
+        }
+    }
 }
 
 impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
@@ -156,20 +167,18 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
             StreamingMode::ExecutionPass(ctx) => {
                 ctx.gate_count.handle(gate.gate_type);
 
+                assert_ne!(gate.wire_a, WireId::UNREACHABLE);
+                assert_ne!(gate.wire_b, WireId::UNREACHABLE);
+
+                let a = ctx.lookup_wire(gate.wire_a).unwrap();
+                let b = ctx.lookup_wire(gate.wire_b).unwrap();
+
                 if gate.wire_c == WireId::UNREACHABLE {
                     return;
                 }
 
-                assert_ne!(gate.wire_a, WireId::UNREACHABLE);
-                assert_ne!(gate.wire_b, WireId::UNREACHABLE);
-
-                let a = ctx.lookup_wire(gate.wire_a);
-                let b = ctx.lookup_wire(gate.wire_b);
-
-                if let (Some(a_val), Some(b_val)) = (a, b) {
-                    let c_val = ctx.mode.evaluate_gate(&gate, a_val, b_val);
-                    ctx.feed_wire(gate.wire_c, c_val);
-                }
+                let c_val = ctx.mode.evaluate_gate(&gate, a, b);
+                ctx.feed_wire(gate.wire_c, c_val);
             }
         }
     }

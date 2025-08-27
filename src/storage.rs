@@ -13,13 +13,13 @@ pub enum Error {
 
 pub type Credits = u32;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Entry<T: Default> {
     credits: NonZeroU32,
     data: T,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Storage<K: From<usize>, T: Default> {
     data: Slab<Entry<T>>,
     index_offset: usize,
@@ -69,6 +69,10 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
     fn to_key(&self, index: usize) -> K {
         K::from(index + self.index_offset)
+    }
+
+    pub fn to_iter(self) -> impl Iterator<Item = (K, T)> {
+        self.data.into_iter().map(|(k, v)| (K::from(k), v.data))
     }
 
     fn to_index(&self, k: K) -> usize {
