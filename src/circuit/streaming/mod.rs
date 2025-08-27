@@ -154,6 +154,79 @@ impl CircuitBuilder<Execute> {
     }
 }
 
+impl CircuitBuilder<Garble> {
+    pub fn streaming_garble<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        seed: u64,
+        output_sender: std::sync::mpsc::Sender<(usize, crate::S)>,
+        f: F,
+    ) -> StreamingResult<Garble, I, O>
+    where
+        I: CircuitInput + EncodeInput<crate::GarbledWire>,
+        O: CircuitOutput<Garble>,
+        O::WireRepr: Debug,
+        F: Fn(&mut Garble, &I::WireRepr) -> O::WireRepr,
+    {
+        debug!(
+            "streaming_garble: start metadata pass capacity={} seed={}",
+            live_wires_capacity, seed
+        );
+        let mut cursor = WireId::MIN;
+        let allocated_inputs = inputs.allocate(|| {
+            let next = cursor;
+            cursor.0 += 1;
+            next
+        });
+
+        let meta_input_wires = I::collect_wire_ids(&allocated_inputs);
+
+        let mut root_meta = Garble::MetadataPass(ComponentMetaBuilder::new(&meta_input_wires));
+
+        debug!("metadata: allocated inputs = {:?}", meta_input_wires);
+
+        let root_meta_output = f(&mut root_meta, &allocated_inputs);
+
+        debug!(
+            "metadata: declared outputs = {:?}",
+            root_meta_output
+                .to_wires_vec()
+                .iter()
+                .map(|w| w.0)
+                .collect::<Vec<_>>()
+        );
+
+        let root_meta_output_wires = root_meta_output.to_wires_vec();
+
+        let (mut ctx, allocated_inputs) = root_meta.to_root_ctx(
+            seed,
+            live_wires_capacity,
+            output_sender,
+            &inputs,
+            &meta_input_wires,
+            &root_meta_output_wires,
+        );
+
+        let output_repr = f(&mut ctx, &allocated_inputs);
+        let output_wires = output_repr.to_wires_vec();
+
+        debug!(
+            "garble: output wires = {:?}",
+            output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
+        );
+
+        let output = O::decode(output_repr, &mut ctx);
+
+        StreamingResult {
+            input_wires: allocated_inputs,
+            output_wires: output,
+            output_wires_ids: output_wires,
+            one_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
+            zero_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
+        }
+    }
+}
+
 /// Trait for types that can be converted to bit vectors
 pub trait ToBits {
     fn to_bits_le(&self) -> Vec<bool>;
@@ -235,6 +308,9 @@ mod test_macro;
 
 #[cfg(test)]
 mod arity_tests;
+
+#[cfg(test)]
+mod garble_integration_test;
 
 pub mod arity_check;
 pub use arity_check::{ArityChecker, WireCount, verify_arity};

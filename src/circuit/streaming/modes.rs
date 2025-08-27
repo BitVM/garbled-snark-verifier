@@ -1,18 +1,18 @@
-use std::{array, collections::HashMap};
+use std::collections::HashMap;
 
-use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
-
-use crate::{
-    Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
-    circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
-};
+use crate::{EvaluatedWire, Gate, WireId};
 
 mod execute;
 pub use execute::Execute;
 
 mod execute_mode;
 pub use execute_mode::{ExecuteMode, OptionalBoolean};
+
+mod garble;
+pub use garble::Garble;
+
+mod garble_mode;
+pub use garble_mode::{GarbleMode, OptionalGarbledWire};
 
 pub trait CircuitMode: Sized + std::fmt::Debug {
     /// The wire value type used during circuit evaluation (bool for Execute, GarbledWire for Garble, etc)
@@ -54,68 +54,7 @@ pub trait CircuitMode: Sized + std::fmt::Debug {
     }
 }
 
-pub struct Garble {
-    rng: ChaChaRng,
-    delta: Delta,
-    wires: Vec<GarbledWires>,
-    garble_table: Vec<S>,
-    gate_index: usize,
-    component_max_live_wires: usize,
-}
-
-impl Garble {
-    pub fn new(seeds: u64, component_max_live_wires: usize) -> Self {
-        let mut rng = ChaChaRng::seed_from_u64(seeds);
-        let delta = Delta::generate(&mut rng);
-
-        let mut self_ = Garble {
-            rng,
-            delta,
-            component_max_live_wires,
-            wires: vec![GarbledWires::new(component_max_live_wires)],
-            garble_table: Default::default(),
-            gate_index: 0,
-        };
-
-        let [false_, true_] = array::from_fn(|_| GarbledWire::random(&mut self_.rng, &self_.delta));
-
-        self_.feed_wire(FALSE_WIRE, false_);
-        self_.feed_wire(TRUE_WIRE, true_);
-
-        self_
-    }
-    pub fn next_gate_index(&mut self) -> usize {
-        let index = self.gate_index;
-        self.gate_index += 1;
-        index
-    }
-}
-
-impl Garble {
-    fn lookup_wire(&self, wire: WireId) -> Option<&GarbledWire> {
-        self.wires.last().and_then(|last| last.get(wire).ok())
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: GarbledWire) {
-        self.wires.last_mut().unwrap().init(wire, value).unwrap();
-    }
-
-    fn size(&self) -> usize {
-        self.wires.iter().map(|l| l.size()).sum()
-    }
-
-    fn prepare_frame_inputs(&self, input_wires: &[WireId]) -> Vec<(WireId, GarbledWire)> {
-        input_wires
-            .iter()
-            .filter_map(|&wire_id| {
-                self.lookup_wire(wire_id)
-                    .map(|value| (wire_id, value.clone()))
-            })
-            .collect()
-    }
-}
-
-// TODO: Implement CircuitMode for Garble when needed
+// Old Garble struct replaced by new streaming implementation in garble.rs and garble_mode.rs
 
 pub struct Evaluate {
     wires: Vec<HashMap<WireId, EvaluatedWire>>,
