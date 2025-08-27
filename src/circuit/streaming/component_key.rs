@@ -1,5 +1,7 @@
 use std::hash::{DefaultHasher, Hasher};
 
+use log::trace;
+
 pub type ComponentKey = [u8; 8];
 
 /// Generate a 16-byte key from component name and optional parameters
@@ -27,7 +29,9 @@ pub fn generate_component_key<'a>(
     hasher.write(&input_wires_len.to_le_bytes());
 
     // Hash each parameter name and value
+    let mut params_len: usize = 0;
     for (param_name, param_bytes) in params {
+        params_len += 1;
         hasher.write(b"|"); // separator to avoid collisions
         hasher.write(param_name.as_bytes());
         hasher.write(b"=");
@@ -35,7 +39,13 @@ pub fn generate_component_key<'a>(
     }
 
     // Extract first 16 bytes as the key
-    hasher.finish().to_le_bytes()
+    let key = hasher.finish().to_le_bytes();
+
+    trace!(
+        "Generate key {key:?} for component {name} with arity: {output_arity} and input_wires_len: {input_wires_len} and params {params_len} len"
+    );
+
+    key
 }
 
 /// Helper function to hash a single parameter value

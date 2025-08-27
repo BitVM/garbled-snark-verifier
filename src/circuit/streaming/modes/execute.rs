@@ -1,4 +1,7 @@
-use std::{collections::HashMap, iter};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    iter,
+};
 
 use log::{debug, error, trace};
 
@@ -334,29 +337,29 @@ impl CircuitContext for Execute {
                     }
                 };
 
-                let child_component_meta_template =
-                    ctx.templates.entry(key).or_insert_with(&build_template);
-
                 let storage = &mut ctx.storage;
-                let instance = child_component_meta_template.to_instance(
-                    &input_wires,
-                    &pre_alloc_output_credits,
-                    |wire_id, credits| {
-                        storage.add_credits(wire_id, credits).unwrap();
-                    },
-                );
 
-                #[cfg(test)]
-                assert_eq!(
-                    &build_template().to_instance(
+                let misscache = input_wires
+                    .iter()
+                    .any(|wire_id| wire_id == &TRUE_WIRE || wire_id == &FALSE_WIRE);
+
+                let mut to_instance = |template: &ComponentMetaTemplate| {
+                    template.to_instance(
                         &input_wires,
                         &pre_alloc_output_credits,
                         |wire_id, credits| {
                             storage.add_credits(wire_id, credits).unwrap();
                         },
-                    ),
-                    &instance
-                );
+                    )
+                };
+
+                let instance = match (misscache, ctx.templates.entry(key)) {
+                    (_, Entry::Occupied(template)) => to_instance(template.get()),
+                    // Can't save result in cache, build and go
+                    (true, Entry::Vacant(_)) => to_instance(&build_template()),
+                    // Save result in cache and reuse
+                    (false, Entry::Vacant(place)) => to_instance(place.insert(build_template())),
+                };
 
                 // TODO Optimize unpin input
                 for input_wire_id in input_wires {
