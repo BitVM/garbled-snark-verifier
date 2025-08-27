@@ -262,11 +262,11 @@ impl ComponentMetaTemplate {
             .iter()
             .zip_eq(self.extra_input_credits.iter().copied())
         {
-            if input_wire_id == &TRUE_WIRE {
-                continue;
-            }
-
-            if input_wire_id == &FALSE_WIRE {
+            // Skip constants and unreachable wires
+            if matches!(
+                input_wire_id,
+                &TRUE_WIRE | &FALSE_WIRE | &WireId::UNREACHABLE
+            ) {
                 continue;
             }
 
@@ -285,7 +285,11 @@ impl ComponentMetaTemplate {
                     debug!(
                         "Output wire {output_wire:?} is part of input with index {input_index:?}"
                     );
-                    add_credit_to_input(input_wires[*input_index], *credits);
+                    let wire_id = input_wires[*input_index];
+                    // Skip constants and unreachable wires
+                    if !matches!(wire_id, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
+                        add_credit_to_input(wire_id, *credits);
+                    }
                 }
                 OutputWireType::Internal(index) => {
                     credits_stack[*index] += credits;
@@ -362,24 +366,33 @@ impl CircuitContext for ComponentMetaBuilder {
 
 #[derive(Default, Debug)]
 pub struct Empty;
+
 impl CircuitMode for Empty {
     type WireValue = bool;
+    type StorageValue = bool;
 
-    fn lookup_wire(&mut self, _wire: WireId) -> Option<&Self::WireValue> {
-        Some(&false)
+    fn false_value(&self) -> bool {
+        false
     }
 
-    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {}
-
-    fn total_size(&self) -> usize {
-        0
-    }
-    fn current_size(&self) -> usize {
-        0
+    fn true_value(&self) -> bool {
+        true
     }
 
-    fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {
-        None
+    fn default_storage_value() -> bool {
+        false
+    }
+
+    fn storage_to_wire(&self, stored: &bool) -> Option<bool> {
+        Some(*stored)
+    }
+
+    fn wire_to_storage(&self, value: bool) -> bool {
+        value
+    }
+
+    fn evaluate_gate(&mut self, _gate: &Gate, _a: bool, _b: bool) -> bool {
+        false
     }
 }
 

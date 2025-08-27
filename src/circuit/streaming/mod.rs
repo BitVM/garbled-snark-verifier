@@ -67,6 +67,9 @@ pub use modes::{CircuitMode, Evaluate, Garble};
 
 pub mod component_meta;
 
+mod streaming_mode;
+pub use streaming_mode::{StreamingContext, StreamingMode};
+
 pub struct CircuitBuilder<M: CircuitMode> {
     mode: M,
     next_wire_id: usize,
@@ -145,8 +148,8 @@ impl CircuitBuilder<Execute> {
             input_wires: allocated_inputs,
             output_wires: output,
             output_wires_ids: output_wires,
-            one_constant: *ctx.lookup_wire(TRUE_WIRE).unwrap(),
-            zero_constant: *ctx.lookup_wire(FALSE_WIRE).unwrap(),
+            one_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
+            zero_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
         }
     }
 }

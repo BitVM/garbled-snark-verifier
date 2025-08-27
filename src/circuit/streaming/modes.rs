@@ -6,24 +6,52 @@ use rand_chacha::ChaChaRng;
 use crate::{
     Delta, EvaluatedWire, GarbledWire, GarbledWires, Gate, S, WireId,
     circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
-    core::gate::garbling::Blake3Hasher,
 };
 
 mod execute;
 pub use execute::Execute;
 
-pub trait CircuitMode {
+mod execute_mode;
+pub use execute_mode::{ExecuteMode, OptionalBoolean};
+
+pub trait CircuitMode: Sized + std::fmt::Debug {
+    /// The wire value type used during circuit evaluation (bool for Execute, GarbledWire for Garble, etc)
     type WireValue: Clone;
 
-    fn lookup_wire(&mut self, wire: WireId) -> Option<&Self::WireValue>;
+    /// The storage representation type (OptionalBoolean for Execute, etc)
+    type StorageValue: Clone + Default + std::fmt::Debug;
 
-    fn feed_wire(&mut self, wire: WireId, value: Self::WireValue);
+    /// Get the false constant value
+    fn false_value(&self) -> Self::WireValue;
 
-    fn total_size(&self) -> usize;
+    /// Get the true constant value
+    fn true_value(&self) -> Self::WireValue;
 
-    fn current_size(&self) -> usize;
+    /// Get default storage value for uninitialized wires
+    fn default_storage_value() -> Self::StorageValue;
 
-    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()>;
+    /// Convert storage representation to wire value
+    fn storage_to_wire(&self, stored: &Self::StorageValue) -> Option<Self::WireValue>;
+
+    /// Convert wire value to storage representation
+    fn wire_to_storage(&self, value: Self::WireValue) -> Self::StorageValue;
+
+    /// Evaluate a gate with given input values
+    fn evaluate_gate(
+        &mut self,
+        gate: &Gate,
+        a: Self::WireValue,
+        b: Self::WireValue,
+    ) -> Self::WireValue;
+
+    // Default methods for compatibility with existing code
+    fn lookup_wire(&mut self, _wire: WireId) -> Option<Self::WireValue> {
+        panic!("lookup_wire not implemented for this mode")
+    }
+
+    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {
+        panic!("feed_wire not implemented for this mode")
+    }
 }
 
 pub struct Garble {
@@ -87,43 +115,7 @@ impl Garble {
     }
 }
 
-impl CircuitMode for Garble {
-    type WireValue = GarbledWire;
-
-    fn lookup_wire(&mut self, _wire: WireId) -> Option<&GarbledWire> {
-        todo!()
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: GarbledWire) {
-        self.feed_wire(wire, value);
-    }
-
-    fn total_size(&self) -> usize {
-        self.size()
-    }
-
-    fn current_size(&self) -> usize {
-        self.wires.last().map(|w| w.size()).unwrap_or_default()
-    }
-
-    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
-        let gate_id = self.next_gate_index();
-
-        if let Some(ciphertext) = gate
-            .garble::<Blake3Hasher>(
-                gate_id,
-                self.wires.last_mut().unwrap(),
-                &self.delta,
-                &mut self.rng,
-            )
-            .unwrap()
-        {
-            self.garble_table.push(ciphertext);
-        }
-
-        Some(())
-    }
-}
+// TODO: Implement CircuitMode for Garble when needed
 
 pub struct Evaluate {
     wires: Vec<HashMap<WireId, EvaluatedWire>>,
@@ -170,26 +162,4 @@ impl Evaluate {
     }
 }
 
-impl CircuitMode for Evaluate {
-    type WireValue = EvaluatedWire;
-
-    fn lookup_wire(&mut self, _wire: WireId) -> Option<&EvaluatedWire> {
-        todo!()
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: EvaluatedWire) {
-        self.feed_wire(wire, value);
-    }
-
-    fn total_size(&self) -> usize {
-        self.size()
-    }
-
-    fn current_size(&self) -> usize {
-        self.wires.last().map(|w| w.len()).unwrap_or_default()
-    }
-
-    fn evaluate_gate(&mut self, _gate: &Gate) -> Option<()> {
-        todo!()
-    }
-}
+// TODO: Implement CircuitMode for Evaluate when needed

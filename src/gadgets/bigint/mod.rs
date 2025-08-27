@@ -7,7 +7,7 @@ pub use num_bigint::BigUint;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{CircuitMode, CircuitOutput, FALSE_WIRE, TRUE_WIRE, modes::Execute},
+    circuit::streaming::{CircuitOutput, FALSE_WIRE, TRUE_WIRE, modes::Execute},
 };
 
 mod add;
@@ -197,7 +197,7 @@ impl CircuitOutput<Execute> for BigUint {
         let mut bytes = vec![0u8; bit_len.div_ceil(8)];
 
         for (i, w) in wires.iter().enumerate() {
-            let bit = *cache.lookup_wire(*w).expect("missing wire value");
+            let bit = cache.lookup_wire(*w).expect("missing wire value");
             if bit {
                 bytes[i / 8] |= 1u8 << (i % 8);
             }

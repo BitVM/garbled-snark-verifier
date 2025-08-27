@@ -1,16 +1,15 @@
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    iter,
-};
+use std::{collections::HashMap, iter};
 
-use log::{debug, error, trace};
+use log::trace;
 
+pub use super::execute_mode::ExecuteMode;
 use crate::{
-    CircuitContext, Gate, WireId,
+    CircuitContext, WireId,
     circuit::streaming::{
-        CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE, WiresObject,
+        EncodeInput,
         component_key::ComponentKey,
-        component_meta::{ComponentMetaBuilder, ComponentMetaInstance, ComponentMetaTemplate},
+        component_meta::ComponentMetaBuilder,
+        streaming_mode::{StreamingContext, StreamingMode},
     },
     core::gate_type::GateCount,
     storage::{Credits, Storage},
@@ -18,35 +17,14 @@ use crate::{
 
 const ROOT_KEY: ComponentKey = [0u8; 8];
 
-#[derive(Clone, Copy, Debug, Default)]
-pub enum OptionalBoolean {
-    #[default]
-    None,
-    True,
-    False,
-}
+// OptionalBoolean moved to execute_mode.rs, re-exported above
 
-#[derive(Debug)]
-pub struct ExecuteContext {
-    pub storage: Storage<WireId, OptionalBoolean>,
-    stack: Vec<ComponentMetaInstance>,
-    templates: HashMap<ComponentKey, ComponentMetaTemplate>,
-    gate_count: GateCount,
-}
+// ExecuteContext is now part of StreamingContext<ExecuteMode>
+// Keeping this type alias for any code that references it directly
+pub type ExecuteContext = StreamingContext<ExecuteMode>;
 
-impl ExecuteContext {
-    pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
-        let meta = self.stack.last_mut().unwrap();
-
-        if let Some(credit) = meta.next_credit() {
-            let wire_id = self.storage.allocate(OptionalBoolean::None, credit);
-            trace!("issue wire {wire_id:?} with {credit} credit");
-            (wire_id, credit)
-        } else {
-            unreachable!("{self:?}")
-        }
-    }
-
+// Extension methods for StreamingContext<ExecuteMode>
+impl StreamingContext<ExecuteMode> {
     pub fn pop_credits(&mut self, len: usize) -> Vec<Credits> {
         let stack = self.stack.last_mut().unwrap();
 
@@ -56,93 +34,18 @@ impl ExecuteContext {
     }
 }
 
-impl CircuitMode for ExecuteContext {
-    type WireValue = bool;
+/// Type alias for backward compatibility - Execute is now StreamingMode<ExecuteMode>
+pub type Execute = StreamingMode<ExecuteMode>;
 
-    fn lookup_wire(&mut self, wire: WireId) -> Option<&bool> {
-        match wire {
-            TRUE_WIRE => return Some(&true),
-            FALSE_WIRE => return Some(&false),
-            _ => (),
-        }
-
-        match self.storage.get(wire).as_deref() {
-            Ok(&OptionalBoolean::True) => Some(&true),
-            Ok(&OptionalBoolean::False) => Some(&false),
-            Ok(&OptionalBoolean::None) => {
-                error!("lookup_wire: wire_id={} has no value yet", wire.0);
-                panic!("value not writed: {wire:?}")
-            }
-            Err(err) => {
-                error!(
-                    "lookup_wire: storage error for wire_id={} err={:?}",
-                    wire.0, err
-                );
-                panic!("Error: {err:?}")
-            }
-        }
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: bool) {
-        trace!("feed wire {wire:?} with value: {value}");
-        self.storage
-            .set(wire, |data| {
-                *data = if value {
-                    OptionalBoolean::True
-                } else {
-                    OptionalBoolean::False
-                };
-            })
-            .unwrap();
-    }
-
-    fn total_size(&self) -> usize {
-        self.storage.len()
-    }
-
-    fn current_size(&self) -> usize {
-        self.storage.len()
-    }
-
-    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
-        self.gate_count.handle(gate.gate_type);
-
-        if gate.wire_c == WireId::UNREACHABLE {
-            return None;
-        }
-
-        assert_ne!(gate.wire_a, WireId::UNREACHABLE);
-        assert_ne!(gate.wire_b, WireId::UNREACHABLE);
-
-        let a = *self.lookup_wire(gate.wire_a)?;
-        let b = *self.lookup_wire(gate.wire_b)?;
-
-        let c = gate.execute(a, b);
-        self.feed_wire(gate.wire_c, c);
-
-        Some(())
-    }
-}
-
-/// Prototype mode: single global storage keyed by `WireId` with credit-based lifetimes.
-///
-/// Notes:
-/// - For now there is no prepass integration here; callers can `feed_wire` to seed inputs
-///   and we consume credits on reads during gate evaluation.
-/// - Constants are stored outside of `WireStorage` and don't consume credits.
-#[derive(Debug)]
-pub enum Execute {
-    MetadataPass(ComponentMetaBuilder),
-    ExecutePass(ExecuteContext),
-}
-
+// Helper methods for Execute type alias
 impl Execute {
     pub fn new(capacity: usize) -> Self {
         Self::new_execute(capacity)
     }
 
     fn new_execute(capacity: usize) -> Self {
-        Self::ExecutePass(ExecuteContext {
+        StreamingMode::ExecutionPass(StreamingContext {
+            mode: ExecuteMode,
             storage: Storage::new(capacity),
             stack: vec![],
             templates: HashMap::default(),
@@ -151,17 +54,17 @@ impl Execute {
     }
 
     fn new_meta(inputs: &[WireId]) -> Self {
-        Self::MetadataPass(ComponentMetaBuilder::new(inputs))
+        StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs))
     }
 
-    pub fn to_root_ctx<I: EncodeInput<<Self as CircuitMode>::WireValue>>(
+    pub fn to_root_ctx<I: EncodeInput<bool>>(
         self,
         capacity: usize,
         input: &I,
         meta_input_wires: &[WireId],
         meta_output_wires: &[WireId],
     ) -> (Self, I::WireRepr) {
-        if let Self::MetadataPass(meta) = self {
+        if let StreamingMode::MetadataPass(meta) = self {
             let meta = meta.build(meta_output_wires);
 
             let mut input_credits = vec![0; meta_input_wires.len()];
@@ -180,7 +83,8 @@ impl Execute {
 
             trace!("meta before input encode: {instance:?}");
 
-            let mut ctx = Self::ExecutePass(ExecuteContext {
+            let mut ctx = StreamingMode::ExecutionPass(StreamingContext {
+                mode: ExecuteMode,
                 storage: Storage::new(capacity),
                 stack: vec![instance],
                 templates: {
@@ -194,7 +98,7 @@ impl Execute {
             let input_repr = input.allocate(|| ctx.issue_wire());
             input.encode(&input_repr, &mut ctx);
 
-            if let Self::ExecutePass(ctx) = &ctx {
+            if let StreamingMode::ExecutionPass(ctx) = &ctx {
                 trace!("meta after input encode: {:?}", ctx.stack.last().unwrap());
             }
 
@@ -206,198 +110,33 @@ impl Execute {
 
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
         match self {
-            Self::MetadataPass(meta) => (meta.issue_wire(), 0),
-            Self::ExecutePass(ctx) => ctx.issue_wire_with_credit(),
+            StreamingMode::MetadataPass(meta) => (meta.issue_wire(), 0),
+            StreamingMode::ExecutionPass(ctx) => ctx.issue_wire_with_credit(),
         }
     }
 
     pub fn non_free_gates_count(&self) -> usize {
         match self {
-            Self::MetadataPass(_meta) => 0,
-            Self::ExecutePass(ctx) => ctx.gate_count.nonfree_gate_count() as usize,
+            StreamingMode::MetadataPass(_meta) => 0,
+            StreamingMode::ExecutionPass(ctx) => ctx.gate_count.nonfree_gate_count() as usize,
         }
     }
 
     pub fn total_gates_count(&self) -> usize {
         match self {
-            Self::MetadataPass(_meta) => 0,
-            Self::ExecutePass(ctx) => ctx.gate_count.total_gate_count() as usize,
+            StreamingMode::MetadataPass(_meta) => 0,
+            StreamingMode::ExecutionPass(ctx) => ctx.gate_count.total_gate_count() as usize,
         }
     }
 }
 
-impl CircuitMode for Execute {
-    type WireValue = bool;
-
-    fn lookup_wire(&mut self, wire: WireId) -> Option<&bool> {
-        match wire {
-            TRUE_WIRE => Some(&true),
-            FALSE_WIRE => Some(&false),
-            // Unreachable wires don't have values
-            WireId::UNREACHABLE => None,
-            wire => match self {
-                Self::MetadataPass(_) => None,
-                Self::ExecutePass(ctx) => ctx.lookup_wire(wire),
-            },
-        }
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: Self::WireValue) {
-        if matches!(wire, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
-            return;
-        }
-
-        match self {
-            Self::ExecutePass(ctx) => ctx.feed_wire(wire, value),
-            Self::MetadataPass(_meta) => (),
-        }
-    }
-
-    fn total_size(&self) -> usize {
-        match self {
-            Self::ExecutePass(ctx) => ctx.total_size(),
-            Self::MetadataPass(meta) => meta.credits_stack.len(),
-        }
-    }
-
-    fn current_size(&self) -> usize {
-        match self {
-            Self::ExecutePass(ctx) => ctx.current_size(),
-            Self::MetadataPass(meta) => meta.credits_stack.len(),
-        }
-    }
-
-    fn evaluate_gate(&mut self, gate: &Gate) -> Option<()> {
-        match self {
-            Execute::MetadataPass(_meta) => None,
-            Execute::ExecutePass(ctx) => ctx.evaluate_gate(gate),
-        }
-    }
-}
-
-impl CircuitContext for Execute {
-    type Mode = Self;
-
-    fn issue_wire(&mut self) -> WireId {
-        self.issue_wire_with_credit().0
-    }
-
-    fn add_gate(&mut self, gate: Gate) {
-        match self {
-            Self::MetadataPass(meta) => meta.add_gate(gate),
-            Self::ExecutePass(ctx) => {
-                ctx.evaluate_gate(&gate);
-            }
-        }
-    }
-
-    fn with_named_child<O: WiresObject>(
-        &mut self,
-        key: ComponentKey,
-        input_wires: Vec<WireId>,
-        f: impl Fn(&mut Self) -> O,
-        output_arity: usize,
-    ) -> O {
-        let arity = output_arity;
-
-        if let Self::MetadataPass(meta) = self {
-            debug!("with_named_child: metapass enter name={key:?} arity={arity}");
-            meta.increment_credits(&input_wires);
-
-            // We just pre-alloc all outputs for handle credits
-            let mock_output = iter::repeat_with(|| meta.issue_wire())
-                .take(arity)
-                .collect::<Vec<_>>();
-
-            return O::from_wires(&mock_output).unwrap();
-        }
-
-        debug!("with_named_child: enter name={key:?} arity={arity}");
-
-        let pre_alloc_output_credits = match self {
-            Self::ExecutePass(ctx) => ctx.pop_credits(arity),
-            _ => unreachable!(),
-        };
-
-        match self {
-            Self::ExecutePass(ctx) => {
-                trace!("Start component {key:?} meta take");
-                let build_template = || {
-                    trace!(
-                        "For key {key:?} generate template: arity {arity}, input_wires_len: {}",
-                        input_wires.len()
-                    );
-                    let mut child_component_meta = Self::new_meta(&input_wires);
-
-                    let meta_wires_output = f(&mut child_component_meta).to_wires_vec();
-
-                    match child_component_meta {
-                        Self::MetadataPass(meta) => meta.build(&meta_wires_output),
-                        _ => unreachable!(),
-                    }
-                };
-
-                let storage = &mut ctx.storage;
-
-                let misscache = input_wires
-                    .iter()
-                    .any(|wire_id| wire_id == &TRUE_WIRE || wire_id == &FALSE_WIRE);
-
-                let mut to_instance = |template: &ComponentMetaTemplate| {
-                    template.to_instance(
-                        &input_wires,
-                        &pre_alloc_output_credits,
-                        |wire_id, credits| {
-                            storage.add_credits(wire_id, credits).unwrap();
-                        },
-                    )
-                };
-
-                let instance = match (misscache, ctx.templates.entry(key)) {
-                    (_, Entry::Occupied(template)) => to_instance(template.get()),
-                    // Can't save result in cache, build and go
-                    (true, Entry::Vacant(_)) => to_instance(&build_template()),
-                    // Save result in cache and reuse
-                    (false, Entry::Vacant(place)) => to_instance(place.insert(build_template())),
-                };
-
-                // TODO Optimize unpin input
-                for input_wire_id in input_wires {
-                    match input_wire_id {
-                        WireId::UNREACHABLE => (),
-                        TRUE_WIRE => (),
-                        FALSE_WIRE => (),
-                        wire_id => {
-                            let _ = storage.get(wire_id).unwrap();
-                        }
-                    }
-                }
-                ctx.stack.push(instance);
-            }
-            _ => unreachable!(),
-        };
-
-        let output = f(self);
-
-        match self {
-            Self::ExecutePass(ctx) => {
-                let _used_child_meta = ctx.stack.pop();
-                #[cfg(test)]
-                assert!(_used_child_meta.unwrap().is_empty());
-            }
-            _ => unreachable!(),
-        };
-
-        debug!("with_named_child: exit name={key:?} arity={arity}");
-
-        output
-    }
-}
+// Old CircuitMode and CircuitContext implementations removed
+// These are now handled by the generic StreamingMode implementation
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::gate_type::GateType;
+    use crate::{Gate, core::gate_type::GateType};
 
     fn and(a: WireId, b: WireId, c: WireId) -> Gate {
         Gate {
