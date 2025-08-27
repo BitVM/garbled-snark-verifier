@@ -33,10 +33,7 @@ pub enum StreamingMode<M: CircuitMode> {
 }
 
 // Implement CircuitMode for StreamingMode for backward compatibility
-impl<M: CircuitMode> CircuitMode for StreamingMode<M>
-where
-    M::StorageValue: std::fmt::Debug,
-{
+impl<M: CircuitMode> CircuitMode for StreamingMode<M> {
     type WireValue = M::WireValue;
     type StorageValue = M::StorageValue;
 
@@ -99,10 +96,7 @@ where
 }
 
 // Helper methods for StreamingMode to support existing code
-impl<M: CircuitMode> StreamingMode<M>
-where
-    M::StorageValue: std::fmt::Debug,
-{
+impl<M: CircuitMode> StreamingMode<M> {
     pub fn lookup_wire(&mut self, wire: WireId) -> Option<M::WireValue> {
         match self {
             StreamingMode::MetadataPass(_) => None,
@@ -130,12 +124,18 @@ where
             }
         }
     }
+
+    pub fn is_storage_empty(&self) -> bool {
+        match self {
+            StreamingMode::MetadataPass(component_meta_builder) => {
+                component_meta_builder.credits_stack.is_empty()
+            }
+            StreamingMode::ExecutionPass(streaming_context) => streaming_context.storage.is_empty(),
+        }
+    }
 }
 
-impl<M: CircuitMode> CircuitContext for StreamingMode<M>
-where
-    M::StorageValue: std::fmt::Debug,
-{
+impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
     type Mode = M;
 
     fn issue_wire(&mut self) -> WireId {
@@ -272,10 +272,7 @@ where
     }
 }
 
-impl<M: CircuitMode> StreamingContext<M>
-where
-    M::StorageValue: std::fmt::Debug,
-{
+impl<M: CircuitMode> StreamingContext<M> {
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
         let meta = self.stack.last_mut().unwrap();
 

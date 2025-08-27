@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use crate::{EvaluatedWire, Gate, WireId};
 
@@ -19,7 +19,7 @@ pub trait CircuitMode: Sized + std::fmt::Debug {
     type WireValue: Clone;
 
     /// The storage representation type (OptionalBoolean for Execute, etc)
-    type StorageValue: Clone + Default + std::fmt::Debug;
+    type StorageValue: Clone + Default + fmt::Debug;
 
     /// Get the false constant value
     fn false_value(&self) -> Self::WireValue;
