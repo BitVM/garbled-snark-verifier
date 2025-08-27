@@ -71,8 +71,11 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         K::from(index + self.index_offset)
     }
 
-    pub fn to_iter(self) -> impl Iterator<Item = (K, T)> {
-        self.data.into_iter().map(|(k, v)| (K::from(k), v.data))
+    pub fn to_iter(self) -> impl Iterator<Item = (K, Credits, T)> {
+        let offset = self.index_offset;
+        self.data
+            .into_iter()
+            .map(move |(k, v)| (K::from(k + offset), v.credits.get(), v.data))
     }
 
     fn to_index(&self, k: K) -> usize {

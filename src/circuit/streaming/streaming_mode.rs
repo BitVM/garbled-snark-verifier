@@ -134,11 +134,9 @@ impl<M: CircuitMode> StreamingMode<M> {
         }
     }
 
-    pub fn iter_storage(&self) -> impl IntoIterator<Item = (WireId, M::StorageValue)> {
+    pub fn iter_storage(self) -> impl IntoIterator<Item = (WireId, Credits, M::StorageValue)> {
         match self {
-            StreamingMode::ExecutionPass(streaming_context) => {
-                streaming_context.storage.clone().to_iter()
-            }
+            StreamingMode::ExecutionPass(streaming_context) => streaming_context.storage.to_iter(),
             StreamingMode::MetadataPass(_component_meta_builder) => {
                 todo!()
             }
@@ -251,7 +249,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                     (false, Entry::Vacant(place)) => to_instance(place.insert(build_template())),
                 };
 
-                // TODO Optimize unpin input
+                // Unpin inputs: consume one credit per input position.
                 for input_wire_id in input_wires {
                     match input_wire_id {
                         WireId::UNREACHABLE => (),
