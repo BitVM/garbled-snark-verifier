@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData, num::NonZeroU32, ops::Deref};
+use std::{fmt::Debug, marker::PhantomData, num::NonZero, ops::Deref};
 
 use log::{error, trace};
 use slab::Slab;
@@ -11,11 +11,13 @@ pub enum Error {
     OverflowCredits,
 }
 
-pub type Credits = u32;
+// Reduce memory footprint of credits stacks and storage entries.
+// Typical fan-out counts are small; u16 is generally sufficient.
+pub type Credits = u16;
 
 #[derive(Debug, Clone)]
 struct Entry<T: Default> {
-    credits: NonZeroU32,
+    credits: NonZero<Credits>,
     data: T,
 }
 
@@ -98,7 +100,7 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
     }
 
     pub fn allocate(&mut self, data: T, credits: Credits) -> K {
-        if let Some(credits) = NonZeroU32::new(credits) {
+        if let Some(credits) = NonZero::<Credits>::new(credits) {
             let before = self.data.capacity();
             let index = self.data.insert(Entry { data, credits });
             let after = self.data.capacity();
@@ -136,7 +138,7 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
         match self.data.get(index) {
             None => Err(Error::NotFound { key: index }),
-            Some(entry) if entry.credits == NonZeroU32::MIN => {
+            Some(entry) if entry.credits == NonZero::<Credits>::MIN => {
                 trace!("take {:?} from storage", self.to_key(index));
                 let Entry { data, .. } = self.data.remove(index);
                 Ok(Data::Owned(data))
@@ -145,7 +147,7 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
                 let entry: &'s mut Entry<T> = self.data.get_mut(index).expect("present above");
 
                 // We know credits > 1 here.
-                entry.credits = NonZeroU32::new(entry.credits.get() - 1).unwrap();
+                entry.credits = NonZero::<Credits>::new(entry.credits.get() - 1).unwrap();
 
                 trace!("get {:?} from storage with -1 credit", index + 2);
 
@@ -241,7 +243,7 @@ mod tests {
         let key = st.allocate(0, 1);
 
         // Increase to max (255)
-        assert!(st.add_credits(key, u32::MAX - 1).is_ok());
+        assert!(st.add_credits(key, Credits::MAX - 1).is_ok());
 
         // Now any additional credit should overflow
         let err = st.add_credits(key, 1).expect_err("expected overflow");
