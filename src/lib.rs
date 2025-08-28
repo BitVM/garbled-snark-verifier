@@ -6,7 +6,10 @@ mod math;
 // Re-export the procedural macro
 pub use core::{
     delta::Delta,
-    gate::{Gate, GateError},
+    gate::{
+        Gate, GateError,
+        garbling::{AesNiHasher, Blake3Hasher, GateHasher},
+    },
     gate_type::GateType,
     s::S,
     wire::{EvaluatedWire, GarbledWire, GarbledWires, WireError, WireId},

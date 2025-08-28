@@ -1,0 +1,20 @@
+[build]
+# Enable hardware acceleration features for x86/x86_64 targets
+# This avoids having to manually set RUSTFLAGS environment variable
+rustflags = ["-C", "target-feature=+aes,+sse2,+avx2,+pclmulqdq"]
+
+# Alternative: use target-cpu=native for maximum optimization on build machine
+# Uncomment the line below and comment the one above if you want native CPU optimization
+# rustflags = ["-C", "target-cpu=native"]
+
+[target.x86_64-unknown-linux-gnu]
+# Specific flags for Linux x86_64 (can override [build] section)
+rustflags = ["-C", "target-feature=+aes,+sse2,+avx2,+pclmulqdq"]
+
+[target.x86_64-pc-windows-msvc]
+# Specific flags for Windows x86_64
+rustflags = ["-C", "target-feature=+aes,+sse2,+avx2,+pclmulqdq"]
+
+[target.x86_64-apple-darwin]
+# Specific flags for macOS x86_64
+rustflags = ["-C", "target-feature=+aes,+sse2,+avx2,+pclmulqdq"]

@@ -1,8 +1,9 @@
 use super::{GateId, GateType};
 use crate::{Delta, EvaluatedWire, GarbledWire};
 
+pub mod aes_ni;
 pub mod hashers;
-pub use hashers::{Blake3Hasher, GateHasher};
+pub use hashers::{AesNiHasher, Blake3Hasher, GateHasher};
 
 pub(crate) fn garble<H: GateHasher>(
     gate_id: GateId,
@@ -42,5 +43,7 @@ pub(super) fn degarble<H: GateHasher>(
     }
 }
 
+#[cfg(test)]
+mod aes_ni_test;
 #[cfg(test)]
 mod tests;
