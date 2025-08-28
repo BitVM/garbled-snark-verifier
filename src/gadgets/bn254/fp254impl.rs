@@ -12,7 +12,7 @@ use crate::{
     CircuitContext, Gate, WireId,
     circuit::{
         CircuitInput,
-        streaming::{FALSE_WIRE, TRUE_WIRE, WiresObject},
+        streaming::{FALSE_WIRE, FromWires, TRUE_WIRE, WiresObject},
     },
     gadgets::bigint::select,
     math::montgomery::calculate_montgomery_constants,
@@ -360,12 +360,29 @@ pub trait Fp254Impl {
                 wires
             }
 
-            fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-                let u = BigIntWires::from_wire_iter(iter)?;
-                let v = BigIntWires::from_wire_iter(iter)?;
-                let r = BigIntWires::from_wire_iter(iter)?;
-                let s = BigIntWires::from_wire_iter(iter)?;
-                let k = BigIntWires::from_wire_iter(iter)?;
+            fn clone_from(&self, mut wire_gen: &mut impl FnMut() -> WireId) -> Self {
+                let Self { u, v, r, s, k } = self;
+                let u = u.clone_from(&mut wire_gen);
+                let v = v.clone_from(&mut wire_gen);
+                let r = r.clone_from(&mut wire_gen);
+                let s = s.clone_from(&mut wire_gen);
+                let k = k.clone_from(&mut wire_gen);
+
+                Self { u, v, r, s, k }
+            }
+        }
+
+        impl FromWires for IterationContext {
+            fn from_wires(wires: &[WireId]) -> Option<Self> {
+                let chunk_size = wires.len() / 5;
+                let mut chunks = wires.chunks(chunk_size);
+
+                let u = BigIntWires::from_wires(chunks.next()?)?;
+                let v = BigIntWires::from_wires(chunks.next()?)?;
+                let r = BigIntWires::from_wires(chunks.next()?)?;
+                let s = BigIntWires::from_wires(chunks.next()?)?;
+                let k = BigIntWires::from_wires(chunks.next()?)?;
+
                 Some(Self { u, v, r, s, k })
             }
         }
@@ -390,14 +407,14 @@ pub trait Fp254Impl {
         let mut input = IterationContext { u, v, r, s, k };
 
         const PER_CHUNK: usize = 4;
+
         for chunk in (0..2 * Self::N_BITS).chunks(PER_CHUNK).into_iter() {
             let chunk = chunk.into_iter().collect::<Vec<_>>();
-            let input_wires = input.to_wires_vec();
-            let input_wires_len = input_wires.len();
+
             input = circuit.with_named_child(
-                crate::component_key!("inverse_iteration", 5 * Self::N_BITS, input_wires_len),
-                input_wires,
-                |circuit, _inputs| {
+                crate::component_key!("inverse_iteration", 5 * Self::N_BITS, 5 * Self::N_BITS),
+                input,
+                |circuit, input| {
                     let IterationContext {
                         mut u,
                         mut v,
@@ -532,18 +549,16 @@ pub trait Fp254Impl {
 
         let IterationContext { s, k, .. } = input;
 
-        // divide result by even part
-        let input_wires = [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat();
-        let input_wires_len = input_wires.len();
         let s = circuit.with_named_child(
             crate::component_key!(
                 "inverse::divide_result_by_even_part",
                 2 * Self::N_BITS,
-                input_wires_len
+                s.len() + even_part.len()
             ),
-            (s.clone(), even_part.clone()),
+            (s, even_part),
             |circuit, inputs| {
                 let (s, even_part) = inputs;
+
                 let mut s = s.clone();
                 let mut even_part = even_part.clone();
 
@@ -552,19 +567,18 @@ pub trait Fp254Impl {
                 {
                     let chunk = chunk.collect::<Vec<_>>();
 
-                    let input_wires =
-                        [s.clone().to_wires_vec(), even_part.clone().to_wires_vec()].concat();
-                    let input_wires_len = input_wires.len();
                     let chunk_idx_bytes = chunk_idx.to_le_bytes();
+
                     let (new_s, new_even_part) = circuit.with_named_child(
                         crate::component_key!(
                             "inverse::divide_result_by_even_part::chunk",
                             chunk_idx = &chunk_idx_bytes[..] ;
                             2 * Self::N_BITS,
-                            input_wires_len
+                            s.len() + even_part.len()
                         ),
-                        input_wires,
-                        |circuit, _inputs| {
+                        (s, even_part),
+                        |circuit, inputs| {
+                            let (s, even_part) = inputs;
                             let mut s = s.clone();
                             let mut even_part = even_part.clone();
 
@@ -608,26 +622,21 @@ pub trait Fp254Impl {
             ),
             (s.clone(), k.clone()),
             |circuit, inputs| {
-                let (s, k) = inputs;
-                let mut s = s.clone();
-                let mut k = k.clone();
+                let (mut s, mut k) = inputs.clone();
 
                 // divide result by 2^k
                 for chunk in (0..2 * Self::N_BITS).chunks(PER_CHUNK).into_iter() {
                     let chunk = chunk.collect::<Vec<_>>();
 
-                    let input_wires = [s.clone().to_wires_vec(), k.clone().to_wires_vec()].concat();
-                    let input_wires_len = input_wires.len();
                     let (new_s, new_k) = circuit.with_named_child(
                         crate::component_key!(
                             "inverse::divide_result_by_2^k::chunk",
                             2 * Self::N_BITS,
-                            input_wires_len
+                            s.len() + k.len()
                         ),
-                        input_wires,
-                        |circuit, _inputs| {
-                            let mut s = s.clone();
-                            let mut k = k.clone();
+                        (s, k),
+                        |circuit, inputs| {
+                            let (mut s, mut k) = inputs.clone();
 
                             for _ in chunk.iter() {
                                 let updated_s = Self::half(circuit, &s);

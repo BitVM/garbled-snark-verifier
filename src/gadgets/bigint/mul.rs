@@ -2,10 +2,7 @@ use circuit_component_macro::bn_component;
 use log::{debug, info, trace};
 
 use super::{BigIntWires, BigUint, add};
-use crate::{
-    CircuitContext, Gate, GateType, WireId,
-    circuit::streaming::{FALSE_WIRE, WiresObject},
-};
+use crate::{CircuitContext, Gate, GateType, WireId, circuit::streaming::FALSE_WIRE};
 
 /// Pre-computed Karatsuba vs Generic algorithm decisions
 const fn is_use_karatsuba(len: usize) -> bool {
@@ -233,23 +230,22 @@ pub fn mul_by_constant<C: CircuitContext>(
     // We artificially chunk the function to reduce the `Frame` size
     for (i, chunk) in ones.chunks(PER_CHUNK).enumerate() {
         let acc_in = acc;
-        let mut input = a.to_wires_vec();
-        input.extend_from_slice(&acc_in);
 
-        let input_wires_len = input.len();
+        let input_wires_len = a.len() + acc_in.len();
         let i_bytes = i.to_le_bytes();
         let c_bytes = c.to_bytes_be();
 
         acc = circuit.with_named_child(
             crate::component_key!("mul_by_const_chunk", i = &i_bytes[..], c = &c_bytes[..] ; len * 2, input_wires_len),
-            input,
-            move |ctx, _inputs| {
-                let mut res = acc_in.clone();
+            (a.bits.clone(), acc_in),
+            move |ctx, inputs| {
+                let (a, mut res) = inputs.clone();
+                let a = BigIntWires { bits: a };
 
                 for &i in chunk {
                     let new_bits = add::add_generic(
                         ctx,
-                        a,
+                        &a,
                         &BigIntWires {
                             bits: res[i..(i + len)].to_vec(),
                         },
@@ -299,22 +295,28 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
     for (chunk_idx, chunk) in ones.chunks(PER_CHUNK).enumerate() {
         // Move current accumulator into the child and also pass `a` wires.
         let prev = result_bits;
-        let mut input = a.to_wires_vec();
-        input.extend_from_slice(&prev);
 
         // Own the chunk indices to avoid lifetime fuss.
         let chunk_indices: Vec<usize> = chunk.to_vec();
 
-        let input_wires_len = input.len();
+        let input_wires_len = a.len() + prev.len();
         let a_len_bytes = a.len().to_le_bytes();
         let power_bytes = power.to_le_bytes();
         let chunk_idx_bytes = chunk_idx.to_le_bytes();
 
         result_bits = circuit.with_named_child(
-            crate::component_key!("mul_by_const_mod_2p", a_len = &a_len_bytes[..], power = &power_bytes[..], chunk_idx = &chunk_idx_bytes[..] ; power, input_wires_len),
-            input,
-            move |ctx, _inputs| {
-                let mut res = prev.clone();
+            crate::component_key!(
+                "mul_by_const_mod_2p",
+                a_len = &a_len_bytes[..],
+                power = &power_bytes[..],
+                chunk_idx = &chunk_idx_bytes[..];
+                power,
+                input_wires_len
+            ),
+            (a.bits.clone(), prev),
+            move |ctx, inputs| {
+                let (a, mut res) = inputs.clone();
+                let a = BigIntWires { bits: a };
 
                 for &i in &chunk_indices {
                     // We can only add as many bits as fit before `power`.
@@ -362,7 +364,7 @@ mod tests {
     use crate::{
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{EncodeInput, StreamingResult, modes::CircuitMode},
+            streaming::{EncodeInput, StreamingResult, WiresObject, modes::CircuitMode},
         },
         gadgets::bigint::bits_from_biguint_with_len,
     };

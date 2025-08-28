@@ -8,7 +8,7 @@ use rand::Rng;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::WiresObject,
+    circuit::streaming::{FromWires, WiresObject},
     gadgets::{
         bigint::{self, BigIntWires, Error},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
@@ -22,21 +22,6 @@ pub struct G1Projective {
     pub z: Fq,
 }
 
-impl WiresObject for &G1Projective {
-    fn to_wires_vec(&self) -> Vec<WireId> {
-        let mut wires = Vec::new();
-        wires.extend(self.x.to_wires_vec());
-        wires.extend(self.y.to_wires_vec());
-        wires.extend(self.z.to_wires_vec());
-        wires
-    }
-
-    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        // Can't construct a reference from owned data
-        None
-    }
-}
-
 impl WiresObject for G1Projective {
     fn to_wires_vec(&self) -> Vec<WireId> {
         let mut wires = Vec::new();
@@ -46,11 +31,26 @@ impl WiresObject for G1Projective {
         wires
     }
 
-    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        let x = Fq::from_wire_iter(iter)?;
-        let y = Fq::from_wire_iter(iter)?;
-        let z = Fq::from_wire_iter(iter)?;
-        Some(Self { x, y, z })
+    fn clone_from(&self, mut wire_gen: &mut impl FnMut() -> WireId) -> Self {
+        let Self { x, y, z } = self;
+
+        Self {
+            x: x.clone_from(&mut wire_gen),
+            y: y.clone_from(&mut wire_gen),
+            z: z.clone_from(&mut wire_gen),
+        }
+    }
+}
+
+impl FromWires for G1Projective {
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        let len = wires.len() / 3;
+        let mut chunks = wires.chunks(len);
+        Some(Self {
+            x: Fq::from_wires(chunks.next()?)?,
+            y: Fq::from_wires(chunks.next()?)?,
+            z: Fq::from_wires(chunks.next()?)?,
+        })
     }
 }
 

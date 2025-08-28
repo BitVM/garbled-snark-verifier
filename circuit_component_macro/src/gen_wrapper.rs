@@ -126,7 +126,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     let arity_expr = match return_type {
         syn::ReturnType::Default => quote! { 0usize },
         syn::ReturnType::Type(_, ty) => {
-            // For now, assume all non-BigIntWires types have WiresArity
+            // Use the WiresObject trait's arity method on a temporary instance
             quote! { <#ty as crate::circuit::streaming::WiresArity>::ARITY }
         }
     };

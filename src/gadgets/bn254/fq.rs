@@ -38,24 +38,21 @@ impl DerefMut for Fq {
     }
 }
 
-impl WiresObject for &Fq {
-    fn to_wires_vec(&self) -> Vec<WireId> {
-        self.0.iter().copied().collect()
-    }
-
-    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        // Can't construct a reference from owned data
-        None
-    }
-}
-
 impl WiresObject for Fq {
     fn to_wires_vec(&self) -> Vec<WireId> {
         self.0.iter().copied().collect()
     }
 
-    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        Some(Self(BigIntWires::from_wire_iter(iter)?))
+    fn clone_from(&self, wire_gen: &mut impl FnMut() -> WireId) -> Self {
+        Self(self.0.clone_from(wire_gen))
+    }
+}
+
+impl crate::circuit::streaming::FromWires for Fq {
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        Some(Self(crate::gadgets::bigint::BigIntWires::from_bits(
+            wires.iter().copied(),
+        )))
     }
 }
 

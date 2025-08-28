@@ -1,7 +1,5 @@
 use std::{collections::HashMap, iter, sync::mpsc};
 
-use log::trace;
-
 pub use super::garble_mode::{GarbleMode, GarbledTableEntry};
 use crate::{
     GarbledWire, WireId,
@@ -55,60 +53,19 @@ impl Garble {
     }
 
     fn new_meta(inputs: &[WireId]) -> Self {
-        StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs))
+        StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs.len()))
     }
 
     pub fn to_root_ctx<I: EncodeInput<GarbledWire>>(
         self,
-        seed: u64,
-        capacity: usize,
-        output_sender: mpsc::Sender<GarbledTableEntry>,
-        input: &I,
-        meta_input_wires: &[WireId],
-        meta_output_wires: &[WireId],
+        _seed: u64,
+        _capacity: usize,
+        _output_sender: mpsc::Sender<GarbledTableEntry>,
+        _input: &I,
+        _meta_input_wires_len: usize,
+        _meta_output_wires: &[WireId],
     ) -> (Self, I::WireRepr) {
-        if let StreamingMode::MetadataPass(meta) = self {
-            let meta = meta.build(meta_output_wires);
-
-            let mut input_credits = vec![0; meta_input_wires.len()];
-
-            let mut instance = meta.to_instance(
-                meta_input_wires,
-                &vec![1; meta_output_wires.len()],
-                |wire_id, credits| {
-                    let index = wire_id.0 - WireId::MIN.0;
-                    let rev_index = meta_input_wires.len() - 1 - index;
-                    input_credits[rev_index] += credits;
-                },
-            );
-
-            instance.credits_stack.extend_from_slice(&input_credits);
-
-            trace!("meta before input encode: {instance:?}");
-
-            let mut ctx = StreamingMode::ExecutionPass(StreamingContext {
-                mode: GarbleMode::new(seed, output_sender),
-                storage: Storage::new(capacity),
-                stack: vec![instance],
-                templates: {
-                    let mut map = HashMap::default();
-                    map.insert(ROOT_KEY, meta);
-                    map
-                },
-                gate_count: GateCount::default(),
-            });
-
-            let input_repr = input.allocate(|| ctx.issue_wire());
-            input.encode(&input_repr, &mut ctx);
-
-            if let StreamingMode::ExecutionPass(ctx) = &ctx {
-                trace!("meta after input encode: {:?}", ctx.stack.last().unwrap());
-            }
-
-            (ctx, input_repr)
-        } else {
-            panic!()
-        }
+        todo!()
     }
 
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {

@@ -54,31 +54,30 @@ impl Execute {
     }
 
     fn new_meta(inputs: &[WireId]) -> Self {
-        StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs))
+        StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs.len()))
     }
 
     pub fn to_root_ctx<I: EncodeInput<bool>>(
         self,
         capacity: usize,
         input: &I,
-        meta_input_wires: &[WireId],
         meta_output_wires: &[WireId],
     ) -> (Self, I::WireRepr) {
         if let StreamingMode::MetadataPass(meta) = self {
+            trace!("start root ctx");
             let meta = meta.build(meta_output_wires);
+            trace!("Build template: {meta:?}");
 
-            let mut input_credits = vec![0; meta_input_wires.len()];
+            let mut input_credits = vec![0; meta.get_input_len()];
 
-            let mut instance = meta.to_instance(
-                meta_input_wires,
-                &vec![1; meta_output_wires.len()],
-                |wire_id, credits| {
-                    let index = wire_id.0 - WireId::MIN.0;
-                    let rev_index = meta_input_wires.len() - 1 - index;
+            let mut instance =
+                meta.to_instance(&vec![1; meta_output_wires.len()], |index, credits| {
+                    let rev_index = meta.get_input_len() - 1 - index;
                     input_credits[rev_index] += credits;
-                },
-            );
+                });
 
+            // Extend the credit stack by adding the ability to allocate input through these
+            // credits
             instance.credits_stack.extend_from_slice(&input_credits);
 
             trace!("meta before input encode: {instance:?}");

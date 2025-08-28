@@ -31,22 +31,6 @@ pub type Pair<T> = (T, T);
 #[derive(Clone, Debug)]
 pub struct Fq2(pub [Fq; 2]);
 
-impl WiresObject for &Fq2 {
-    fn to_wires_vec(&self) -> Vec<WireId> {
-        let [
-            Fq(BigIntWires { bits: bits1 }),
-            Fq(BigIntWires { bits: bits2 }),
-        ] = &self.0;
-
-        bits1.iter().chain(bits2.iter()).copied().collect()
-    }
-
-    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        // Can't construct a reference from owned data
-        None
-    }
-}
-
 impl WiresObject for Fq2 {
     fn to_wires_vec(&self) -> Vec<WireId> {
         let [
@@ -57,10 +41,23 @@ impl WiresObject for Fq2 {
         bits1.iter().chain(bits2.iter()).copied().collect()
     }
 
-    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        let fq0 = Fq::from_wire_iter(iter)?;
-        let fq1 = Fq::from_wire_iter(iter)?;
-        Some(Self([fq0, fq1]))
+    fn clone_from(&self, wire_gen: &mut impl FnMut() -> WireId) -> Self {
+        let Self([f1, f2]) = self;
+        Self([f1.clone_from(wire_gen), f2.clone_from(wire_gen)])
+    }
+}
+
+impl crate::circuit::streaming::FromWires for Fq2 {
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        if wires.len() >= 508 {
+            // 2 * 254 bits
+            let (fq1_wires, fq2_wires) = wires.split_at(254);
+            let fq1 = Fq::from_wires(fq1_wires)?;
+            let fq2 = Fq::from_wires(fq2_wires)?;
+            Some(Self([fq1, fq2]))
+        } else {
+            None
+        }
     }
 }
 

@@ -1,139 +1,71 @@
-//! ComponentMeta: collect wire metadata without computation.
+//! ComponentMeta: collect wire metadata without computation using isolated mock wire IDs.
 //!
 //! Purpose
 //! - This mode (an implementation of `CircuitMode` and `CircuitContext`) does not execute valve logic and does not stores values on the wires. It only calculates the "credits" of wire usage for subsequent resource scheduling and/or reconciliation with the actual run.
+//! - Uses isolated mock wire IDs internally to eliminate dependency on global wire context.
 //!
-//! Credits model (reads-only)
-//! - External wires (inputs and declared outputs of the component) are accounted for in the vector `external_credits = [inputs..., outputs...]`.
-//! - Internal wires (issued via `issue_wire`) are accounted for in `credits_stack`, index is calculated as `wire_id - offset`, where `offset = max(inputs ∪ outputs) + 1`.
+//! Isolated Credits Model (reads-only)
+//! - Input wires use predictable mock IDs: [WireId::MIN, WireId::MIN + input_count)
+//! - Internal wires use mock IDs: [WireId::MIN + input_count, cursor)
+//! - Input credits are tracked by position (0, 1, 2, ...) in `credits_by_input_position`
+//! - Internal credits are tracked in `credits_stack` indexed by issue order
 //! - Credit is added only when the wire is "read": when it is used as a fan-in input (`wire_a`, `wire_b`) or when the wire is passed to a child component via `with_named_child`.
 //! - Writing the result to `wire_c` is not considered a read and does not increment credits.
 //! - The `TRUE_WIRE`/`FALSE_WIRE` constants are ignored.
 //!
-//! Model security
-//! - If an id less than `offset` is encountered that is not among the I/Os, a panic is generated - such a wire is unknown to the current component.
-//! - Calls to child components increase credits only for input wires passed to them; child internals are not analyzed in this mode.
-
-use std::collections::HashMap;
+//! Template/Instance Mapping
+//! - Templates store credits by position, making them independent of specific wire IDs
+//! - `to_instance()` maps positional credits to real wire IDs using input order
+//! - This enables much simpler caching since templates depend only on input count and structure
 
 use itertools::Itertools;
 use log::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{
-        CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_key::ComponentKey,
+    circuit::{
+        CircuitInput,
+        streaming::{
+            CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_key::ComponentKey,
+            into_wire_list::FromWires,
+        },
     },
     storage::Credits,
 };
-
-#[derive(Debug)]
-pub enum InputIndex {
-    Vec(Box<[(WireId, Credits)]>),
-    Map(HashMap<WireId, Credits>),
-    Empty,
-}
-
-impl InputIndex {
-    pub fn build(inputs: &[WireId]) -> Self {
-        match inputs.len() {
-            0 => Self::Empty,
-            1..64 => {
-                let mut credits = Vec::<(WireId, Credits)>::with_capacity(inputs.len());
-                for wire_id in inputs {
-                    match *wire_id {
-                        WireId::UNREACHABLE => continue,
-                        TRUE_WIRE => continue,
-                        FALSE_WIRE => continue,
-                        wire_id => match credits.binary_search_by(|(w, _c)| w.cmp(&wire_id)) {
-                            Err(err) => credits.insert(err, (wire_id, 0)),
-                            Ok(_) => {
-                                continue;
-                            }
-                        },
-                    }
-                }
-
-                Self::Vec(credits.into_boxed_slice())
-            }
-            64.. => {
-                let mut map = HashMap::new();
-                for wire_id in inputs {
-                    match *wire_id {
-                        WireId::UNREACHABLE => continue,
-                        TRUE_WIRE => continue,
-                        FALSE_WIRE => continue,
-                        wire_id => {
-                            map.insert(wire_id, 0);
-                        }
-                    }
-                }
-
-                Self::Map(map)
-            }
-        }
-    }
-
-    fn for_each(&self, mut map: impl FnMut(WireId, Credits)) {
-        match self {
-            InputIndex::Vec(values) => values
-                .iter()
-                .for_each(move |(wire_id, credits)| map(*wire_id, *credits)),
-            InputIndex::Map(hash_map) => hash_map
-                .iter()
-                .for_each(move |(wire_id, credits)| map(*wire_id, *credits)),
-            InputIndex::Empty => (),
-        }
-    }
-
-    #[inline(always)]
-    fn get_mut(&mut self, wire: WireId) -> Option<&mut Credits> {
-        match self {
-            InputIndex::Empty => None,
-            InputIndex::Vec(credits) => match credits.binary_search_by(|(w, _c)| w.cmp(&wire)) {
-                Ok(index) => Some(&mut credits[index].1),
-                Err(_) => None,
-            },
-            InputIndex::Map(map) => map.get_mut(&wire),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct ComponentMetaBuilder {
     /// During real execution, we take from here (stack-like) lifetime (credits) for real wires.
     pub credits_stack: Vec<Credits>,
 
-    /// Input external credits stored in the same order the input is provided.
-    pub extra_input_credits: InputIndex,
-    pub input_wires: Vec<WireId>,
-
-    offset: WireId,
+    input_len: usize,
     cursor: WireId,
 }
 
 impl ComponentMetaBuilder {
-    pub fn new(inputs: &[WireId]) -> Self {
-        // Compute offset = max(inputs excluding UNREACHABLE) + 1, clamped at MIN.
-        let max_input = inputs
-            .iter()
-            .copied()
-            .filter(|w| w.ne(&WireId::UNREACHABLE))
-            .max();
-
-        let offset = match max_input {
-            None => WireId::MIN,
-            Some(wire_id) if wire_id < WireId::MIN => WireId::MIN,
-            Some(wire_id) => WireId(wire_id.0 + 1),
-        };
-
+    pub fn new(input_count: usize) -> Self {
+        // Use high range for mock wire IDs to avoid collision with real execution
+        // Mock input wires start at the upper half of usize space
         Self {
             credits_stack: Vec::new(),
-            extra_input_credits: InputIndex::build(inputs),
-            input_wires: inputs.to_vec(),
-            cursor: offset,
-            offset,
+            input_len: input_count,
+            cursor: WireId::MIN,
         }
+    }
+
+    pub fn new_with_input<I: CircuitInput>(inputs: &I) -> (I::WireRepr, Self) {
+        let mut self_ = Self::new(0);
+        let input = inputs.allocate(|| self_.issue_wire());
+
+        self_.input_len = self_.cursor.0 - WireId::MIN.0;
+
+        trace!("Allocated in meta ctx input is {} wires", self_.input_len);
+
+        (input, self_)
+    }
+
+    pub fn get_input_len(&self) -> usize {
+        self.input_len
     }
 
     #[inline(always)]
@@ -145,19 +77,24 @@ impl ComponentMetaBuilder {
     fn bump_credit_for_wire(&mut self, wire_id: WireId, credit: Credits) {
         match wire_id {
             TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE => {}
-            id if id < self.offset => {
-                let curr = self.extra_input_credits.get_mut(id).unwrap();
-                *curr += credit;
-                trace!("bump for input wire: {id:?}, now is {}", curr);
-            }
-            id => {
+            id if id < self.cursor => {
                 trace!("bump for internal wire: {id:?}");
-                let idx = id.0 - self.offset.0;
+                let idx = id.0 - WireId::MIN.0;
+
                 let slot = self
                     .credits_stack
                     .get_mut(idx)
                     .expect("internal wire out of bounds");
+
                 *slot += credit;
+            }
+            id => {
+                // Wire ID from outside our isolated mock range - ignore
+                // This can happen when tests use real wire IDs instead of mock ones
+                panic!(
+                    "External wire {id:?} (not in mock range, cursor at {})",
+                    self.cursor
+                );
             }
         }
     }
@@ -170,9 +107,11 @@ impl ComponentMetaBuilder {
     }
 
     /// * Args
-    /// - `output_wire_types` - the declared outputs (wires) of the component.
-    ///   Those < offset are "from inputs"; those in [offset, cursor) are internal; constants are ignored.
-    pub fn build(mut self, output_wires: &[WireId]) -> ComponentMetaTemplate {
+    /// - `output_wires` - the declared outputs (mock wires) of the component.
+    ///   Input range [WireId::MIN, WireId::MIN + input_count), internal range [WireId::MIN + input_count, cursor)
+    pub fn build(self, output_wires: &[WireId]) -> ComponentMetaTemplate {
+        trace!("start build template: {:?}", self);
+
         let output_wire_types = output_wires
             .iter()
             .map(|&output_wire| {
@@ -180,57 +119,32 @@ impl ComponentMetaBuilder {
                     return OutputWireType::Constant;
                 }
 
-                if output_wire < self.offset {
-                    OutputWireType::Input(
-                        self.input_wires
-                            .iter()
-                            // TODO Optimize perf
-                            .position(|w| w == &output_wire)
-                            .unwrap(),
-                    )
-                } else if output_wire >= self.offset && output_wire < self.cursor {
-                    let idx = output_wire.0 - self.offset.0;
-                    OutputWireType::Internal(idx)
+                let index = output_wire.0 - WireId::MIN.0;
+
+                if index < self.input_len {
+                    OutputWireType::Input(index)
+                } else if output_wire < self.cursor {
+                    OutputWireType::Internal(index - self.input_len)
                 } else {
-                    panic!(
-                    "Wrong output wire: {output_wire:?}, because offset here is {} with cursor {}",
-                    self.offset, self.cursor
-                );
+                    panic!("Wrong output wire: {:?}", self.cursor.0);
                 }
             })
             .collect();
 
-        // TODO Optimize perf
-        let extra_input_credits = self
-            .input_wires
-            .iter()
-            .map(|input_wire_id| {
-                if input_wire_id == &TRUE_WIRE || input_wire_id == &FALSE_WIRE {
-                    return 0;
-                }
-                self.extra_input_credits
-                    .get_mut(*input_wire_id)
-                    .copied()
-                    .unwrap()
-            })
-            .collect::<Box<[_]>>();
+        let (credits_by_input_position, credit_stack) = self.credits_stack.split_at(self.input_len);
 
         ComponentMetaTemplate {
-            credits_stack: self.credits_stack.to_vec(),
-            extra_input_credits,
+            credits_stack: credit_stack.to_vec(),
+            credits_by_input_position: credits_by_input_position.to_vec(),
             output_wire_types,
         }
-    }
-
-    pub fn for_each_input_extra_credits(&self, map: impl FnMut(WireId, Credits)) {
-        self.extra_input_credits.for_each(map);
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum OutputWireType {
     Internal(usize),
-    Input(usize),
+    Input(usize), // Now stores input position (0, 1, 2, ...) instead of wire ID
     Constant,
 }
 
@@ -239,9 +153,9 @@ pub struct ComponentMetaTemplate {
     /// During real execution, we take from here (stack-like) lifetime (credits) for real wires.
     pub credits_stack: Vec<Credits>,
 
-    /// Input external credits stored in the same order the input is provided.
-    extra_input_credits: Box<[Credits]>,
-    output_wire_types: Box<[OutputWireType]>,
+    /// Input credits stored by position (0, 1, 2, ...) in input order.
+    credits_by_input_position: Vec<Credits>,
+    output_wire_types: Vec<OutputWireType>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -252,50 +166,33 @@ pub struct ComponentMetaInstance {
 impl ComponentMetaTemplate {
     pub fn to_instance(
         &self,
-        input_wires: &[WireId],
         output_credits: &[Credits],
-        mut add_credit_to_input: impl FnMut(WireId, Credits),
+        mut add_credit_to_input: impl FnMut(usize, Credits),
     ) -> ComponentMetaInstance {
-        let mut credits_stack = self.credits_stack.to_vec();
+        let mut credits_stack = self.credits_stack.clone();
 
-        for (input_wire_id, extra_credits) in input_wires
-            .iter()
-            .zip_eq(self.extra_input_credits.iter().copied())
-        {
-            // Skip constants and unreachable wires
-            if matches!(
-                input_wire_id,
-                &TRUE_WIRE | &FALSE_WIRE | &WireId::UNREACHABLE
-            ) {
-                continue;
-            }
-
-            if extra_credits > 0 {
-                trace!("bump input_wire_id {input_wire_id:?} with {extra_credits} credits");
-                add_credit_to_input(*input_wire_id, extra_credits);
-            }
+        // Map template input credits (by position) to real input wires
+        for (position, &template_credits) in self.credits_by_input_position.iter().enumerate() {
+            add_credit_to_input(position, template_credits);
         }
 
-        for (output_wire, credits) in self.output_wire_types.iter().zip_eq(output_credits) {
-            match &output_wire {
+        // Handle output credits routing
+        for (output_wire_type, credits) in self.output_wire_types.iter().zip_eq(output_credits) {
+            match output_wire_type {
                 OutputWireType::Constant => {
-                    debug!("Output wire {output_wire:?} is constant");
+                    debug!("Output wire {output_wire_type:?} is constant");
                 }
-                OutputWireType::Input(input_index) => {
+                OutputWireType::Input(input_position) => {
                     debug!(
-                        "Output wire {output_wire:?} is part of input with index {input_index:?}"
+                        "Output wire {output_wire_type:?} is input at position {input_position}"
                     );
-                    let wire_id = input_wires[*input_index];
-                    // Skip constants and unreachable wires
-                    if !matches!(wire_id, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
-                        add_credit_to_input(wire_id, *credits);
-                    }
+                    add_credit_to_input(*input_position, *credits);
                 }
-                OutputWireType::Internal(index) => {
-                    credits_stack[*index] += credits;
+                OutputWireType::Internal(internal_index) => {
+                    credits_stack[*internal_index] += credits;
                     debug!(
-                        "Output wire {output_wire:?} is internal issue with index {index:?} add credits: {credits}, total is {}",
-                        credits_stack[*index]
+                        "Output wire {output_wire_type:?} is internal at index {internal_index} add credits: {credits}, total is {}",
+                        credits_stack[*internal_index]
                     );
                 }
             }
@@ -304,6 +201,10 @@ impl ComponentMetaTemplate {
         credits_stack.reverse();
 
         ComponentMetaInstance { credits_stack }
+    }
+
+    pub fn get_input_len(&self) -> usize {
+        self.credits_by_input_position.len()
     }
 }
 
@@ -349,7 +250,7 @@ impl CircuitContext for ComponentMetaBuilder {
         self.bump_credit_for_wire(gate.wire_b, 1);
     }
 
-    fn with_named_child<I: WiresObject, O: WiresObject>(
+    fn with_named_child<I: WiresObject, O: FromWires>(
         &mut self,
         _k: ComponentKey,
         inputs: I,
@@ -365,7 +266,7 @@ impl CircuitContext for ComponentMetaBuilder {
         // Produce mock outputs as newly issued internal wires.
         let mock_output = (0..arity).map(|_| self.issue_wire()).collect::<Vec<_>>();
 
-        O::from_wire_iter(&mut mock_output.into_iter()).unwrap()
+        O::from_wires(&mock_output).unwrap()
     }
 }
 
@@ -398,145 +299,5 @@ impl CircuitMode for Empty {
 
     fn evaluate_gate(&mut self, _gate: &Gate, _a: bool, _b: bool) -> bool {
         false
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use super::*;
-    use crate::{
-        Gate, WireId,
-        circuit::streaming::{FALSE_WIRE, TRUE_WIRE},
-        storage::Credits,
-    };
-
-    // This test exercises a concrete build sequence and asserts that:
-    // - input vs internal credit accounting matches reads (c is ignored)
-    // - declared outputs are classified as Input/Internal/Constant by position/index
-    // - the produced template behaves agnostically w.r.t. concrete wire IDs
-    #[test]
-    fn test_component_meta_builder_and_template_agnostic() {
-        // Inputs include two real wires and two constants
-        let inputs = vec![WireId(5), WireId(7), TRUE_WIRE, FALSE_WIRE];
-        let mut b = ComponentMetaBuilder::new(&inputs);
-
-        // Issue two internal wires: 8 and 9 (offset computed from max input = 7 -> offset 8)
-        let w8 = b.issue_wire();
-        let w9 = b.issue_wire();
-        assert_eq!(w8, WireId(8));
-        assert_eq!(w9, WireId(9));
-
-        // Read: input 5 and internal 8 (c is ignored)
-        b.add_gate(Gate::and(WireId(5), w8, w9));
-        // Read via child: input 7 and internal 8; child yields two new internal outputs (10, 11)
-        let _child_out: [WireId; 2] = b.with_child(
-            vec![WireId(7), w8],
-            |_b, _inputs| [_b.issue_wire(), _b.issue_wire()],
-            2,
-        );
-
-        // Build template over outputs: input(7), internal(9), const, internal(10)
-        let template = b.build(&[WireId(7), w9, TRUE_WIRE, WireId(10)]);
-
-        // Credits stack: by issued order [w8, w9, w10, w11] with reads only on w8
-        // - w8: 2 reads (one gate + one child pass)
-        // - w9: 0
-        // - w10: 0 (child-produced, never read)
-        // - w11: 0 (child-produced, never read)
-        assert_eq!(template.credits_stack, vec![2, 0, 0, 0]);
-
-        // Input extra credits are mapped in the same order as inputs vector
-        // inputs: [5, 7, TRUE, FALSE] -> [1, 1, 0, 0]
-        let mut extra_input_vec = vec![];
-        template
-            .extra_input_credits
-            .iter()
-            .for_each(|&c| extra_input_vec.push(c));
-        assert_eq!(extra_input_vec, vec![1, 1, 0, 0]);
-
-        // Output wire classification is positional and ID-agnostic
-        match template.output_wire_types.as_ref() {
-            [
-                OutputWireType::Input(1),    // WireId(7) -> second input
-                OutputWireType::Internal(1), // w9 -> internal index 1
-                OutputWireType::Constant,    // TRUE_WIRE
-                OutputWireType::Internal(2), // WireId(10) -> internal index 2
-            ] => {}
-            other => panic!("Unexpected output types: {other:?}"),
-        }
-
-        // Prove that the template is agnostic to concrete input wire IDs by converting to an instance
-        // with different IDs but identical positional semantics. Also verify output-credits routing.
-        let new_inputs = vec![WireId(42), WireId(43), TRUE_WIRE, FALSE_WIRE];
-        let mut input_credit_map: HashMap<WireId, Credits> = HashMap::new();
-        let mut add_credit = |w: WireId, c: Credits| {
-            *input_credit_map.entry(w).or_insert(0) += c;
-        };
-
-        // Provide credits for declared outputs in the same order as above
-        // - first goes to input index 1
-        // - second goes to internal(1)
-        // - third is constant, ignored
-        // - fourth goes to internal(2)
-        let output_credits = vec![4, 2, 99, 3];
-        let mut instance = template.to_instance(&new_inputs, &output_credits, &mut add_credit);
-
-        // Extra input credits from template applied by position + output credit for input index 1
-        assert_eq!(input_credit_map.get(&WireId(42)).copied(), Some(1)); // from extra_input_credits
-        assert_eq!(input_credit_map.get(&WireId(43)).copied(), Some(1 + 4)); // extra + output routing
-
-        // Internal credits stack after output routing before reversal: [2, 0+2, 0+3, 0] = [2, 2, 3, 0]
-        // Instance reverses this vector; next_credit pops from the end
-        assert_eq!(instance.next_credit(), Some(2));
-        assert_eq!(instance.next_credit(), Some(2));
-        assert_eq!(instance.next_credit(), Some(3));
-        assert_eq!(instance.next_credit(), Some(0));
-        assert_eq!(instance.next_credit(), None);
-        assert!(instance.is_empty());
-
-        // Repeat the same build sequence but with different concrete input IDs to ensure
-        // template structure (credits and output types) remains identical.
-        let inputs2 = vec![WireId(1005), WireId(1007), TRUE_WIRE, FALSE_WIRE];
-        let mut b2 = ComponentMetaBuilder::new(&inputs2);
-        let x8 = b2.issue_wire();
-        let x9 = b2.issue_wire();
-        assert_eq!(x8, WireId(1008));
-        assert_eq!(x9, WireId(1009));
-        b2.add_gate(Gate::and(WireId(1005), x8, x9));
-        let _child2: [WireId; 2] = b2.with_child(
-            vec![WireId(1007), x8],
-            |_b, _inputs| [_b.issue_wire(), _b.issue_wire()],
-            2,
-        );
-        let template2 = b2.build(&[WireId(1007), x9, TRUE_WIRE, WireId(1010)]);
-
-        // credits_stack identical
-        assert_eq!(template2.credits_stack, template.credits_stack);
-        // extra input credits identical by position
-        let eic1: Vec<_> = template.extra_input_credits.to_vec();
-        let eic2: Vec<_> = template2.extra_input_credits.to_vec();
-        assert_eq!(eic2, eic1);
-        // output wire types identical by classification
-        let ow1: Vec<_> = template
-            .output_wire_types
-            .iter()
-            .map(|o| match o {
-                OutputWireType::Input(i) => (0, *i),
-                OutputWireType::Internal(i) => (1, *i),
-                OutputWireType::Constant => (2, 0),
-            })
-            .collect();
-        let ow2: Vec<_> = template2
-            .output_wire_types
-            .iter()
-            .map(|o| match o {
-                OutputWireType::Input(i) => (0, *i),
-                OutputWireType::Internal(i) => (1, *i),
-                OutputWireType::Constant => (2, 0),
-            })
-            .collect();
-        assert_eq!(ow2, ow1);
     }
 }

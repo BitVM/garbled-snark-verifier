@@ -22,22 +22,6 @@ pub type Fq12Element<T> = (Fq6Components<T>, Fq6Components<T>);
 #[derive(Clone, Debug)]
 pub struct Fq12(pub [Fq6; 2]);
 
-impl WiresObject for &Fq12 {
-    fn to_wires_vec(&self) -> Vec<WireId> {
-        let [p1, p2] = &self.0;
-
-        p1.to_wires_vec()
-            .into_iter()
-            .chain(p2.to_wires_vec())
-            .collect()
-    }
-
-    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        // Can't construct a reference from owned data
-        None
-    }
-}
-
 impl WiresObject for Fq12 {
     fn to_wires_vec(&self) -> Vec<WireId> {
         self.0[0]
@@ -47,10 +31,27 @@ impl WiresObject for Fq12 {
             .collect()
     }
 
-    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
-        let c0 = Fq6::from_wire_iter(iter)?;
-        let c1 = Fq6::from_wire_iter(iter)?;
-        Some(Self([c0, c1]))
+    fn clone_from(&self, mut wire_gen: &mut impl FnMut() -> WireId) -> Self {
+        let Self([fq6_1, fq6_2]) = self;
+
+        Self([
+            fq6_1.clone_from(&mut wire_gen),
+            fq6_2.clone_from(&mut wire_gen),
+        ])
+    }
+}
+
+impl crate::circuit::streaming::FromWires for Fq12 {
+    fn from_wires(wires: &[WireId]) -> Option<Self> {
+        if wires.len() >= 1524 {
+            // 2 * 3 * 2 * 254 = 3048/2 = 1524 wires per Fq6
+            let mid = wires.len() / 2;
+            let fq6_1 = Fq6::from_wires(&wires[..mid])?;
+            let fq6_2 = Fq6::from_wires(&wires[mid..])?;
+            Some(Self([fq6_1, fq6_2]))
+        } else {
+            None
+        }
     }
 }
 

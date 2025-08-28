@@ -1,4 +1,4 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::{collections::HashMap, iter};
 
 use log::{debug, error, trace};
 
@@ -8,6 +8,7 @@ use crate::{
         CircuitMode, ComponentMetaBuilder, FALSE_WIRE, TRUE_WIRE, WiresObject,
         component_key::ComponentKey,
         component_meta::{ComponentMetaInstance, ComponentMetaTemplate},
+        into_wire_list::FromWires,
     },
     core::gate_type::GateCount,
     storage::{Credits, Storage},
@@ -181,7 +182,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
         }
     }
 
-    fn with_named_child<I: WiresObject, O: WiresObject>(
+    fn with_named_child<I: WiresObject, O: FromWires>(
         &mut self,
         key: ComponentKey,
         inputs: I,
@@ -189,66 +190,72 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
         arity: usize,
     ) -> O {
         let input_wires = inputs.to_wires_vec();
+
         match self {
             StreamingMode::MetadataPass(meta) => {
                 debug!("with_named_child: metapass enter name={key:?} arity={arity}");
                 meta.increment_credits(&input_wires);
 
                 // We just pre-alloc all outputs for handle credits
-                let mock_output = std::iter::repeat_with(|| meta.issue_wire())
+                let mock_output = iter::repeat_with(|| meta.issue_wire())
                     .take(arity)
                     .collect::<Vec<_>>();
 
-                O::from_wire_iter(&mut mock_output.into_iter()).unwrap()
+                O::from_wires(&mock_output).unwrap()
             }
             StreamingMode::ExecutionPass(ctx) => {
                 debug!("with_named_child: enter name={key:?} arity={arity}");
 
                 // Extract what we need and push to stack
-                let pre_alloc_output_credits =
-                    std::iter::repeat_with(|| ctx.stack.last_mut().unwrap().next_credit().unwrap())
+                let pre_alloc_output_credits = {
+                    let last = ctx.stack.last_mut().unwrap();
+
+                    iter::repeat_with(|| last.next_credit().unwrap())
                         .take(arity)
-                        .collect::<Vec<_>>();
+                        .collect::<Vec<_>>()
+                };
 
                 trace!("Start component {key:?} meta take");
-                let build_template = || {
-                    trace!(
-                        "For key {key:?} generate template: arity {arity}, input_wires_len: {}",
-                        input_wires.len()
-                    );
-                    let child_component_meta = ComponentMetaBuilder::new(&input_wires);
-                    let mut child_mode = StreamingMode::<M>::MetadataPass(child_component_meta);
-                    let meta_wires_output = f(&mut child_mode, &inputs).to_wires_vec();
-
-                    match child_mode {
-                        StreamingMode::MetadataPass(meta) => meta.build(&meta_wires_output),
-                        _ => unreachable!(),
-                    }
-                };
 
                 let storage = &mut ctx.storage;
 
-                let misscache = input_wires
-                    .iter()
-                    .any(|wire_id| wire_id == &TRUE_WIRE || wire_id == &FALSE_WIRE);
+                let instance = ctx
+                    .templates
+                    .entry(key)
+                    .or_insert_with(|| {
+                        // Calculate the actual number of wires needed from the real input structure
+                        let expected_wire_count = input_wires.len();
 
-                let mut to_instance = |template: &ComponentMetaTemplate| {
-                    template.to_instance(
-                        &input_wires,
-                        &pre_alloc_output_credits,
-                        |wire_id, credits| {
-                            storage.add_credits(wire_id, credits).unwrap();
-                        },
-                    )
-                };
+                        trace!(
+                            "For key {key:?} generate template: arity {arity}, expected_wire_count: {}",
+                            expected_wire_count
+                        );
 
-                let instance = match (misscache, ctx.templates.entry(key)) {
-                    (_, Entry::Occupied(template)) => to_instance(template.get()),
-                    // Can't save result in cache, build and go
-                    (true, Entry::Vacant(_)) => to_instance(&build_template()),
-                    // Save result in cache and reuse
-                    (false, Entry::Vacant(place)) => to_instance(place.insert(build_template())),
-                };
+                        let mut child_component_meta =
+                            ComponentMetaBuilder::new(expected_wire_count);
+
+                        // Use clone_from to recreate the input structure with mock wire IDs from child_component_meta
+                        let mock_input =
+                            inputs.clone_from(&mut || child_component_meta.issue_wire());
+
+                        let mut child_mode = StreamingMode::<M>::MetadataPass(child_component_meta);
+                        let meta_wires_output = f(&mut child_mode, &mock_input).to_wires_vec();
+
+                        match child_mode {
+                            StreamingMode::MetadataPass(meta) => meta.build(&meta_wires_output),
+                            _ => unreachable!(),
+                        }
+                    })
+                    .to_instance(&pre_alloc_output_credits, |input_index, credits| {
+                        let wire_id = input_wires[input_index];
+
+                        if wire_id != TRUE_WIRE && wire_id != FALSE_WIRE {
+                            trace!("try to add credits to {wire_id:?}");
+                            storage
+                                .add_credits(wire_id, credits)
+                                .unwrap();
+                        }
+                    });
 
                 // Unpin inputs: consume one credit per input position.
                 for input_wire_id in input_wires {

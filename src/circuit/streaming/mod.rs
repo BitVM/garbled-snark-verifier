@@ -11,7 +11,7 @@ use crate::{
 };
 
 mod into_wire_list;
-pub use into_wire_list::{WiresArity, WiresObject};
+pub use into_wire_list::{FromWires, WiresArity, WiresObject};
 
 mod circuit_context_trait;
 pub use circuit_context_trait::{CircuitContext, FALSE_WIRE, TRUE_WIRE};
@@ -101,18 +101,8 @@ impl CircuitBuilder<Execute> {
             "streaming_process_with_credits: start metadata pass capacity={}",
             live_wires_capacity
         );
-        let mut cursor = WireId::MIN;
-        let allocated_inputs = inputs.allocate(|| {
-            let next = cursor;
-            cursor.0 += 1;
-            next
-        });
-
-        let meta_input_wires = I::collect_wire_ids(&allocated_inputs);
-
-        let mut root_meta = Execute::MetadataPass(ComponentMetaBuilder::new(&meta_input_wires));
-
-        debug!("metadata: allocated inputs = {:?}", meta_input_wires);
+        let (allocated_inputs, root_meta) = ComponentMetaBuilder::new_with_input(&inputs);
+        let mut root_meta = Execute::MetadataPass(root_meta);
 
         let root_meta_output = f(&mut root_meta, &allocated_inputs);
 
@@ -127,12 +117,8 @@ impl CircuitBuilder<Execute> {
 
         let root_meta_output_wires = root_meta_output.to_wires_vec();
 
-        let (mut ctx, allocated_inputs) = root_meta.to_root_ctx(
-            live_wires_capacity,
-            &inputs,
-            &meta_input_wires,
-            &root_meta_output_wires,
-        );
+        let (mut ctx, allocated_inputs) =
+            root_meta.to_root_ctx(live_wires_capacity, &inputs, &root_meta_output_wires);
 
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
@@ -187,7 +173,7 @@ impl CircuitBuilder<Garble> {
 
         let meta_input_wires = I::collect_wire_ids(&allocated_inputs);
 
-        let mut root_meta = Garble::MetadataPass(ComponentMetaBuilder::new(&meta_input_wires));
+        let mut root_meta = Garble::MetadataPass(ComponentMetaBuilder::new(meta_input_wires.len()));
 
         debug!("metadata: allocated inputs = {:?}", meta_input_wires);
 
@@ -209,7 +195,7 @@ impl CircuitBuilder<Garble> {
             live_wires_capacity,
             output_sender,
             &inputs,
-            &meta_input_wires,
+            meta_input_wires.len(),
             &root_meta_output_wires,
         );
 
