@@ -1,6 +1,6 @@
 use std::{array, num::NonZero, sync::mpsc};
 
-use log::{debug, error};
+use log::{debug, error, info};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
@@ -99,6 +99,25 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
 
     fn evaluate_gate(&mut self, gate: &Gate, a: GarbledWire, b: GarbledWire) -> GarbledWire {
         let gate_id = self.next_gate_index();
+
+        if gate_id % 10_000_000 == 0 {
+            fn format_gate_id(gate_id: u64) -> String {
+                const THOUSAND: u64 = 1_000;
+                const MILLION: u64 = 1_000_000;
+                const BILLION: u64 = 1_000_000_000;
+                const TRILLION: u64 = 1_000_000_000_000;
+
+                match gate_id {
+                    n if n >= TRILLION => format!("{:.1}t", n as f64 / TRILLION as f64),
+                    n if n >= BILLION => format!("{:.1}b", n as f64 / BILLION as f64),
+                    n if n >= MILLION => format!("{:.1}m", n as f64 / MILLION as f64),
+                    n if n >= THOUSAND => format!("{:.1}k", n as f64 / THOUSAND as f64),
+                    _ => format!("{}", gate_id),
+                }
+            }
+
+            info!("processed: {}", format_gate_id(gate_id as u64))
+        }
 
         debug!(
             "garble_gate: {:?} {}+{}->{} gid={}",

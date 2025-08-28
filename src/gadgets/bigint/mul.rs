@@ -1,5 +1,5 @@
 use circuit_component_macro::bn_component;
-use log::{debug, info, trace};
+use log::{debug, trace};
 
 use super::{BigIntWires, BigUint, add};
 use crate::{CircuitContext, Gate, GateType, WireId, circuit::streaming::FALSE_WIRE};
@@ -73,7 +73,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
     let (b_0, b_1) = (*b).clone().split_at(len_0);
 
     // Use optimal algorithm choice for recursive calls
-    info!(
+    debug!(
         "  Computing sq_0: len_0={}, use_karatsuba={}",
         len_0,
         is_use_karatsuba(len_0)
@@ -90,7 +90,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
         &sq_0.bits[0..sq_0.bits.len().min(8)]
     );
 
-    info!(
+    debug!(
         "  Computing sq_1: len_1={}, use_karatsuba={}",
         len_1,
         is_use_karatsuba(len_1)
@@ -416,7 +416,7 @@ mod tests {
         expected: u128,
         operation: impl Fn(&mut Execute, &BigIntWires, &BigIntWires) -> BigIntWires,
     ) {
-        info!(
+        debug!(
             "test_mul_operation: {} * {} = {} (n_bits={})",
             a_val, b_val, expected, n_bits
         );
@@ -435,7 +435,7 @@ mod tests {
 
                 let result = operation(root, a, b);
 
-                info!(
+                debug!(
                     "Result wire IDs (first 16): {:?}",
                     &result.bits[0..result.bits.len().min(16)]
                 );
@@ -467,8 +467,8 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        info!("Expected bitmask: {}", expected);
-        info!("Actual bitmask:   {}", actual);
+        debug!("Expected bitmask: {}", expected);
+        debug!("Actual bitmask:   {}", actual);
 
         // Log individual wire values for debugging
         for (i, wire_id) in res.bits.iter().enumerate().take(16) {
@@ -554,8 +554,8 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        info!("Expected bitmask: {}", expected);
-        info!("Actual bitmask:   {}", actual);
+        debug!("Expected bitmask: {}", expected);
+        debug!("Actual bitmask:   {}", actual);
 
         // Log individual wire values for debugging
         for (i, wire_id) in res.bits.iter().enumerate().take(16) {
@@ -802,8 +802,8 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        info!("Expected bitmask: {}", expected);
-        info!("Actual bitmask:   {}", actual);
+        debug!("Expected bitmask: {}", expected);
+        debug!("Actual bitmask:   {}", actual);
 
         // Log individual wire values for debugging
         for (i, wire_id) in res.bits.iter().enumerate().take(16) {
@@ -852,8 +852,8 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        info!("Expected bitmask: {}", expected);
-        info!("Actual bitmask:   {}", actual);
+        debug!("Expected bitmask: {}", expected);
+        debug!("Actual bitmask:   {}", actual);
 
         // Log individual wire values for debugging
         for (i, wire_id) in res.bits.iter().enumerate().take(16) {
@@ -902,8 +902,8 @@ mod tests {
         let actual = res.to_bitmask(|w| actual_fn.get(&w).copied().unwrap());
         let expected = res.to_bitmask(|w| expected_fn(w).unwrap());
 
-        info!("Expected bitmask: {}", expected);
-        info!("Actual bitmask:   {}", actual);
+        debug!("Expected bitmask: {}", expected);
+        debug!("Actual bitmask:   {}", actual);
 
         // Log individual wire values for debugging
         for (i, wire_id) in res.bits.iter().enumerate().take(16) {

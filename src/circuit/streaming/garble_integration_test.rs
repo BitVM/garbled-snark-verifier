@@ -66,22 +66,23 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Build and garble a simple circuit: (a AND b) XOR c
-        let _result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
-            inputs,
-            10_000,
-            456, // seed
-            sender,
-            |ctx, inputs| {
-                // Create a simple circuit: (a AND b) XOR c
-                let and_result = ctx.issue_wire();
-                ctx.add_gate(Gate::and(inputs[0], inputs[1], and_result));
+        let _result: StreamingResult<_, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling_blake3(
+                inputs,
+                10_000,
+                456, // seed
+                sender,
+                |ctx, inputs| {
+                    // Create a simple circuit: (a AND b) XOR c
+                    let and_result = ctx.issue_wire();
+                    ctx.add_gate(Gate::and(inputs[0], inputs[1], and_result));
 
-                let xor_result = ctx.issue_wire();
-                ctx.add_gate(Gate::xor(and_result, inputs[2], xor_result));
+                    let xor_result = ctx.issue_wire();
+                    ctx.add_gate(Gate::xor(and_result, inputs[2], xor_result));
 
-                vec![xor_result]
-            },
-        );
+                    vec![xor_result]
+                },
+            );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -110,23 +111,24 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Circuit using constants: (input AND TRUE) OR FALSE
-        let result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
-            inputs,
-            10_000,
-            321, // seed
-            sender,
-            |ctx, inputs| {
-                // input AND TRUE
-                let and_true = ctx.issue_wire();
-                ctx.add_gate(Gate::and(inputs[0], TRUE_WIRE, and_true));
+        let result: StreamingResult<_, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling_blake3(
+                inputs,
+                10_000,
+                321, // seed
+                sender,
+                |ctx, inputs| {
+                    // input AND TRUE
+                    let and_true = ctx.issue_wire();
+                    ctx.add_gate(Gate::and(inputs[0], TRUE_WIRE, and_true));
 
-                // result OR FALSE
-                let or_false = ctx.issue_wire();
-                ctx.add_gate(Gate::or(and_true, FALSE_WIRE, or_false));
+                    // result OR FALSE
+                    let or_false = ctx.issue_wire();
+                    ctx.add_gate(Gate::or(and_true, FALSE_WIRE, or_false));
 
-                vec![or_false]
-            },
-        );
+                    vec![or_false]
+                },
+            );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -168,22 +170,23 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Circuit using component: xor_gadget(a, b) AND c
-        let _result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
-            inputs,
-            10_000,
-            111, // seed
-            sender,
-            |ctx, inputs| {
-                // Use the component
-                let xor_result = xor_gadget(ctx, inputs[0], inputs[1]);
+        let _result: StreamingResult<_, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling_blake3(
+                inputs,
+                10_000,
+                111, // seed
+                sender,
+                |ctx, inputs| {
+                    // Use the component
+                    let xor_result = xor_gadget(ctx, inputs[0], inputs[1]);
 
-                // AND with third input
-                let final_result = ctx.issue_wire();
-                ctx.add_gate(Gate::and(xor_result, inputs[2], final_result));
+                    // AND with third input
+                    let final_result = ctx.issue_wire();
+                    ctx.add_gate(Gate::and(xor_result, inputs[2], final_result));
 
-                vec![final_result]
-            },
-        );
+                    vec![final_result]
+                },
+            );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -210,39 +213,40 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Build a larger circuit with mixed gates
-        let result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
-            inputs,
-            50_000, // larger capacity for more wires
-            777,    // seed
-            sender,
-            |ctx, inputs| {
-                let mut results = vec![];
+        let result: StreamingResult<_, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling_blake3(
+                inputs,
+                50_000, // larger capacity for more wires
+                777,    // seed
+                sender,
+                |ctx, inputs| {
+                    let mut results = vec![];
 
-                // Create multiple layers of gates
-                for i in 0..inputs.len() / 2 {
-                    let xor_wire = ctx.issue_wire();
-                    ctx.add_gate(Gate::xor(inputs[i * 2], inputs[i * 2 + 1], xor_wire));
+                    // Create multiple layers of gates
+                    for i in 0..inputs.len() / 2 {
+                        let xor_wire = ctx.issue_wire();
+                        ctx.add_gate(Gate::xor(inputs[i * 2], inputs[i * 2 + 1], xor_wire));
 
-                    let and_wire = ctx.issue_wire();
-                    ctx.add_gate(Gate::and(xor_wire, TRUE_WIRE, and_wire));
+                        let and_wire = ctx.issue_wire();
+                        ctx.add_gate(Gate::and(xor_wire, TRUE_WIRE, and_wire));
 
-                    let or_wire = ctx.issue_wire();
-                    ctx.add_gate(Gate::or(and_wire, FALSE_WIRE, or_wire));
+                        let or_wire = ctx.issue_wire();
+                        ctx.add_gate(Gate::or(and_wire, FALSE_WIRE, or_wire));
 
-                    results.push(or_wire);
-                }
+                        results.push(or_wire);
+                    }
 
-                // Combine all results with XOR chain
-                let mut combined = results[0];
-                for res in results.iter().skip(1) {
-                    let new_combined = ctx.issue_wire();
-                    ctx.add_gate(Gate::xor(combined, *res, new_combined));
-                    combined = new_combined;
-                }
+                    // Combine all results with XOR chain
+                    let mut combined = results[0];
+                    for res in results.iter().skip(1) {
+                        let new_combined = ctx.issue_wire();
+                        ctx.add_gate(Gate::xor(combined, *res, new_combined));
+                        combined = new_combined;
+                    }
 
-                vec![combined]
-            },
-        );
+                    vec![combined]
+                },
+            );
 
         // Verify the circuit was garbled
         assert_eq!(result.output_wires.len(), 1);

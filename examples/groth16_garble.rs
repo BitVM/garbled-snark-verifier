@@ -215,6 +215,8 @@ fn main() {
     // Create channel for garbled tables
     let (sender, receiver) = std::sync::mpsc::channel();
 
+    std::thread::spawn(move || while receiver.recv().is_ok() {});
+
     println!("Starting garbling of Groth16 verification circuit...");
 
     // 4) Run the streaming garbling of the Groth16 verifier gadget
@@ -229,13 +231,6 @@ fn main() {
                 vec![ok]
             },
         );
-
-    println!("Garbling complete!");
-
-    // Collect tables from receiver (only non-free gates)
-    let tables: Vec<_> = receiver.try_iter().collect();
-
-    println!("Non-free gates (with tables): {}", tables.len());
 
     // The output is a garbled wire representing the verification result
     println!("Output wire labels generated successfully");
