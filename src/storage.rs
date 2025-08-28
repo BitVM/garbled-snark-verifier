@@ -1,6 +1,6 @@
 use std::{fmt::Debug, marker::PhantomData, num::NonZeroU32, ops::Deref};
 
-use log::trace;
+use log::{error, trace};
 use slab::Slab;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -85,7 +85,14 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
     pub fn allocate(&mut self, data: T, credits: Credits) -> K {
         if let Some(credits) = NonZeroU32::new(credits) {
+            let before = self.data.capacity();
             let index = self.data.insert(Entry { data, credits });
+            let after = self.data.capacity();
+
+            if before != after {
+                error!("capacity groth up to {after}");
+            }
+
             self.to_key(index)
         } else {
             usize::MAX.into()
