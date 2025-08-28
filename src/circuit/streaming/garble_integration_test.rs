@@ -12,7 +12,7 @@ mod tests {
             CircuitBuilder,
             streaming::{
                 CircuitContext, CircuitInput, CircuitMode, EncodeInput, FALSE_WIRE,
-                StreamingResult, TRUE_WIRE, modes::Garble,
+                StreamingResult, TRUE_WIRE,
             },
         },
     };
@@ -66,23 +66,22 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Build and garble a simple circuit: (a AND b) XOR c
-        let _result: StreamingResult<Garble, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garble(
-                inputs,
-                10_000,
-                456, // seed
-                sender,
-                |ctx, inputs| {
-                    // Create a simple circuit: (a AND b) XOR c
-                    let and_result = ctx.issue_wire();
-                    ctx.add_gate(Gate::and(inputs[0], inputs[1], and_result));
+        let _result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
+            inputs,
+            10_000,
+            456, // seed
+            sender,
+            |ctx, inputs| {
+                // Create a simple circuit: (a AND b) XOR c
+                let and_result = ctx.issue_wire();
+                ctx.add_gate(Gate::and(inputs[0], inputs[1], and_result));
 
-                    let xor_result = ctx.issue_wire();
-                    ctx.add_gate(Gate::xor(and_result, inputs[2], xor_result));
+                let xor_result = ctx.issue_wire();
+                ctx.add_gate(Gate::xor(and_result, inputs[2], xor_result));
 
-                    vec![xor_result]
-                },
-            );
+                vec![xor_result]
+            },
+        );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -111,7 +110,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Circuit using constants: (input AND TRUE) OR FALSE
-        let result: StreamingResult<Garble, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garble(
+        let result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
             inputs,
             10_000,
             321, // seed
@@ -169,23 +168,22 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Circuit using component: xor_gadget(a, b) AND c
-        let _result: StreamingResult<Garble, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garble(
-                inputs,
-                10_000,
-                111, // seed
-                sender,
-                |ctx, inputs| {
-                    // Use the component
-                    let xor_result = xor_gadget(ctx, inputs[0], inputs[1]);
+        let _result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
+            inputs,
+            10_000,
+            111, // seed
+            sender,
+            |ctx, inputs| {
+                // Use the component
+                let xor_result = xor_gadget(ctx, inputs[0], inputs[1]);
 
-                    // AND with third input
-                    let final_result = ctx.issue_wire();
-                    ctx.add_gate(Gate::and(xor_result, inputs[2], final_result));
+                // AND with third input
+                let final_result = ctx.issue_wire();
+                ctx.add_gate(Gate::and(xor_result, inputs[2], final_result));
 
-                    vec![final_result]
-                },
-            );
+                vec![final_result]
+            },
+        );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -212,7 +210,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
 
         // Build a larger circuit with mixed gates
-        let result: StreamingResult<Garble, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garble(
+        let result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
             inputs,
             50_000, // larger capacity for more wires
             777,    // seed

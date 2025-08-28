@@ -95,14 +95,11 @@ mod tests {
             c
         }
 
-        let result: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
-            let c = and_gate_eval(root, inputs_wire[0], inputs_wire[1]);
-            vec![c]
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let c = and_gate_eval(root, inputs_wire[0], inputs_wire[1]);
+                vec![c]
+            });
 
         assert_eq!(result.output_wires, vec![false]); // true AND false = false
     }
@@ -127,14 +124,11 @@ mod tests {
             res
         }
 
-        let result: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
-            let r = triple_and_eval(root, inputs_wire[0], inputs_wire[1], inputs_wire[2]);
-            vec![r]
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let r = triple_and_eval(root, inputs_wire[0], inputs_wire[1], inputs_wire[2]);
+                vec![r]
+            });
 
         assert_eq!(result.output_wires, vec![false]); // (true AND true) AND false = false
     }
@@ -159,14 +153,11 @@ mod tests {
             res
         }
 
-        let result: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
-            let r = triple_and_eval(root, inputs_wire[0], inputs_wire[1], inputs_wire[2]);
-            vec![r]
-        });
+        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let r = triple_and_eval(root, inputs_wire[0], inputs_wire[1], inputs_wire[2]);
+                vec![r]
+            });
 
         assert_eq!(result.output_wires, vec![true]); // (true AND true) AND true = true
     }
@@ -276,22 +267,19 @@ mod tests {
         }
 
         for &input in &[false, true] {
-            let out: crate::circuit::streaming::StreamingResult<
-                crate::circuit::streaming::modes::Execute,
-                _,
-                Vec<bool>,
-            > = CircuitBuilder::streaming_execute(OneInput { x: input }, 10_000, |root, iw| {
-                // Build many big chains and OR them to keep dependency on input
-                let mut acc: Option<WireId> = None;
-                for _ in 0..LEAVES {
-                    let w = big_chain_eval(root, iw.x);
-                    acc = Some(match acc {
-                        Some(prev) => or_gate_eval(root, prev, w),
-                        None => w,
-                    });
-                }
-                vec![acc.unwrap()]
-            });
+            let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+                CircuitBuilder::streaming_execute(OneInput { x: input }, 10_000, |root, iw| {
+                    // Build many big chains and OR them to keep dependency on input
+                    let mut acc: Option<WireId> = None;
+                    for _ in 0..LEAVES {
+                        let w = big_chain_eval(root, iw.x);
+                        acc = Some(match acc {
+                            Some(prev) => or_gate_eval(root, prev, w),
+                            None => w,
+                        });
+                    }
+                    vec![acc.unwrap()]
+                });
             assert_eq!(out.output_wires, vec![input]);
         }
     }
@@ -368,14 +356,11 @@ mod tests {
         }
 
         for &input in &[false, true] {
-            let out: crate::circuit::streaming::StreamingResult<
-                crate::circuit::streaming::modes::Execute,
-                _,
-                Vec<bool>,
-            > = CircuitBuilder::streaming_execute(OneInput { x: input }, 10_000, |root, iw| {
-                let r = expand_tree_eval(root, iw.x, DEPTH);
-                vec![r]
-            });
+            let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+                CircuitBuilder::streaming_execute(OneInput { x: input }, 10_000, |root, iw| {
+                    let r = expand_tree_eval(root, iw.x, DEPTH);
+                    vec![r]
+                });
             assert_eq!(out.output_wires, vec![input]);
         }
     }

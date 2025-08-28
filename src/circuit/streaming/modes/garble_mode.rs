@@ -1,13 +1,14 @@
-use std::{array, sync::mpsc};
+use std::{array, num::NonZero, sync::mpsc};
 
 use log::{debug, error};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
 use crate::{
-    Delta, GarbledWire, Gate, S,
-    circuit::streaming::CircuitMode,
+    Delta, GarbledWire, Gate, S, WireId,
+    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
     core::gate::garbling::{Blake3Hasher, garble},
+    storage::{Credits, Storage},
 };
 
 /// Storage representation for garbled wires
@@ -25,13 +26,14 @@ pub struct GarbleMode {
     delta: Delta,
     gate_index: usize,
     output_sender: mpsc::Sender<GarbledTableEntry>,
+    storage: Storage<WireId, Option<GarbledWire>>,
     // Store the constant wires
     false_wire: GarbledWire,
     true_wire: GarbledWire,
 }
 
 impl GarbleMode {
-    pub fn new(seed: u64, output_sender: mpsc::Sender<GarbledTableEntry>) -> Self {
+    pub fn new(capacity: usize, seed: u64, output_sender: mpsc::Sender<GarbledTableEntry>) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seed);
         let delta = Delta::generate(&mut rng);
 
@@ -39,6 +41,7 @@ impl GarbleMode {
         let [false_wire, true_wire] = array::from_fn(|_| GarbledWire::random(&mut rng, &delta));
 
         Self {
+            storage: Storage::new(capacity),
             rng,
             delta,
             gate_index: 0,
@@ -76,26 +79,17 @@ impl std::fmt::Debug for GarbleMode {
 
 impl CircuitMode for GarbleMode {
     type WireValue = GarbledWire;
-    type StorageValue = OptionalGarbledWire;
 
     fn false_value(&self) -> GarbledWire {
         self.false_wire.clone()
     }
 
+    fn allocate_wire(&mut self, credits: Credits) -> WireId {
+        self.storage.allocate(None, credits)
+    }
+
     fn true_value(&self) -> GarbledWire {
         self.true_wire.clone()
-    }
-
-    fn default_storage_value() -> OptionalGarbledWire {
-        OptionalGarbledWire { wire: None }
-    }
-
-    fn storage_to_wire(&self, stored: &OptionalGarbledWire) -> Option<GarbledWire> {
-        stored.wire.clone()
-    }
-
-    fn wire_to_storage(&self, value: GarbledWire) -> OptionalGarbledWire {
-        OptionalGarbledWire { wire: Some(value) }
     }
 
     fn evaluate_gate(&mut self, gate: &Gate, a: GarbledWire, b: GarbledWire) -> GarbledWire {
@@ -143,5 +137,43 @@ impl CircuitMode for GarbleMode {
         self.stream_table_entry(gate_id, table_entry);
 
         c
+    }
+
+    fn feed_wire(&mut self, wire_id: crate::WireId, value: Self::WireValue) {
+        if matches!(wire_id, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
+            return;
+        }
+
+        self.storage
+            .set(wire_id, |val| {
+                *val = Some(value);
+            })
+            .unwrap();
+    }
+
+    fn lookup_wire(&mut self, wire_id: crate::WireId) -> Option<Self::WireValue> {
+        match wire_id {
+            TRUE_WIRE => {
+                return Some(self.true_value());
+            }
+            FALSE_WIRE => {
+                return Some(self.false_value());
+            }
+            _ => (),
+        }
+
+        match self.storage.get(wire_id).map(|gw| gw.to_owned()) {
+            Ok(Some(gw)) => Some(gw),
+            Ok(None) => panic!(
+                "Called `lookup_wire` for a WireId {wire_id} that was created but not initialized"
+            ),
+            Err(_) => None,
+        }
+    }
+
+    fn add_credits(&mut self, wires: &[WireId], credits: NonZero<Credits>) {
+        for wire_id in wires {
+            self.storage.add_credits(*wire_id, credits.get()).unwrap();
+        }
     }
 }

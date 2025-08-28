@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, num::NonZero};
 
-use crate::{EvaluatedWire, Gate, WireId};
+use crate::{EvaluatedWire, Gate, WireId, storage::Credits};
 
 mod execute;
 pub use execute::Execute;
@@ -14,29 +14,13 @@ pub use garble::Garble;
 mod garble_mode;
 pub use garble_mode::{GarbleMode, OptionalGarbledWire};
 
-pub trait CircuitMode: Sized + std::fmt::Debug {
-    /// The wire value type used during circuit evaluation (bool for Execute, GarbledWire for Garble, etc)
+pub trait CircuitMode: Sized + fmt::Debug {
     type WireValue: Clone;
 
-    /// The storage representation type (OptionalBoolean for Execute, etc)
-    type StorageValue: Clone + Default + fmt::Debug;
-
-    /// Get the false constant value
     fn false_value(&self) -> Self::WireValue;
 
-    /// Get the true constant value
     fn true_value(&self) -> Self::WireValue;
 
-    /// Get default storage value for uninitialized wires
-    fn default_storage_value() -> Self::StorageValue;
-
-    /// Convert storage representation to wire value
-    fn storage_to_wire(&self, stored: &Self::StorageValue) -> Option<Self::WireValue>;
-
-    /// Convert wire value to storage representation
-    fn wire_to_storage(&self, value: Self::WireValue) -> Self::StorageValue;
-
-    /// Evaluate a gate with given input values
     fn evaluate_gate(
         &mut self,
         gate: &Gate,
@@ -44,14 +28,13 @@ pub trait CircuitMode: Sized + std::fmt::Debug {
         b: Self::WireValue,
     ) -> Self::WireValue;
 
-    // Default methods for compatibility with existing code
-    fn lookup_wire(&mut self, _wire: WireId) -> Option<Self::WireValue> {
-        panic!("lookup_wire not implemented for this mode")
-    }
+    fn allocate_wire(&mut self, credits: Credits) -> WireId;
 
-    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {
-        panic!("feed_wire not implemented for this mode")
-    }
+    fn lookup_wire(&mut self, _wire: WireId) -> Option<Self::WireValue>;
+
+    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue);
+
+    fn add_credits(&mut self, wires: &[WireId], credits: NonZero<Credits>);
 }
 
 // Old Garble struct replaced by new streaming implementation in garble.rs and garble_mode.rs

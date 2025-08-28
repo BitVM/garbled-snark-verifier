@@ -43,6 +43,15 @@ impl<'l, T> Deref for Data<'l, T> {
     }
 }
 
+impl<'l, T: Clone> Data<'l, T> {
+    pub fn to_owned(self) -> T {
+        match self {
+            Data::Owned(owned) => owned,
+            Data::Borrowed(b) => b.clone(),
+        }
+    }
+}
+
 impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
     pub fn new(capacity: usize) -> Self {
         Self {
@@ -58,6 +67,11 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
 
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+
+    /// Current allocated capacity of the underlying slab
+    pub fn capacity(&self) -> usize {
+        self.data.capacity()
     }
 
     /// Test helper: check if a key currently exists in storage without consuming credits

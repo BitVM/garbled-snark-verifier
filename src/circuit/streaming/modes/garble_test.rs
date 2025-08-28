@@ -12,7 +12,7 @@ mod tests {
             CircuitBuilder,
             streaming::{
                 CircuitContext, CircuitInput, CircuitMode, EncodeInput, FALSE_WIRE,
-                StreamingResult, TRUE_WIRE, modes::Garble,
+                StreamingResult, TRUE_WIRE,
             },
         },
     };
@@ -67,7 +67,7 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = mpsc::channel();
 
-        let output: StreamingResult<Garble, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garble(
+        let output: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
             inputs,
             10_000,
             0, // seed
@@ -113,19 +113,18 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = mpsc::channel();
 
-        let _output: StreamingResult<Garble, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garble(
-                inputs,
-                10_000,
-                0, // seed
-                sender,
-                |ctx, inputs_wire| {
-                    // AND gate - should use half-gate garbling (produces table)
-                    let result = ctx.issue_wire();
-                    ctx.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], result));
-                    vec![result]
-                },
-            );
+        let _output: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
+            inputs,
+            10_000,
+            0, // seed
+            sender,
+            |ctx, inputs_wire| {
+                // AND gate - should use half-gate garbling (produces table)
+                let result = ctx.issue_wire();
+                ctx.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], result));
+                vec![result]
+            },
+        );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -155,26 +154,25 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = mpsc::channel();
 
-        let _output: StreamingResult<Garble, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garble(
-                inputs,
-                10_000,
-                0, // seed
-                sender,
-                |ctx, inputs_wire| {
-                    // Mixed circuit: XOR, AND, OR
-                    let xor_result = ctx.issue_wire();
-                    ctx.add_gate(Gate::xor(inputs_wire[0], inputs_wire[1], xor_result));
+        let _output: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
+            inputs,
+            10_000,
+            0, // seed
+            sender,
+            |ctx, inputs_wire| {
+                // Mixed circuit: XOR, AND, OR
+                let xor_result = ctx.issue_wire();
+                ctx.add_gate(Gate::xor(inputs_wire[0], inputs_wire[1], xor_result));
 
-                    let and_result = ctx.issue_wire();
-                    ctx.add_gate(Gate::and(xor_result, inputs_wire[2], and_result));
+                let and_result = ctx.issue_wire();
+                ctx.add_gate(Gate::and(xor_result, inputs_wire[2], and_result));
 
-                    let or_result = ctx.issue_wire();
-                    ctx.add_gate(Gate::or(and_result, inputs_wire[0], or_result));
+                let or_result = ctx.issue_wire();
+                ctx.add_gate(Gate::or(and_result, inputs_wire[0], or_result));
 
-                    vec![or_result]
-                },
-            );
+                vec![or_result]
+            },
+        );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();
@@ -200,7 +198,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || while receiver.recv().is_ok() {});
 
-        let output: StreamingResult<Garble, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garble(
+        let output: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
             inputs,
             10_000,
             0, // seed
@@ -251,14 +249,13 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = mpsc::channel();
 
-        let _output: StreamingResult<Garble, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garble(
-                inputs,
-                10_000,
-                0, // seed
-                sender,
-                |ctx, inputs_wire| vec![xor_chain(ctx, inputs_wire[0], inputs_wire[1])],
-            );
+        let _output: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
+            inputs,
+            10_000,
+            0, // seed
+            sender,
+            |ctx, inputs_wire| vec![xor_chain(ctx, inputs_wire[0], inputs_wire[1])],
+        );
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();

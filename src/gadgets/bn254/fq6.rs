@@ -532,7 +532,7 @@ mod tests {
         CircuitContext,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute},
+            modes::{CircuitMode, Execute, ExecuteMode},
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -649,22 +649,34 @@ mod tests {
         value: ark_bn254::Fq6,
     }
 
-    impl CircuitOutput<Execute> for Fq6Output {
+    impl CircuitOutput<ExecuteMode> for Fq6Output {
         type WireRepr = Fq6;
 
-        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
-            let c0_c0 =
-                <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[0].0.clone(), cache);
-            let c0_c1 =
-                <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0[1].0.clone(), cache);
-            let c1_c0 =
-                <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0[0].0.clone(), cache);
-            let c1_c1 =
-                <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0[1].0.clone(), cache);
-            let c2_c0 =
-                <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[2].0[0].0.clone(), cache);
-            let c2_c1 =
-                <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[2].0[1].0.clone(), cache);
+        fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+            let c0_c0 = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                wires.0[0].0[0].0.clone(),
+                cache,
+            );
+            let c0_c1 = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                wires.0[0].0[1].0.clone(),
+                cache,
+            );
+            let c1_c0 = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                wires.0[1].0[0].0.clone(),
+                cache,
+            );
+            let c1_c1 = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                wires.0[1].0[1].0.clone(),
+                cache,
+            );
+            let c2_c0 = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                wires.0[2].0[0].0.clone(),
+                cache,
+            );
+            let c2_c1 = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                wires.0[2].0[1].0.clone(),
+                cache,
+            );
 
             let c0 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c0_c0), ark_bn254::Fq::from(c0_c1));
             let c1 = ark_bn254::Fq2::new(ark_bn254::Fq::from(c1_c0), ark_bn254::Fq::from(c1_c1));

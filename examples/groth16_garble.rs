@@ -15,9 +15,7 @@ use garbled_snark_verifier::{
 };
 use gsv::{
     FrWire, G1Wire,
-    circuit::streaming::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject, modes::Garble,
-    },
+    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
     groth16_verify,
 };
 use rand::SeedableRng;
@@ -218,9 +216,9 @@ fn main() {
     println!("Starting garbling of Groth16 verification circuit...");
 
     // 4) Run the streaming garbling of the Groth16 verifier gadget
-    let _result: StreamingResult<Garble, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garble(
+    let _result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
         inputs,
-        10_000, // wire capacity
+        40_000, // wire capacity
         42,     // garbling seed
         sender,
         |ctx, wires| {

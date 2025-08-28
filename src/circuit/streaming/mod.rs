@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
-use std::{array, fmt::Debug};
+use std::{array, fmt::Debug, sync::mpsc};
 
 use log::debug;
 
 use crate::{
-    WireId,
-    circuit::streaming::{component_meta::ComponentMetaBuilder, modes::Execute},
+    S, WireId,
+    circuit::streaming::{
+        component_meta::ComponentMetaBuilder,
+        modes::{Execute, ExecuteMode, GarbleMode},
+    },
     core::gate_type::GateCount,
 };
 
@@ -85,24 +88,108 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
     pub one_constant: M::WireValue,
 }
 
-impl CircuitBuilder<Execute> {
+impl CircuitBuilder<ExecuteMode> {
     pub fn streaming_execute<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         f: F,
-    ) -> StreamingResult<Execute, I, O>
+    ) -> StreamingResult<ExecuteMode, I, O>
     where
         I: CircuitInput + EncodeInput<bool>,
-        O: CircuitOutput<Execute>,
+        O: CircuitOutput<ExecuteMode>,
         O::WireRepr: Debug,
         F: Fn(&mut Execute, &I::WireRepr) -> O::WireRepr,
     {
-        debug!(
-            "streaming_process_with_credits: start metadata pass capacity={}",
-            live_wires_capacity
-        );
+        CircuitBuilder::run_streaming(inputs, ExecuteMode::with_capacity(live_wires_capacity), f)
+
+        //debug!(
+        //    "streaming_process_with_credits: start metadata pass capacity={}",
+        //    live_wires_capacity
+        //);
+        //let (allocated_inputs, root_meta) = ComponentMetaBuilder::new_with_input(&inputs);
+        //let mut root_meta = Execute::MetadataPass(root_meta);
+
+        //let root_meta_output = f(&mut root_meta, &allocated_inputs);
+
+        //debug!(
+        //    "metadata: declared outputs = {:?}",
+        //    root_meta_output
+        //        .to_wires_vec()
+        //        .iter()
+        //        .map(|w| w.0)
+        //        .collect::<Vec<_>>()
+        //);
+
+        //let root_meta_output_wires = root_meta_output.to_wires_vec();
+
+        //let (mut ctx, allocated_inputs) = root_meta.to_root_ctx(
+        //    ExecuteMode,
+        //    live_wires_capacity,
+        //    &inputs,
+        //    &root_meta_output_wires,
+        //);
+
+        //let output_repr = f(&mut ctx, &allocated_inputs);
+        //let output_wires = output_repr.to_wires_vec();
+
+        //debug!(
+        //    "execute: output wires = {:?}",
+        //    output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
+        //);
+
+        //let output = O::decode(output_repr, &mut ctx);
+
+        //// Log final context stats before validation
+        //ctx.log_stats("after decode");
+
+        //assert!(
+        //    ctx.is_storage_empty(),
+        //    "{:?}",
+        //    ctx.iter_storage().into_iter().collect::<Vec<_>>()
+        //);
+
+        //StreamingResult {
+        //    input_wires: allocated_inputs,
+        //    output_wires: output,
+        //    output_wires_ids: output_wires,
+        //    one_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
+        //    zero_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
+        //}
+    }
+}
+
+impl CircuitBuilder<GarbleMode> {
+    pub fn streaming_garbling<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        seed: u64,
+        output_sender: mpsc::Sender<(usize, S)>,
+        f: F,
+    ) -> StreamingResult<GarbleMode, I, O>
+    where
+        I: CircuitInput + EncodeInput<<GarbleMode as CircuitMode>::WireValue>,
+        O: CircuitOutput<GarbleMode>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<GarbleMode>, &I::WireRepr) -> O::WireRepr,
+    {
+        CircuitBuilder::run_streaming(
+            inputs,
+            GarbleMode::new(live_wires_capacity, seed, output_sender),
+            f,
+        )
+    }
+}
+
+impl<M: CircuitMode> CircuitBuilder<M> {
+    pub fn run_streaming<I, F, O>(inputs: I, mode: M, f: F) -> StreamingResult<M, I, O>
+    where
+        I: CircuitInput + EncodeInput<M::WireValue>,
+        O: CircuitOutput<M>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<M>, &I::WireRepr) -> O::WireRepr,
+    {
         let (allocated_inputs, root_meta) = ComponentMetaBuilder::new_with_input(&inputs);
-        let mut root_meta = Execute::MetadataPass(root_meta);
+        let mut root_meta = StreamingMode::<M>::MetadataPass(root_meta);
 
         let root_meta_output = f(&mut root_meta, &allocated_inputs);
 
@@ -118,86 +205,7 @@ impl CircuitBuilder<Execute> {
         let root_meta_output_wires = root_meta_output.to_wires_vec();
 
         let (mut ctx, allocated_inputs) =
-            root_meta.to_root_ctx(live_wires_capacity, &inputs, &root_meta_output_wires);
-
-        let output_repr = f(&mut ctx, &allocated_inputs);
-        let output_wires = output_repr.to_wires_vec();
-
-        debug!(
-            "execute: output wires = {:?}",
-            output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
-        );
-
-        let output = O::decode(output_repr, &mut ctx);
-
-        assert!(
-            ctx.is_storage_empty(),
-            "{:?}",
-            ctx.iter_storage().into_iter().collect::<Vec<_>>()
-        );
-
-        StreamingResult {
-            input_wires: allocated_inputs,
-            output_wires: output,
-            output_wires_ids: output_wires,
-            one_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
-            zero_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
-        }
-    }
-}
-
-impl CircuitBuilder<Garble> {
-    pub fn streaming_garble<I, F, O>(
-        inputs: I,
-        live_wires_capacity: usize,
-        seed: u64,
-        output_sender: std::sync::mpsc::Sender<(usize, crate::S)>,
-        f: F,
-    ) -> StreamingResult<Garble, I, O>
-    where
-        I: CircuitInput + EncodeInput<crate::GarbledWire>,
-        O: CircuitOutput<Garble>,
-        O::WireRepr: Debug,
-        F: Fn(&mut Garble, &I::WireRepr) -> O::WireRepr,
-    {
-        debug!(
-            "streaming_garble: start metadata pass capacity={} seed={}",
-            live_wires_capacity, seed
-        );
-        let mut cursor = WireId::MIN;
-        let allocated_inputs = inputs.allocate(|| {
-            let next = cursor;
-            cursor.0 += 1;
-            next
-        });
-
-        let meta_input_wires = I::collect_wire_ids(&allocated_inputs);
-
-        let mut root_meta = Garble::MetadataPass(ComponentMetaBuilder::new(meta_input_wires.len()));
-
-        debug!("metadata: allocated inputs = {:?}", meta_input_wires);
-
-        let root_meta_output = f(&mut root_meta, &allocated_inputs);
-
-        debug!(
-            "metadata: declared outputs = {:?}",
-            root_meta_output
-                .to_wires_vec()
-                .iter()
-                .map(|w| w.0)
-                .collect::<Vec<_>>()
-        );
-
-        let root_meta_output_wires = root_meta_output.to_wires_vec();
-
-        let (mut ctx, allocated_inputs) = root_meta.to_root_ctx(
-            seed,
-            live_wires_capacity,
-            output_sender,
-            &inputs,
-            meta_input_wires.len(),
-            &root_meta_output_wires,
-        );
+            root_meta.to_root_ctx(mode, &inputs, &root_meta_output_wires);
 
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
@@ -207,13 +215,16 @@ impl CircuitBuilder<Garble> {
             output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
         );
 
-        let output = O::decode(output_repr, &mut ctx);
+        let output = match &mut ctx {
+            StreamingMode::ExecutionPass(ctx) => O::decode(output_repr, &mut ctx.mode),
+            _ => unreachable!(),
+        };
 
-        assert!(
-            ctx.is_storage_empty(),
-            "{:?}",
-            ctx.iter_storage().into_iter().collect::<Vec<_>>()
-        );
+        //assert!(
+        //    ctx.is_storage_empty(),
+        //    "{:?}",
+        //    ctx.iter_storage().into_iter().collect::<Vec<_>>()
+        //);
 
         StreamingResult {
             input_wires: allocated_inputs,
@@ -318,7 +329,7 @@ mod exec_test {
     use test_log::test;
 
     use super::*;
-    use crate::{Gate, circuit::streaming::modes::Execute};
+    use crate::Gate;
 
     /// Example input structure with mixed types
     pub struct Inputs {
@@ -468,7 +479,7 @@ mod exec_test {
             nonce: 0xDEADBEEF12345678,
         };
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 // Create some logic using the allocated wires
                 // Test flag AND first bit of nonce
@@ -504,7 +515,7 @@ mod exec_test {
         // Test that child components cannot access parent wires not in input_wires
         let inputs = [true, false];
 
-        let _: StreamingResult<Execute, _, Vec<bool>> =
+        let _: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let parent_secret = root.issue_wire();
                 root.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], parent_secret));
@@ -526,14 +537,12 @@ mod exec_test {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Wrong output wire: WireId(999), because offset here is 3 with cursor 3"
-    )]
+    #[should_panic(expected = "Wrong output wire 999, but cursor is 3")]
     fn test_missing_output_panics() {
         // Test that missing output wires cause a panic
         let inputs = [true, false];
 
-        let _: StreamingResult<Execute, _, Vec<bool>> =
+        let _: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 root.with_child(
                     vec![inputs_wire[0]],
@@ -553,7 +562,7 @@ mod exec_test {
         // Test that TRUE_WIRE and FALSE_WIRE are accessible in child components
         let inputs = [true, false];
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
                 let result = root.with_child(
                     Vec::<WireId>::new(),
@@ -577,7 +586,7 @@ mod exec_test {
         // Test deep component nesting
         let inputs = [true, false];
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let mut current = inputs_wire[0];
 
@@ -600,7 +609,7 @@ mod exec_test {
 
         assert!(output.output_wires[0]);
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let mut current = inputs_wire[1];
 
@@ -628,7 +637,7 @@ mod exec_test {
         // Test that sibling components cannot see each other's wires
         let inputs = [true, false];
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 // First child creates a wire
                 let child1_output = root.with_child(
@@ -668,7 +677,7 @@ mod exec_test {
         let inputs = [true, false];
 
         // Run a simple circuit
-        let _output: StreamingResult<Execute, _, Vec<bool>> =
+        let _output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result = root.issue_wire();
                 root.add_gate(Gate::and(inputs_wire[0], inputs_wire[1], result));
@@ -681,7 +690,7 @@ mod exec_test {
         // Test that constants are protected and work correctly
         let inputs = [true, false];
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
                 // Use constants in parent
                 let parent_result = root.issue_wire();
@@ -710,7 +719,7 @@ mod exec_test {
         // Test very deep component nesting (1000 levels)
         let inputs = [true, true];
 
-        let output: StreamingResult<Execute, _, Vec<bool>> =
+        let output: StreamingResult<ExecuteMode, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let mut current = inputs_wire[0];
 

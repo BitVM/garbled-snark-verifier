@@ -18,6 +18,8 @@
 //! - `to_instance()` maps positional credits to real wire IDs using input order
 //! - This enables much simpler caching since templates depend only on input count and structure
 
+use std::num::NonZero;
+
 use itertools::Itertools;
 use log::{debug, trace};
 
@@ -70,11 +72,11 @@ impl ComponentMetaBuilder {
 
     #[inline(always)]
     pub fn increment_credits(&mut self, wires: &[WireId]) {
-        self.add_credits(wires, 1);
+        self.add_credits(wires, NonZero::<Credits>::MIN);
     }
 
     #[inline(always)]
-    fn bump_credit_for_wire(&mut self, wire_id: WireId, credit: Credits) {
+    fn bump_credit_for_wire(&mut self, wire_id: WireId, credit: NonZero<Credits>) {
         match wire_id {
             TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE => {}
             id if id < self.cursor => {
@@ -86,7 +88,7 @@ impl ComponentMetaBuilder {
                     .get_mut(idx)
                     .expect("internal wire out of bounds");
 
-                *slot += credit;
+                *slot += credit.get();
             }
             id => {
                 // Wire ID from outside our isolated mock range - ignore
@@ -100,7 +102,7 @@ impl ComponentMetaBuilder {
     }
 
     #[inline(always)]
-    pub fn add_credits(&mut self, wires: &[WireId], credit: Credits) {
+    pub fn add_credits(&mut self, wires: &[WireId], credit: NonZero<Credits>) {
         for &wire_id in wires {
             self.bump_credit_for_wire(wire_id, credit);
         }
@@ -126,7 +128,10 @@ impl ComponentMetaBuilder {
                 } else if output_wire < self.cursor {
                     OutputWireType::Internal(index - self.input_len)
                 } else {
-                    panic!("Wrong output wire: {:?}", self.cursor.0);
+                    panic!(
+                        "Wrong output wire {output_wire}, but cursor is {:?}",
+                        self.cursor.0
+                    );
                 }
             })
             .collect();
@@ -167,13 +172,15 @@ impl ComponentMetaTemplate {
     pub fn to_instance(
         &self,
         output_credits: &[Credits],
-        mut add_credit_to_input: impl FnMut(usize, Credits),
+        mut add_credit_to_input: impl FnMut(usize, NonZero<Credits>),
     ) -> ComponentMetaInstance {
         let mut credits_stack = self.credits_stack.clone();
 
         // Map template input credits (by position) to real input wires
         for (position, &template_credits) in self.credits_by_input_position.iter().enumerate() {
-            add_credit_to_input(position, template_credits);
+            if let Some(credits) = NonZero::<Credits>::new(template_credits) {
+                add_credit_to_input(position, credits);
+            }
         }
 
         // Handle output credits routing
@@ -186,7 +193,10 @@ impl ComponentMetaTemplate {
                     debug!(
                         "Output wire {output_wire_type:?} is input at position {input_position}"
                     );
-                    add_credit_to_input(*input_position, *credits);
+
+                    if let Some(credits) = NonZero::<Credits>::new(*credits) {
+                        add_credit_to_input(*input_position, credits);
+                    }
                 }
                 OutputWireType::Internal(internal_index) => {
                     credits_stack[*internal_index] += credits;
@@ -205,6 +215,22 @@ impl ComponentMetaTemplate {
 
     pub fn get_input_len(&self) -> usize {
         self.credits_by_input_position.len()
+    }
+
+    /// Total number of credit entries stored in this template
+    /// (internal + input-position credits). Useful for memory estimation.
+    pub fn total_credits_len(&self) -> usize {
+        self.credits_stack.len() + self.credits_by_input_position.len()
+    }
+
+    /// Number of input-position credit entries
+    pub fn input_positions_len(&self) -> usize {
+        self.credits_by_input_position.len()
+    }
+
+    /// Number of declared output wire types captured by the template
+    pub fn output_types_len(&self) -> usize {
+        self.output_wire_types.len()
     }
 }
 
@@ -246,8 +272,8 @@ impl CircuitContext for ComponentMetaBuilder {
         assert_ne!(gate.wire_a, WireId::UNREACHABLE);
         assert_ne!(gate.wire_b, WireId::UNREACHABLE);
 
-        self.bump_credit_for_wire(gate.wire_a, 1);
-        self.bump_credit_for_wire(gate.wire_b, 1);
+        self.bump_credit_for_wire(gate.wire_a, NonZero::<Credits>::MIN);
+        self.bump_credit_for_wire(gate.wire_b, NonZero::<Credits>::MIN);
     }
 
     fn with_named_child<I: WiresObject, O: FromWires>(
@@ -260,7 +286,7 @@ impl CircuitContext for ComponentMetaBuilder {
         let input_wires = inputs.to_wires_vec();
         // Count reads on child inputs.
         for &w in &input_wires {
-            self.bump_credit_for_wire(w, 1);
+            self.bump_credit_for_wire(w, NonZero::<Credits>::MIN);
         }
 
         // Produce mock outputs as newly issued internal wires.
@@ -275,29 +301,33 @@ pub struct Empty;
 
 impl CircuitMode for Empty {
     type WireValue = bool;
-    type StorageValue = bool;
 
     fn false_value(&self) -> bool {
         false
+    }
+
+    fn allocate_wire(&mut self, _credits: Credits) -> WireId {
+        WireId::MIN
     }
 
     fn true_value(&self) -> bool {
         true
     }
 
-    fn default_storage_value() -> bool {
-        false
+    fn lookup_wire(&mut self, _wire: WireId) -> Option<Self::WireValue> {
+        None
     }
 
-    fn storage_to_wire(&self, stored: &bool) -> Option<bool> {
-        Some(*stored)
+    fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue) {}
+
+    fn evaluate_gate(
+        &mut self,
+        _gate: &Gate,
+        _a: Self::WireValue,
+        _b: Self::WireValue,
+    ) -> Self::WireValue {
+        todo!()
     }
 
-    fn wire_to_storage(&self, value: bool) -> bool {
-        value
-    }
-
-    fn evaluate_gate(&mut self, _gate: &Gate, _a: bool, _b: bool) -> bool {
-        false
-    }
+    fn add_credits(&mut self, _wires: &[WireId], _credits: NonZero<Credits>) {}
 }

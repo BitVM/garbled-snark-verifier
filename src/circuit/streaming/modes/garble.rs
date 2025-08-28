@@ -4,13 +4,12 @@ pub use super::garble_mode::{GarbleMode, GarbledTableEntry};
 use crate::{
     GarbledWire, WireId,
     circuit::streaming::{
-        CircuitContext, CircuitInput, CircuitMode, EncodeInput,
+        CircuitInput, CircuitMode, EncodeInput,
         component_key::ComponentKey,
-        component_meta::ComponentMetaBuilder,
         streaming_mode::{StreamingContext, StreamingMode},
     },
     core::gate_type::GateCount,
-    storage::{Credits, Storage},
+    storage::Credits,
 };
 
 const ROOT_KEY: ComponentKey = [0u8; 8];
@@ -44,49 +43,11 @@ impl Garble {
         output_sender: mpsc::Sender<GarbledTableEntry>,
     ) -> Self {
         StreamingMode::ExecutionPass(StreamingContext {
-            mode: GarbleMode::new(seed, output_sender),
-            storage: Storage::new(capacity),
+            mode: GarbleMode::new(capacity, seed, output_sender),
             stack: vec![],
             templates: HashMap::default(),
             gate_count: GateCount::default(),
         })
-    }
-
-    fn new_meta(inputs: &[WireId]) -> Self {
-        StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs.len()))
-    }
-
-    pub fn to_root_ctx<I: EncodeInput<GarbledWire>>(
-        self,
-        _seed: u64,
-        _capacity: usize,
-        _output_sender: mpsc::Sender<GarbledTableEntry>,
-        _input: &I,
-        _meta_input_wires_len: usize,
-        _meta_output_wires: &[WireId],
-    ) -> (Self, I::WireRepr) {
-        todo!()
-    }
-
-    pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
-        match self {
-            StreamingMode::MetadataPass(meta) => (meta.issue_wire(), 0),
-            StreamingMode::ExecutionPass(ctx) => ctx.issue_wire_with_credit(),
-        }
-    }
-
-    pub fn non_free_gates_count(&self) -> usize {
-        match self {
-            StreamingMode::MetadataPass(_meta) => 0,
-            StreamingMode::ExecutionPass(ctx) => ctx.gate_count.nonfree_gate_count() as usize,
-        }
-    }
-
-    pub fn total_gates_count(&self) -> usize {
-        match self {
-            StreamingMode::MetadataPass(_meta) => 0,
-            StreamingMode::ExecutionPass(ctx) => ctx.gate_count.total_gate_count() as usize,
-        }
     }
 }
 

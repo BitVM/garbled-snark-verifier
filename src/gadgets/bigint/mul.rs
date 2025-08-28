@@ -364,7 +364,10 @@ mod tests {
     use crate::{
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{EncodeInput, StreamingResult, WiresObject, modes::CircuitMode},
+            streaming::{
+                EncodeInput, StreamingResult, WiresObject,
+                modes::{CircuitMode, Execute, ExecuteMode},
+            },
         },
         gadgets::bigint::bits_from_biguint_with_len,
     };
@@ -411,11 +414,7 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u128,
-        operation: impl Fn(
-            &mut crate::circuit::streaming::modes::Execute,
-            &BigIntWires,
-            &BigIntWires,
-        ) -> BigIntWires,
+        operation: impl Fn(&mut Execute, &BigIntWires, &BigIntWires) -> BigIntWires,
     ) {
         info!(
             "test_mul_operation: {} * {} = {} (n_bits={})",
@@ -428,32 +427,29 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
-            let [a, b] = input;
-            trace!("Input A wire IDs: {:?}", &a.bits);
-            trace!("Input B wire IDs: {:?}", &b.bits);
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
+                let [a, b] = input;
+                trace!("Input A wire IDs: {:?}", &a.bits);
+                trace!("Input B wire IDs: {:?}", &b.bits);
 
-            let result = operation(root, a, b);
+                let result = operation(root, a, b);
 
-            info!(
-                "Result wire IDs (first 16): {:?}",
-                &result.bits[0..result.bits.len().min(16)]
-            );
-            // ARITY CHECK: Verify that mul operations return n_bits * 2 wires
-            assert_eq!(
-                result.bits.len(),
-                n_bits * 2,
-                "Arity check failed: expected {} wires, got {}",
-                n_bits * 2,
-                result.bits.len()
-            );
+                info!(
+                    "Result wire IDs (first 16): {:?}",
+                    &result.bits[0..result.bits.len().min(16)]
+                );
+                // ARITY CHECK: Verify that mul operations return n_bits * 2 wires
+                assert_eq!(
+                    result.bits.len(),
+                    n_bits * 2,
+                    "Arity check failed: expected {} wires, got {}",
+                    n_bits * 2,
+                    result.bits.len()
+                );
 
-            result.to_wires_vec()
-        });
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -527,11 +523,7 @@ mod tests {
         a_val: u64,
         c_val: u64,
         expected: u128,
-        operation: impl Fn(
-            &mut crate::circuit::streaming::modes::Execute,
-            &BigIntWires,
-            &BigUint,
-        ) -> BigIntWires,
+        operation: impl Fn(&mut Execute, &BigIntWires, &BigUint) -> BigIntWires,
     ) {
         let input = SingleInput::new(n_bits, a_val);
         let c_big = BigUint::from(c_val);
@@ -540,14 +532,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
-            let result = operation(root, a, &c_big);
-            result.to_wires_vec()
-        });
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
+                let result = operation(root, a, &c_big);
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -789,15 +778,12 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
-            let result = mul_by_constant_modulo_power_two(root, a, &c, power);
-            assert_eq!(result.bits.len(), power);
-            result.to_wires_vec()
-        });
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
+                let result = mul_by_constant_modulo_power_two(root, a, &c, power);
+                assert_eq!(result.bits.len(), power);
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -842,15 +828,12 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
-            let result = mul_by_constant_modulo_power_two(root, a, &c, power);
-            assert_eq!(result.bits.len(), power);
-            result.to_wires_vec()
-        });
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
+                let result = mul_by_constant_modulo_power_two(root, a, &c, power);
+                assert_eq!(result.bits.len(), power);
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -896,14 +879,11 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
-            let result = mul_by_constant_modulo_power_two(root, a, &c, power);
-            result.to_wires_vec()
-        });
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, a| {
+                let result = mul_by_constant_modulo_power_two(root, a, &c, power);
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()

@@ -454,7 +454,7 @@ mod tests {
         CircuitContext,
         circuit::streaming::{
             CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute},
+            modes::{CircuitMode, Execute, ExecuteMode},
         },
         gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
         test_utils::trng,
@@ -533,12 +533,14 @@ mod tests {
         value: ark_bn254::Fq2,
     }
 
-    impl CircuitOutput<Execute> for Fq2Output {
+    impl CircuitOutput<ExecuteMode> for Fq2Output {
         type WireRepr = Fq2;
 
-        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
-            let c0 = <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[0].0.clone(), cache);
-            let c1 = <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0[1].0.clone(), cache);
+        fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+            let c0 =
+                <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(wires.0[0].0.clone(), cache);
+            let c1 =
+                <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(wires.0[1].0.clone(), cache);
             let value = ark_bn254::Fq2::new(ark_bn254::Fq::from(c0), ark_bn254::Fq::from(c1));
             Self { value }
         }
@@ -549,11 +551,11 @@ mod tests {
         value: ark_bn254::Fq,
     }
 
-    impl CircuitOutput<Execute> for FqOutput {
+    impl CircuitOutput<ExecuteMode> for FqOutput {
         type WireRepr = Fq;
 
-        fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
-            let biguint = <BigUintOutput as CircuitOutput<Execute>>::decode(wires.0, cache);
+        fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+            let biguint = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(wires.0, cache);
             let value = ark_bn254::Fq::from(biguint);
             Self { value }
         }

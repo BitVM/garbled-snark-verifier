@@ -1,6 +1,6 @@
-use std::{collections::HashMap, iter};
+use std::{collections::HashMap, iter, num::NonZero};
 
-use log::{debug, error, trace};
+use log::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
@@ -11,7 +11,7 @@ use crate::{
         into_wire_list::FromWires,
     },
     core::gate_type::GateCount,
-    storage::{Credits, Storage},
+    storage::Credits,
 };
 
 /// Generic streaming context that holds mode-specific evaluation logic
@@ -19,7 +19,6 @@ use crate::{
 #[derive(Debug)]
 pub struct StreamingContext<M: CircuitMode> {
     pub mode: M,
-    pub storage: Storage<WireId, M::StorageValue>,
     pub stack: Vec<ComponentMetaInstance>,
     pub templates: HashMap<ComponentKey, ComponentMetaTemplate>,
     pub gate_count: GateCount,
@@ -33,70 +32,6 @@ pub enum StreamingMode<M: CircuitMode> {
     ExecutionPass(StreamingContext<M>),
 }
 
-// Implement CircuitMode for StreamingMode for backward compatibility
-impl<M: CircuitMode> CircuitMode for StreamingMode<M> {
-    type WireValue = M::WireValue;
-    type StorageValue = M::StorageValue;
-
-    fn false_value(&self) -> M::WireValue {
-        match self {
-            StreamingMode::MetadataPass(_) => panic!("Cannot get false value in metadata pass"),
-            StreamingMode::ExecutionPass(ctx) => ctx.mode.false_value(),
-        }
-    }
-
-    fn true_value(&self) -> M::WireValue {
-        match self {
-            StreamingMode::MetadataPass(_) => panic!("Cannot get true value in metadata pass"),
-            StreamingMode::ExecutionPass(ctx) => ctx.mode.true_value(),
-        }
-    }
-
-    fn default_storage_value() -> M::StorageValue {
-        M::default_storage_value()
-    }
-
-    fn storage_to_wire(&self, stored: &M::StorageValue) -> Option<M::WireValue> {
-        match self {
-            StreamingMode::MetadataPass(_) => None,
-            StreamingMode::ExecutionPass(ctx) => ctx.mode.storage_to_wire(stored),
-        }
-    }
-
-    fn wire_to_storage(&self, value: M::WireValue) -> M::StorageValue {
-        match self {
-            StreamingMode::MetadataPass(_) => M::default_storage_value(),
-            StreamingMode::ExecutionPass(ctx) => ctx.mode.wire_to_storage(value),
-        }
-    }
-
-    fn evaluate_gate(&mut self, gate: &Gate, a: M::WireValue, b: M::WireValue) -> M::WireValue {
-        match self {
-            StreamingMode::MetadataPass(_) => panic!("Cannot evaluate gate in metadata pass"),
-            StreamingMode::ExecutionPass(ctx) => ctx.mode.evaluate_gate(gate, a, b),
-        }
-    }
-
-    fn lookup_wire(&mut self, wire: WireId) -> Option<M::WireValue> {
-        match self {
-            StreamingMode::MetadataPass(_) => None,
-            StreamingMode::ExecutionPass(ctx) => ctx.lookup_wire(wire),
-        }
-    }
-
-    fn feed_wire(&mut self, wire: WireId, value: M::WireValue) {
-        if matches!(wire, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
-            return;
-        }
-
-        match self {
-            StreamingMode::MetadataPass(_) => (),
-            StreamingMode::ExecutionPass(ctx) => ctx.feed_wire(wire, value),
-        }
-    }
-}
-
-// Helper methods for StreamingMode to support existing code
 impl<M: CircuitMode> StreamingMode<M> {
     pub fn lookup_wire(&mut self, wire: WireId) -> Option<M::WireValue> {
         match self {
@@ -126,21 +61,17 @@ impl<M: CircuitMode> StreamingMode<M> {
         }
     }
 
-    pub fn is_storage_empty(&self) -> bool {
+    pub fn get_mode(&self) -> Option<&M> {
         match self {
-            StreamingMode::MetadataPass(component_meta_builder) => {
-                component_meta_builder.credits_stack.is_empty()
-            }
-            StreamingMode::ExecutionPass(streaming_context) => streaming_context.storage.is_empty(),
+            StreamingMode::MetadataPass(_meta) => None,
+            StreamingMode::ExecutionPass(ctx) => Some(&ctx.mode),
         }
     }
 
-    pub fn iter_storage(self) -> impl IntoIterator<Item = (WireId, Credits, M::StorageValue)> {
+    pub fn get_mut_mode(&mut self) -> Option<&mut M> {
         match self {
-            StreamingMode::ExecutionPass(streaming_context) => streaming_context.storage.to_iter(),
-            StreamingMode::MetadataPass(_component_meta_builder) => {
-                todo!()
-            }
+            StreamingMode::MetadataPass(_meta) => None,
+            StreamingMode::ExecutionPass(ctx) => Some(&mut ctx.mode),
         }
     }
 }
@@ -217,10 +148,11 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
 
                 trace!("Start component {key:?} meta take");
 
-                let storage = &mut ctx.storage;
+                let StreamingContext {
+                    mode, templates, ..
+                } = ctx;
 
-                let instance = ctx
-                    .templates
+                let instance = templates
                     .entry(key)
                     .or_insert_with(|| {
                         // Calculate the actual number of wires needed from the real input structure
@@ -251,9 +183,8 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
 
                         if wire_id != TRUE_WIRE && wire_id != FALSE_WIRE {
                             trace!("try to add credits to {wire_id:?}");
-                            storage
-                                .add_credits(wire_id, credits)
-                                .unwrap();
+                            mode
+                                .add_credits(&[wire_id], credits);
                         }
                     });
 
@@ -264,7 +195,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                         TRUE_WIRE => (),
                         FALSE_WIRE => (),
                         wire_id => {
-                            let _ = storage.get(wire_id).unwrap();
+                            let _ = ctx.lookup_wire(wire_id).unwrap();
                         }
                     }
                 }
@@ -292,7 +223,7 @@ impl<M: CircuitMode> StreamingContext<M> {
         let meta = self.stack.last_mut().unwrap();
 
         if let Some(credit) = meta.next_credit() {
-            let wire_id = self.storage.allocate(M::default_storage_value(), credit);
+            let wire_id = self.mode.allocate_wire(credit);
             trace!("issue wire {wire_id:?} with {credit} credit");
             (wire_id, credit)
         } else {
@@ -301,28 +232,14 @@ impl<M: CircuitMode> StreamingContext<M> {
     }
 
     pub fn lookup_wire(&mut self, wire: WireId) -> Option<M::WireValue> {
-        match wire {
-            TRUE_WIRE => return Some(self.mode.true_value()),
-            FALSE_WIRE => return Some(self.mode.false_value()),
-            WireId::UNREACHABLE => return None,
-            _ => (),
-        }
-
-        match self.storage.get(wire) {
-            Ok(stored) => self.mode.storage_to_wire(&*stored),
-            Err(err) => {
-                error!(
-                    "lookup_wire: storage error for wire_id={} err={:?}",
-                    wire.0, err
-                );
-                panic!("Error: {err:?}")
-            }
-        }
+        self.mode.lookup_wire(wire)
     }
 
     pub fn feed_wire(&mut self, wire: WireId, value: M::WireValue) {
-        trace!("feed wire {wire:?}");
-        let stored = self.mode.wire_to_storage(value);
-        self.storage.set(wire, |data| *data = stored).unwrap();
+        self.mode.feed_wire(wire, value);
+    }
+
+    pub fn add_credits(&mut self, wires: &[WireId], credits: NonZero<Credits>) {
+        self.mode.add_credits(wires, credits);
     }
 }

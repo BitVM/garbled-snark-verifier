@@ -6,13 +6,13 @@ pub use super::execute_mode::ExecuteMode;
 use crate::{
     CircuitContext, WireId,
     circuit::streaming::{
-        EncodeInput,
+        CircuitMode, EncodeInput,
         component_key::ComponentKey,
         component_meta::ComponentMetaBuilder,
         streaming_mode::{StreamingContext, StreamingMode},
     },
     core::gate_type::GateCount,
-    storage::{Credits, Storage},
+    storage::Credits,
 };
 
 const ROOT_KEY: ComponentKey = [0u8; 8];
@@ -37,29 +37,29 @@ impl StreamingContext<ExecuteMode> {
 /// Type alias for backward compatibility - Execute is now StreamingMode<ExecuteMode>
 pub type Execute = StreamingMode<ExecuteMode>;
 
-// Helper methods for Execute type alias
-impl Execute {
+impl StreamingMode<ExecuteMode> {
     pub fn new(capacity: usize) -> Self {
         Self::new_execute(capacity)
     }
 
     fn new_execute(capacity: usize) -> Self {
         StreamingMode::ExecutionPass(StreamingContext {
-            mode: ExecuteMode,
-            storage: Storage::new(capacity),
+            mode: ExecuteMode::with_capacity(capacity),
             stack: vec![],
             templates: HashMap::default(),
             gate_count: GateCount::default(),
         })
     }
+}
 
+impl<M: CircuitMode> StreamingMode<M> {
     fn new_meta(inputs: &[WireId]) -> Self {
         StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs.len()))
     }
 
-    pub fn to_root_ctx<I: EncodeInput<bool>>(
+    pub fn to_root_ctx<I: EncodeInput<M::WireValue>>(
         self,
-        capacity: usize,
+        mode: M,
         input: &I,
         meta_output_wires: &[WireId],
     ) -> (Self, I::WireRepr) {
@@ -73,7 +73,7 @@ impl Execute {
             let mut instance =
                 meta.to_instance(&vec![1; meta_output_wires.len()], |index, credits| {
                     let rev_index = meta.get_input_len() - 1 - index;
-                    input_credits[rev_index] += credits;
+                    input_credits[rev_index] += credits.get();
                 });
 
             // Extend the credit stack by adding the ability to allocate input through these
@@ -83,8 +83,7 @@ impl Execute {
             trace!("meta before input encode: {instance:?}");
 
             let mut ctx = StreamingMode::ExecutionPass(StreamingContext {
-                mode: ExecuteMode,
-                storage: Storage::new(capacity),
+                mode,
                 stack: vec![instance],
                 templates: {
                     let mut map = HashMap::default();
@@ -95,7 +94,7 @@ impl Execute {
             });
 
             let input_repr = input.allocate(|| ctx.issue_wire());
-            input.encode(&input_repr, &mut ctx);
+            input.encode(&input_repr, ctx.get_mut_mode().unwrap());
 
             if let StreamingMode::ExecutionPass(ctx) = &ctx {
                 trace!("meta after input encode: {:?}", ctx.stack.last().unwrap());

@@ -254,7 +254,7 @@ mod tests {
             CircuitBuilder, CircuitInput,
             streaming::{
                 CircuitMode, CircuitOutput, EncodeInput, StreamingResult, WiresObject,
-                modes::Execute,
+                modes::{Execute, ExecuteMode},
             },
         },
         gadgets::bigint::bits_from_biguint_with_len,
@@ -310,24 +310,21 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
-            let [a, b] = input;
-            let result = operation(root, a, b);
-            // ARITY CHECK: Verify that add/sub operations return n_bits + 1 wires
-            assert_eq!(
-                result.bits.len(),
-                n_bits + 1,
-                "Arity check failed: expected {} wires, got {}",
-                n_bits + 1,
-                result.bits.len()
-            );
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
+                let [a, b] = input;
+                let result = operation(root, a, b);
+                // ARITY CHECK: Verify that add/sub operations return n_bits + 1 wires
+                assert_eq!(
+                    result.bits.len(),
+                    n_bits + 1,
+                    "Arity check failed: expected {} wires, got {}",
+                    n_bits + 1,
+                    result.bits.len()
+                );
 
-            result.to_wires_vec()
-        });
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -352,11 +349,7 @@ mod tests {
         a_val: u64,
         b_val: u64,
         expected: u64,
-        operation: impl Fn(
-            &mut crate::circuit::streaming::modes::Execute,
-            &BigIntWires,
-            &BigUint,
-        ) -> BigIntWires,
+        operation: impl Fn(&mut Execute, &BigIntWires, &BigUint) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val]);
         let b_big = BigUint::from(b_val);
@@ -365,16 +358,13 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
-            let [a] = input;
-            let result = operation(root, a, &b_big);
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
+                let [a] = input;
+                let result = operation(root, a, &b_big);
 
-            result.to_wires_vec()
-        });
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -470,7 +460,7 @@ mod tests {
         n_bits: usize,
         a_val: u64,
         expected: u64,
-        operation: impl Fn(&mut crate::circuit::streaming::modes::Execute, &BigIntWires) -> BigIntWires,
+        operation: impl Fn(&mut Execute, &BigIntWires) -> BigIntWires,
     ) {
         let input = Input::new(n_bits, [a_val]);
 
@@ -478,25 +468,22 @@ mod tests {
             output_wires,
             output_wires_ids,
             ..
-        }: crate::circuit::streaming::StreamingResult<
-            crate::circuit::streaming::modes::Execute,
-            _,
-            Vec<bool>,
-        > = CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
-            let [a] = input;
+        }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 10_000, |root, input| {
+                let [a] = input;
 
-            let result = operation(root, a);
-            // ARITY CHECK: Verify that half operation returns n_bits wires
-            assert_eq!(
-                result.bits.len(),
-                n_bits,
-                "Arity check failed: expected {} wires, got {}",
-                n_bits,
-                result.bits.len()
-            );
+                let result = operation(root, a);
+                // ARITY CHECK: Verify that half operation returns n_bits wires
+                assert_eq!(
+                    result.bits.len(),
+                    n_bits,
+                    "Arity check failed: expected {} wires, got {}",
+                    n_bits,
+                    result.bits.len()
+                );
 
-            result.to_wires_vec()
-        });
+                result.to_wires_vec()
+            });
 
         let actual_fn = output_wires_ids
             .iter()
@@ -553,10 +540,10 @@ mod tests {
             k: BigUint,
         }
 
-        impl CircuitOutput<Execute> for DivOut {
+        impl CircuitOutput<ExecuteMode> for DivOut {
             type WireRepr = [BigIntWires; 2];
 
-            fn decode(wires: Self::WireRepr, cache: &mut Execute) -> Self {
+            fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
                 let [odd, k] = wires;
 
                 let odd = BigUint::decode(odd, cache);
