@@ -12,7 +12,7 @@ mod garble;
 pub use garble::Garble;
 
 mod garble_mode;
-pub use garble_mode::{GarbleMode, OptionalGarbledWire};
+pub use garble_mode::{GarbleMode, GarbleModeBlake3, OptionalGarbledWire};
 
 pub trait CircuitMode: Sized + fmt::Debug {
     type WireValue: Clone;

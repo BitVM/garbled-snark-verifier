@@ -7,9 +7,12 @@ use rand_chacha::ChaChaRng;
 use crate::{
     Delta, GarbledWire, Gate, S, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
-    core::gate::garbling::{Blake3Hasher, garble},
+    core::gate::garbling::{Blake3Hasher, GateHasher, garble},
     storage::{Credits, Storage},
 };
+
+/// Type alias for GarbleMode with Blake3 hasher (default)
+pub type GarbleModeBlake3 = GarbleMode<Blake3Hasher>;
 
 /// Storage representation for garbled wires
 #[derive(Clone, Debug, Default)]
@@ -21,7 +24,7 @@ pub struct OptionalGarbledWire {
 pub type GarbledTableEntry = (usize, S);
 
 /// Garble mode - generates garbled circuits with streaming output
-pub struct GarbleMode {
+pub struct GarbleMode<H: GateHasher = Blake3Hasher> {
     rng: ChaChaRng,
     delta: Delta,
     gate_index: usize,
@@ -30,9 +33,10 @@ pub struct GarbleMode {
     // Store the constant wires
     false_wire: GarbledWire,
     true_wire: GarbledWire,
+    _hasher: std::marker::PhantomData<H>,
 }
 
-impl GarbleMode {
+impl<H: GateHasher> GarbleMode<H> {
     pub fn new(capacity: usize, seed: u64, output_sender: mpsc::Sender<GarbledTableEntry>) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seed);
         let delta = Delta::generate(&mut rng);
@@ -48,6 +52,7 @@ impl GarbleMode {
             output_sender,
             false_wire,
             true_wire,
+            _hasher: std::marker::PhantomData,
         }
     }
 
@@ -68,7 +73,7 @@ impl GarbleMode {
     }
 }
 
-impl std::fmt::Debug for GarbleMode {
+impl<H: GateHasher> std::fmt::Debug for GarbleMode<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GarbleMode")
             .field("gate_index", &self.gate_index)
@@ -77,7 +82,7 @@ impl std::fmt::Debug for GarbleMode {
     }
 }
 
-impl CircuitMode for GarbleMode {
+impl<H: GateHasher> CircuitMode for GarbleMode<H> {
     type WireValue = GarbledWire;
 
     fn false_value(&self) -> GarbledWire {
@@ -125,8 +130,7 @@ impl CircuitMode for GarbleMode {
             }
             _ => {
                 // All other gates use half-gate garbling
-                let (ciphertext, w0) =
-                    garble::<Blake3Hasher>(gate_id, gate.gate_type, &a, &b, &self.delta);
+                let (ciphertext, w0) = garble::<H>(gate_id, gate.gate_type, &a, &b, &self.delta);
 
                 let c = GarbledWire::new(w0, w0 ^ &self.delta);
                 (c, Some(ciphertext))

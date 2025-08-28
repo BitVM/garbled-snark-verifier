@@ -8,9 +8,9 @@ use crate::{
     S, WireId,
     circuit::streaming::{
         component_meta::ComponentMetaBuilder,
-        modes::{Execute, ExecuteMode, GarbleMode},
+        modes::{Execute, ExecuteMode, GarbleMode, GarbleModeBlake3},
     },
-    core::gate_type::GateCount,
+    core::{gate::garbling::GateHasher, gate_type::GateCount},
 };
 
 mod into_wire_list;
@@ -158,25 +158,44 @@ impl CircuitBuilder<ExecuteMode> {
     }
 }
 
-impl CircuitBuilder<GarbleMode> {
+impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
     pub fn streaming_garbling<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
         output_sender: mpsc::Sender<(usize, S)>,
         f: F,
-    ) -> StreamingResult<GarbleMode, I, O>
+    ) -> StreamingResult<GarbleMode<H>, I, O>
     where
-        I: CircuitInput + EncodeInput<<GarbleMode as CircuitMode>::WireValue>,
-        O: CircuitOutput<GarbleMode>,
+        I: CircuitInput + EncodeInput<<GarbleMode<H> as CircuitMode>::WireValue>,
+        O: CircuitOutput<GarbleMode<H>>,
         O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<GarbleMode>, &I::WireRepr) -> O::WireRepr,
+        F: Fn(&mut StreamingMode<GarbleMode<H>>, &I::WireRepr) -> O::WireRepr,
     {
         CircuitBuilder::run_streaming(
             inputs,
             GarbleMode::new(live_wires_capacity, seed, output_sender),
             f,
         )
+    }
+}
+
+// Convenience impl for Blake3 (backward compatibility)
+impl CircuitBuilder<GarbleModeBlake3> {
+    pub fn streaming_garbling_blake3<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        seed: u64,
+        output_sender: mpsc::Sender<(usize, S)>,
+        f: F,
+    ) -> StreamingResult<GarbleModeBlake3, I, O>
+    where
+        I: CircuitInput + EncodeInput<<GarbleModeBlake3 as CircuitMode>::WireValue>,
+        O: CircuitOutput<GarbleModeBlake3>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
+    {
+        Self::streaming_garbling(inputs, live_wires_capacity, seed, output_sender, f)
     }
 }
 

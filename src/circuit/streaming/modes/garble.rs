@@ -1,6 +1,6 @@
 use std::{collections::HashMap, iter, sync::mpsc};
 
-pub use super::garble_mode::{GarbleMode, GarbledTableEntry};
+pub use super::garble_mode::{GarbleMode, GarbleModeBlake3, GarbledTableEntry};
 use crate::{
     GarbledWire, WireId,
     circuit::streaming::{
@@ -8,20 +8,20 @@ use crate::{
         component_key::ComponentKey,
         streaming_mode::{StreamingContext, StreamingMode},
     },
-    core::gate_type::GateCount,
+    core::{gate::garbling::GateHasher, gate_type::GateCount},
     storage::Credits,
 };
 
 const ROOT_KEY: ComponentKey = [0u8; 8];
 
 /// Storage type alias for GarbleMode
-pub type GarbleContext = StreamingContext<GarbleMode>;
+pub type GarbleContext = StreamingContext<GarbleModeBlake3>;
 
 /// Type alias for backward compatibility - Garble is now StreamingMode<GarbleMode>
-pub type Garble = StreamingMode<GarbleMode>;
+pub type Garble = StreamingMode<GarbleModeBlake3>;
 
 // Extension methods for StreamingContext<GarbleMode>
-impl StreamingContext<GarbleMode> {
+impl<H: GateHasher> StreamingContext<GarbleMode<H>> {
     pub fn pop_credits(&mut self, len: usize) -> Vec<Credits> {
         let stack = self.stack.last_mut().unwrap();
 
@@ -43,7 +43,7 @@ impl Garble {
         output_sender: mpsc::Sender<GarbledTableEntry>,
     ) -> Self {
         StreamingMode::ExecutionPass(StreamingContext {
-            mode: GarbleMode::new(capacity, seed, output_sender),
+            mode: GarbleModeBlake3::new(capacity, seed, output_sender),
             stack: vec![],
             templates: HashMap::default(),
             gate_count: GateCount::default(),

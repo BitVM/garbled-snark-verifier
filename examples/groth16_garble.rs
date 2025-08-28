@@ -11,11 +11,13 @@ use ark_relations::{
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
-    self as gsv, Delta, GarbledWire, WireId, circuit::streaming::StreamingResult,
+    self as gsv, AesNiHasher, Delta, GarbledWire, WireId, circuit::streaming::StreamingResult,
 };
 use gsv::{
     FrWire, G1Wire,
-    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
+    circuit::streaming::{
+        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject, modes::GarbleMode,
+    },
     groth16_verify,
 };
 use rand::SeedableRng;
@@ -216,16 +218,17 @@ fn main() {
     println!("Starting garbling of Groth16 verification circuit...");
 
     // 4) Run the streaming garbling of the Groth16 verifier gadget
-    let _result: StreamingResult<_, _, Vec<GarbledWire>> = CircuitBuilder::streaming_garbling(
-        inputs,
-        40_000, // wire capacity
-        42,     // garbling seed
-        sender,
-        |ctx, wires| {
-            let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
-            vec![ok]
-        },
-    );
+    let _result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
+        CircuitBuilder::streaming_garbling(
+            inputs,
+            40_000, // wire capacity
+            42,     // garbling seed
+            sender,
+            |ctx, wires| {
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+                vec![ok]
+            },
+        );
 
     println!("Garbling complete!");
 
