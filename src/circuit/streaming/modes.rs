@@ -2,8 +2,8 @@ use std::{collections::HashMap, fmt, num::NonZero};
 
 use crate::{EvaluatedWire, Gate, WireId, storage::Credits};
 
-mod execute;
-pub use execute::Execute;
+mod streaming_mode;
+pub use streaming_mode::Execute;
 
 mod execute_mode;
 pub use execute_mode::{ExecuteMode, OptionalBoolean};
