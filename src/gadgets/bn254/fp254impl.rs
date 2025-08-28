@@ -125,7 +125,7 @@ pub trait Fp254Impl {
     ) -> BigIntWires {
         assert_eq!(a.len(), Self::N_BITS);
         if b.is_zero() {
-            return a.clone();
+            return (*a).clone();
         }
 
         let mut wires_1 = bigint::add_constant(circuit, a, &BigUint::from(*b));
@@ -177,7 +177,7 @@ pub trait Fp254Impl {
 
         let shift_wire = FALSE_WIRE;
 
-        let mut shifted_a = a.clone();
+        let mut shifted_a = (*a).clone();
         let u = shifted_a.pop().unwrap();
         shifted_a.insert(0, shift_wire);
 
@@ -267,7 +267,7 @@ pub trait Fp254Impl {
         }
 
         if b == &Self::as_montgomery(ark_bn254::Fq::ONE) {
-            return a.clone();
+            return (*a).clone();
         }
 
         let mul_circuit = bigint::mul_by_constant(circuit, a, &b.into_bigint().into());
@@ -309,7 +309,7 @@ pub trait Fp254Impl {
     fn montgomery_reduce<C: CircuitContext>(circuit: &mut C, x: &BigIntWires) -> BigIntWires {
         assert_eq!(x.len(), 2 * Self::N_BITS);
 
-        let (x_low, x_high) = x.clone().split_at(254);
+        let (x_low, x_high) = (*x).clone().split_at(254);
 
         let q = bigint::mul_by_constant_modulo_power_two(
             circuit,
@@ -360,20 +360,12 @@ pub trait Fp254Impl {
                 wires
             }
 
-            fn from_wires(wires: &[WireId]) -> Option<Self> {
-                if wires.len() % 5 != 0 {
-                    return None;
-                }
-
-                let part_size = wires.len() / 5;
-
-                // Split wires into 5 equal parts
-                let u = BigIntWires::from_bits(wires[0..part_size].iter().copied());
-                let v = BigIntWires::from_bits(wires[part_size..2 * part_size].iter().copied());
-                let r = BigIntWires::from_bits(wires[2 * part_size..3 * part_size].iter().copied());
-                let s = BigIntWires::from_bits(wires[3 * part_size..4 * part_size].iter().copied());
-                let k = BigIntWires::from_bits(wires[4 * part_size..5 * part_size].iter().copied());
-
+            fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
+                let u = BigIntWires::from_wire_iter(iter)?;
+                let v = BigIntWires::from_wire_iter(iter)?;
+                let r = BigIntWires::from_wire_iter(iter)?;
+                let s = BigIntWires::from_wire_iter(iter)?;
+                let k = BigIntWires::from_wire_iter(iter)?;
                 Some(Self { u, v, r, s, k })
             }
         }
@@ -405,7 +397,7 @@ pub trait Fp254Impl {
             input = circuit.with_named_child(
                 crate::component_key!("inverse_iteration", 5 * Self::N_BITS, input_wires_len),
                 input_wires,
-                |circuit| {
+                |circuit, _inputs| {
                     let IterationContext {
                         mut u,
                         mut v,
@@ -549,8 +541,9 @@ pub trait Fp254Impl {
                 2 * Self::N_BITS,
                 input_wires_len
             ),
-            input_wires,
-            |circuit| {
+            (s.clone(), even_part.clone()),
+            |circuit, inputs| {
+                let (s, even_part) = inputs;
                 let mut s = s.clone();
                 let mut even_part = even_part.clone();
 
@@ -571,7 +564,7 @@ pub trait Fp254Impl {
                             input_wires_len
                         ),
                         input_wires,
-                        |circuit| {
+                        |circuit, _inputs| {
                             let mut s = s.clone();
                             let mut even_part = even_part.clone();
 
@@ -613,8 +606,9 @@ pub trait Fp254Impl {
                 2 * Self::N_BITS,
                 input_wires_len
             ),
-            input_wires,
-            |circuit| {
+            (s.clone(), k.clone()),
+            |circuit, inputs| {
+                let (s, k) = inputs;
                 let mut s = s.clone();
                 let mut k = k.clone();
 
@@ -631,7 +625,7 @@ pub trait Fp254Impl {
                             input_wires_len
                         ),
                         input_wires,
-                        |circuit| {
+                        |circuit, _inputs| {
                             let mut s = s.clone();
                             let mut k = k.clone();
 
@@ -702,7 +696,7 @@ pub trait Fp254Impl {
         }
 
         if exp.is_one() {
-            return a.clone();
+            return (*a).clone();
         }
 
         let b_bits = bigint::bits_from_biguint(exp);
@@ -712,7 +706,7 @@ pub trait Fp254Impl {
             i -= 1;
         }
 
-        let mut result = a.clone();
+        let mut result = (*a).clone();
         for b_bit in b_bits.iter().rev().skip(len - i) {
             let result_square = Self::square_montgomery(circuit, &result);
 
@@ -723,7 +717,7 @@ pub trait Fp254Impl {
             }
         }
 
-        result
+        result.clone()
     }
 
     #[bn_component(arity = "Self::N_BITS")]

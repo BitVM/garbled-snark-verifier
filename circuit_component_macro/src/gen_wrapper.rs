@@ -52,24 +52,71 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         .cloned()
         .collect();
 
-    // Generate input wire collection in the original parameter order,
-    // skipping any parameters marked as ignored. Ignored params must not
-    // appear in the generated code path invoking WiresObject to avoid
-    // trait requirements on non-wire types.
-    let input_wire_collection = if included_param_idents.is_empty() {
-        quote! { Vec::new() }
-    } else {
-        let idents_for_wires = included_param_idents;
+    // Create mapping from parameter names to their original types for reference detection
+    let param_name_to_type: std::collections::HashMap<String, &syn::Type> = ordered_param_idents
+        .iter()
+        .zip(ordered_param_types.iter())
+        .map(|(ident, ty)| (ident.to_string(), *ty))
+        .collect();
 
-        quote! {
-            {
-                let mut input_wires = Vec::new();
-                #(
-                    input_wires.extend(crate::circuit::streaming::WiresObject::to_wires_vec(&#idents_for_wires));
-                )*
-                input_wires
+    // Generate input wire object construction in the original parameter order,
+    // skipping any parameters marked as ignored. For reference parameters,
+    // we need to clone them to create owned types for WiresObject.
+    let input_wires_object = if included_param_idents.is_empty() {
+        quote! { Vec::<crate::WireId>::new() }
+    } else if included_param_idents.len() == 1 {
+        let single_param = &included_param_idents[0];
+        let param_name = single_param.to_string();
+
+        // Check if we need to clone a reference parameter
+        if param_name_to_type
+            .get(&param_name)
+            .map_or(false, |ty| matches!(ty, syn::Type::Reference(_)))
+        {
+            // For slice types, convert to Vec
+            if param_name_to_type.get(&param_name).map_or(false, |ty| {
+                if let syn::Type::Reference(ref_ty) = ty {
+                    matches!(&*ref_ty.elem, syn::Type::Slice(_))
+                } else {
+                    false
+                }
+            }) {
+                quote! { #single_param.to_vec() }
+            } else {
+                quote! { #single_param.clone() }
             }
+        } else {
+            quote! { #single_param }
         }
+    } else {
+        // For multiple parameters, clone reference parameters as needed
+        let param_expressions: Vec<_> = included_param_idents
+            .iter()
+            .map(|ident| {
+                let param_name = ident.to_string();
+                if param_name_to_type
+                    .get(&param_name)
+                    .map_or(false, |ty| matches!(ty, syn::Type::Reference(_)))
+                {
+                    // For slice types, convert to Vec
+                    if param_name_to_type.get(&param_name).map_or(false, |ty| {
+                        if let syn::Type::Reference(ref_ty) = ty {
+                            matches!(&*ref_ty.elem, syn::Type::Slice(_))
+                        } else {
+                            false
+                        }
+                    }) {
+                        quote! { #ident.to_vec() }
+                    } else {
+                        quote! { #ident.clone() }
+                    }
+                } else {
+                    quote! { #ident }
+                }
+            })
+            .collect();
+
+        quote! { (#(#param_expressions,)*) }
     };
 
     // Determine return type based on the original function
@@ -101,7 +148,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
                 concat!(module_path!(), "::", #fn_name_str),
                 [] as [(&str, &[u8]); 0],
                 #arity_expr,
-                input_wires.len()
+                crate::circuit::streaming::WiresObject::to_wires_vec(&#input_wires_object).len()
             )
         }
     } else {
@@ -135,9 +182,89 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
                     concat!(module_path!(), "::", #fn_name_str),
                     params_refs,
                     #arity_expr,
-                    input_wires.len()
+                    crate::circuit::streaming::WiresObject::to_wires_vec(&#input_wires_object).len()
                 )
             }
+        }
+    };
+
+    // Helper function to check if we should avoid double referencing
+    let is_already_ref = |param_name: &str| -> bool {
+        if let Some(ty) = param_name_to_type.get(param_name) {
+            matches!(ty, syn::Type::Reference(_))
+        } else {
+            false
+        }
+    };
+
+    // Generate the unpacking code based on the number of included parameters
+    let unpack_inputs = if included_param_idents.is_empty() {
+        // No unpacking needed for empty inputs
+        quote! {}
+    } else if included_param_idents.len() == 1 {
+        let single_param = &included_param_idents[0];
+        let param_name = single_param.to_string();
+
+        // Check if original parameter was a reference type
+        if is_already_ref(&param_name) {
+            // For slice parameters, convert Vec back to slice reference
+            if param_name_to_type.get(&param_name).map_or(false, |ty| {
+                if let syn::Type::Reference(ref_ty) = ty {
+                    matches!(&*ref_ty.elem, syn::Type::Slice(_))
+                } else {
+                    false
+                }
+            }) {
+                quote! {
+                    let #single_param = inputs.clone();
+                    let #single_param = #single_param.as_slice();
+                }
+            } else {
+                quote! {
+                    let #single_param = inputs.clone();
+                    let #single_param = &#single_param;
+                }
+            }
+        } else {
+            quote! { let #single_param = inputs.clone(); }
+        }
+    } else {
+        // For multiple parameters, unpack tuple and create reference bindings as needed
+        let tuple_destructure: Vec<_> = included_param_idents
+            .iter()
+            .map(|ident| {
+                quote! { #ident }
+            })
+            .collect();
+
+        let ref_bindings: Vec<_> = included_param_idents
+            .iter()
+            .map(|ident| {
+                let param_name = ident.to_string();
+                if is_already_ref(&param_name) {
+                    // For slice parameters, convert Vec back to slice reference
+                    if param_name_to_type.get(&param_name).map_or(false, |ty| {
+                        if let syn::Type::Reference(ref_ty) = ty {
+                            matches!(&*ref_ty.elem, syn::Type::Slice(_))
+                        } else {
+                            false
+                        }
+                    }) {
+                        quote! { let #ident = #ident.as_slice(); }
+                    } else {
+                        // For other reference parameters, create reference binding
+                        quote! { let #ident = &#ident; }
+                    }
+                } else {
+                    // For value parameters, use directly - no rebinding at all!
+                    quote! {}
+                }
+            })
+            .collect();
+
+        quote! {
+            let (#(#tuple_destructure,)*) = inputs.clone();
+            #(#ref_bindings)*
         }
     };
 
@@ -147,9 +274,11 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
             #context_param_name: #context_param_type,
             #(#ordered_param_idents: #ordered_param_types),*
         ) #return_type #where_clause {
-            let input_wires = #input_wire_collection;
+            let input_wires_object = #input_wires_object;
 
-            #context_param_name.with_named_child((#key_generation), input_wires, |comp| {
+            #context_param_name.with_named_child((#key_generation), input_wires_object, |comp, inputs| {
+                // Unpack inputs into individual variables
+                #unpack_inputs
                 #transformed_body
             }, #arity_expr)
         }

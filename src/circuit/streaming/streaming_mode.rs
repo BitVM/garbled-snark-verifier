@@ -181,13 +181,14 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
         }
     }
 
-    fn with_named_child<O: WiresObject>(
+    fn with_named_child<I: WiresObject, O: WiresObject>(
         &mut self,
         key: ComponentKey,
-        input_wires: Vec<WireId>,
-        f: impl Fn(&mut Self) -> O,
+        inputs: I,
+        f: impl Fn(&mut Self, &I) -> O,
         arity: usize,
     ) -> O {
+        let input_wires = inputs.to_wires_vec();
         match self {
             StreamingMode::MetadataPass(meta) => {
                 debug!("with_named_child: metapass enter name={key:?} arity={arity}");
@@ -198,7 +199,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                     .take(arity)
                     .collect::<Vec<_>>();
 
-                O::from_wires(&mock_output).unwrap()
+                O::from_wire_iter(&mut mock_output.into_iter()).unwrap()
             }
             StreamingMode::ExecutionPass(ctx) => {
                 debug!("with_named_child: enter name={key:?} arity={arity}");
@@ -217,7 +218,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                     );
                     let child_component_meta = ComponentMetaBuilder::new(&input_wires);
                     let mut child_mode = StreamingMode::<M>::MetadataPass(child_component_meta);
-                    let meta_wires_output = f(&mut child_mode).to_wires_vec();
+                    let meta_wires_output = f(&mut child_mode, &inputs).to_wires_vec();
 
                     match child_mode {
                         StreamingMode::MetadataPass(meta) => meta.build(&meta_wires_output),
@@ -263,7 +264,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                 ctx.stack.push(instance);
 
                 // Now call f with self
-                let output = f(self);
+                let output = f(self, &inputs);
 
                 // Pop from stack
                 if let StreamingMode::ExecutionPass(ctx) = self {

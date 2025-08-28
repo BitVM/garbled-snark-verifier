@@ -41,7 +41,7 @@ impl WiresObject for &Fq2 {
         bits1.iter().chain(bits2.iter()).copied().collect()
     }
 
-    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
         // Can't construct a reference from owned data
         None
     }
@@ -57,13 +57,9 @@ impl WiresObject for Fq2 {
         bits1.iter().chain(bits2.iter()).copied().collect()
     }
 
-    fn from_wires(wires: &[WireId]) -> Option<Self> {
-        assert_eq!(wires.len(), Self::N_BITS);
-
-        let mid = wires.len() / 2;
-        let fq0 = Fq::from_wires(&wires[0..mid])?;
-        let fq1 = Fq::from_wires(&wires[mid..])?;
-
+    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
+        let fq0 = Fq::from_wire_iter(iter)?;
+        let fq1 = Fq::from_wire_iter(iter)?;
         Some(Self([fq0, fq1]))
     }
 }

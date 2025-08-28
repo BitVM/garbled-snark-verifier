@@ -407,7 +407,8 @@ mod exec_test {
                 root.add_gate(Gate::and(*flag, nonce[0], result));
                 root.with_child(
                     vec![result],
-                    |child| {
+                    |child, inputs| {
+                        let result = inputs[0];
                         let result2 = child.issue_wire();
                         child.add_gate(Gate::and(result, result, result2));
                         vec![result2]
@@ -493,9 +494,9 @@ mod exec_test {
                 // Test XOR of two nonce bits
                 let result2 = root.with_child(
                     vec![nonce[1], nonce[2]],
-                    |child| {
+                    |child, inputs| {
                         let result2 = child.issue_wire();
-                        child.add_gate(Gate::xor(nonce[1], nonce[2], result2));
+                        child.add_gate(Gate::xor(inputs[0], inputs[1], result2));
                         result2
                     },
                     1,
@@ -524,8 +525,8 @@ mod exec_test {
 
                 // Try to use parent wire without declaring it as input - should panic
                 root.with_child(
-                    vec![],
-                    |child| {
+                    Vec::<WireId>::new(),
+                    |child, _inputs| {
                         let result = child.issue_wire();
                         // This should panic because parent_secret is not in input_wires
                         child.add_gate(Gate::and(WireId(999), TRUE_WIRE, result));
@@ -550,7 +551,7 @@ mod exec_test {
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 root.with_child(
                     vec![inputs_wire[0]],
-                    |_child| {
+                    |_child, _inputs| {
                         // Child declares an output but never creates it
                         vec![WireId(999)]
                     },
@@ -569,8 +570,8 @@ mod exec_test {
         let output: StreamingResult<Execute, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, _inputs_wire| {
                 let result = root.with_child(
-                    vec![],
-                    |child| {
+                    Vec::<WireId>::new(),
+                    |child, _inputs| {
                         // Use constants without passing them as inputs
                         let result = child.issue_wire();
                         child.add_gate(Gate::and(TRUE_WIRE, FALSE_WIRE, result));
@@ -598,7 +599,8 @@ mod exec_test {
                 for _ in 0..10 {
                     current = root.with_child(
                         vec![current],
-                        |child| {
+                        |child, inputs| {
+                            let current = inputs[0];
                             let result = child.issue_wire();
                             child.add_gate(Gate::and(current, TRUE_WIRE, result));
                             result
@@ -619,7 +621,8 @@ mod exec_test {
                 for _ in 0..10 {
                     current = root.with_child(
                         vec![current],
-                        |child| {
+                        |child, inputs| {
+                            let current = inputs[0];
                             let result = child.issue_wire();
                             child.add_gate(Gate::and(current, TRUE_WIRE, result));
                             result
@@ -644,9 +647,10 @@ mod exec_test {
                 // First child creates a wire
                 let child1_output = root.with_child(
                     vec![inputs_wire[0]],
-                    |child| {
+                    |child, inputs| {
+                        let input0 = inputs[0];
                         let internal = child.issue_wire();
-                        child.add_gate(Gate::and(inputs_wire[0], TRUE_WIRE, internal));
+                        child.add_gate(Gate::and(input0, TRUE_WIRE, internal));
                         internal
                     },
                     1,
@@ -655,10 +659,11 @@ mod exec_test {
                 // Second child should not be able to see first child's internal wires
                 let child2_output = root.with_child(
                     vec![inputs_wire[1]],
-                    |child| {
+                    |child, inputs| {
+                        let input1 = inputs[0];
                         let result = child.issue_wire();
                         // This uses only declared inputs and constants
-                        child.add_gate(Gate::or(inputs_wire[1], FALSE_WIRE, result));
+                        child.add_gate(Gate::or(input1, FALSE_WIRE, result));
                         result
                     },
                     1,
@@ -698,8 +703,8 @@ mod exec_test {
 
                 // Use constants in child
                 let child_result = root.with_child(
-                    vec![],
-                    |child| {
+                    Vec::<WireId>::new(),
+                    |child, _inputs| {
                         let result = child.issue_wire();
                         child.add_gate(Gate::or(TRUE_WIRE, FALSE_WIRE, result));
                         result
@@ -727,7 +732,8 @@ mod exec_test {
                 for _ in 0..1000 {
                     current = root.with_child(
                         vec![current],
-                        |child| {
+                        |child, inputs| {
+                            let current = inputs[0];
                             let result = child.issue_wire();
                             child.add_gate(Gate::and(current, TRUE_WIRE, result));
                             result

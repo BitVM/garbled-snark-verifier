@@ -99,7 +99,7 @@ pub fn decompress_g1_from_compressed<C: CircuitContext>(
     let z = Fq::new_constant(&one_m).expect("const one mont");
 
     G1Projective {
-        x: x_m.clone(),
+        x: (*x_m).clone(),
         y,
         z,
     }

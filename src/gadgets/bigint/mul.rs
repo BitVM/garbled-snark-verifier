@@ -72,8 +72,8 @@ pub fn mul_karatsuba<C: CircuitContext>(
     let len_0 = len / 2;
     let len_1 = len.div_ceil(2);
 
-    let (a_0, a_1) = a.clone().split_at(len_0);
-    let (b_0, b_1) = b.clone().split_at(len_0);
+    let (a_0, a_1) = (*a).clone().split_at(len_0);
+    let (b_0, b_1) = (*b).clone().split_at(len_0);
 
     // Use optimal algorithm choice for recursive calls
     info!(
@@ -243,7 +243,7 @@ pub fn mul_by_constant<C: CircuitContext>(
         acc = circuit.with_named_child(
             crate::component_key!("mul_by_const_chunk", i = &i_bytes[..], c = &c_bytes[..] ; len * 2, input_wires_len),
             input,
-            move |ctx| {
+            move |ctx, _inputs| {
                 let mut res = acc_in.clone();
 
                 for &i in chunk {
@@ -313,7 +313,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
         result_bits = circuit.with_named_child(
             crate::component_key!("mul_by_const_mod_2p", a_len = &a_len_bytes[..], power = &power_bytes[..], chunk_idx = &chunk_idx_bytes[..] ; power, input_wires_len),
             input,
-            move |ctx| {
+            move |ctx, _inputs| {
                 let mut res = prev.clone();
 
                 for &i in &chunk_indices {

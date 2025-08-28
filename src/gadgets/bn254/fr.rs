@@ -55,7 +55,7 @@ impl WiresObject for &Fr {
         self.0.iter().copied().collect()
     }
 
-    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
         // Can't construct a reference from owned data
         None
     }
@@ -66,11 +66,8 @@ impl WiresObject for Fr {
         self.0.iter().copied().collect()
     }
 
-    fn from_wires(wires: &[WireId]) -> Option<Self> {
-        if wires.len() != Self::N_BITS {
-            return None;
-        }
-        Some(Self(BigIntWires::from_wires(wires)?))
+    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
+        Some(Self(BigIntWires::from_wire_iter(iter)?))
     }
 }
 

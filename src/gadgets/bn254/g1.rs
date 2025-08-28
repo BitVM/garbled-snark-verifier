@@ -31,7 +31,7 @@ impl WiresObject for &G1Projective {
         wires
     }
 
-    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
         // Can't construct a reference from owned data
         None
     }
@@ -46,16 +46,10 @@ impl WiresObject for G1Projective {
         wires
     }
 
-    fn from_wires(wires: &[WireId]) -> Option<Self> {
-        if wires.len() != 3 * Fq::N_BITS {
-            return None;
-        }
-
-        let part_size = wires.len() / 3;
-        let x = Fq::from_wires(&wires[0..part_size])?;
-        let y = Fq::from_wires(&wires[part_size..2 * part_size])?;
-        let z = Fq::from_wires(&wires[2 * part_size..])?;
-
+    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
+        let x = Fq::from_wire_iter(iter)?;
+        let y = Fq::from_wire_iter(iter)?;
+        let z = Fq::from_wire_iter(iter)?;
         Some(Self { x, y, z })
     }
 }
@@ -377,7 +371,7 @@ impl G1Projective {
     ) -> G1Projective {
         assert_eq!(scalars.len(), bases.len());
         let mut to_be_added = Vec::new();
-        for (s, base) in zip(scalars, bases) {
+        for (s, base) in zip(scalars.iter(), bases) {
             let result = Self::scalar_mul_by_constant_base_montgomery::<W, _>(circuit, s, base);
             to_be_added.push(result);
         }

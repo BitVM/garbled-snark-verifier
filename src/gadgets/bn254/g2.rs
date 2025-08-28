@@ -30,7 +30,7 @@ impl WiresObject for &G2Projective {
         wires
     }
 
-    fn from_wires(_wires: &[WireId]) -> Option<Self> {
+    fn from_wire_iter(_iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
         // Can't construct a reference from owned data
         None
     }
@@ -45,16 +45,10 @@ impl WiresObject for G2Projective {
         wires
     }
 
-    fn from_wires(wires: &[WireId]) -> Option<Self> {
-        if wires.len() != 3 * Fq2::N_BITS {
-            return None;
-        }
-
-        let part_size = wires.len() / 3;
-        let x = Fq2::from_wires(&wires[0..part_size])?;
-        let y = Fq2::from_wires(&wires[part_size..2 * part_size])?;
-        let z = Fq2::from_wires(&wires[2 * part_size..])?;
-
+    fn from_wire_iter(iter: &mut impl Iterator<Item = WireId>) -> Option<Self> {
+        let x = Fq2::from_wire_iter(iter)?;
+        let y = Fq2::from_wire_iter(iter)?;
+        let z = Fq2::from_wire_iter(iter)?;
         Some(Self { x, y, z })
     }
 }

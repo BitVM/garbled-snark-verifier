@@ -349,13 +349,14 @@ impl CircuitContext for ComponentMetaBuilder {
         self.bump_credit_for_wire(gate.wire_b, 1);
     }
 
-    fn with_named_child<O: WiresObject>(
+    fn with_named_child<I: WiresObject, O: WiresObject>(
         &mut self,
         _k: ComponentKey,
-        input_wires: Vec<WireId>,
-        _f: impl Fn(&mut Self) -> O,
+        inputs: I,
+        _f: impl Fn(&mut Self, &I) -> O,
         arity: usize,
     ) -> O {
+        let input_wires = inputs.to_wires_vec();
         // Count reads on child inputs.
         for &w in &input_wires {
             self.bump_credit_for_wire(w, 1);
@@ -364,7 +365,7 @@ impl CircuitContext for ComponentMetaBuilder {
         // Produce mock outputs as newly issued internal wires.
         let mock_output = (0..arity).map(|_| self.issue_wire()).collect::<Vec<_>>();
 
-        O::from_wires(&mock_output).unwrap()
+        O::from_wire_iter(&mut mock_output.into_iter()).unwrap()
     }
 }
 
@@ -432,7 +433,7 @@ mod tests {
         // Read via child: input 7 and internal 8; child yields two new internal outputs (10, 11)
         let _child_out: [WireId; 2] = b.with_child(
             vec![WireId(7), w8],
-            |_b| [_b.issue_wire(), _b.issue_wire()],
+            |_b, _inputs| [_b.issue_wire(), _b.issue_wire()],
             2,
         );
 
@@ -506,7 +507,7 @@ mod tests {
         b2.add_gate(Gate::and(WireId(1005), x8, x9));
         let _child2: [WireId; 2] = b2.with_child(
             vec![WireId(1007), x8],
-            |_b| [_b.issue_wire(), _b.issue_wire()],
+            |_b, _inputs| [_b.issue_wire(), _b.issue_wire()],
             2,
         );
         let template2 = b2.build(&[WireId(1007), x9, TRUE_WIRE, WireId(1010)]);

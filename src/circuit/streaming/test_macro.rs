@@ -344,7 +344,8 @@ mod tests {
                 for _ in 0..FANOUT {
                     let w = ctx.with_child(
                         vec![seed],
-                        |child| {
+                        |child, inputs| {
+                            let seed = inputs[0];
                             let out = expand_tree_eval(child, seed, depth - 1);
                             // Return a bridged value present in the child frame
                             let bridged = child.issue_wire();
