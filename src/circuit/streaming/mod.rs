@@ -25,6 +25,9 @@ pub use component_key::{generate_component_key, hash_param};
 mod offcircuit_param;
 pub use offcircuit_param::OffCircuitParam;
 
+mod component_template_pool;
+pub use component_template_pool::ComponentTemplatePool;
+
 /// Macro for generating component keys with optional parameters
 ///
 /// # Examples

@@ -1,10 +1,10 @@
-use std::{collections::HashMap, iter, sync::mpsc};
+use std::{iter, sync::mpsc};
 
 pub use super::garble_mode::{GarbleMode, GarbleModeBlake3, GarbledTableEntry};
 use crate::{
     GarbledWire, WireId,
     circuit::streaming::{
-        CircuitInput, CircuitMode, EncodeInput,
+        CircuitInput, CircuitMode, ComponentTemplatePool, EncodeInput,
         component_key::ComponentKey,
         streaming_mode::{StreamingContext, StreamingMode},
     },
@@ -45,7 +45,7 @@ impl Garble {
         StreamingMode::ExecutionPass(StreamingContext {
             mode: GarbleModeBlake3::new(capacity, seed, output_sender),
             stack: vec![],
-            templates: HashMap::default(),
+            templates: ComponentTemplatePool::new(),
             gate_count: GateCount::default(),
         })
     }

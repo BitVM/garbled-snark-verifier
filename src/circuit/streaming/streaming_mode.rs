@@ -1,13 +1,12 @@
-use std::{collections::HashMap, iter, num::NonZero};
+use std::{iter, num::NonZero};
 
 use log::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::{
-        CircuitMode, ComponentMetaBuilder, FALSE_WIRE, TRUE_WIRE, WiresObject,
-        component_key::ComponentKey,
-        component_meta::{ComponentMetaInstance, ComponentMetaTemplate},
+        CircuitMode, ComponentMetaBuilder, ComponentTemplatePool, FALSE_WIRE, TRUE_WIRE,
+        WiresObject, component_key::ComponentKey, component_meta::ComponentMetaInstance,
         into_wire_list::FromWires,
     },
     core::gate_type::GateCount,
@@ -20,7 +19,7 @@ use crate::{
 pub struct StreamingContext<M: CircuitMode> {
     pub mode: M,
     pub stack: Vec<ComponentMetaInstance>,
-    pub templates: HashMap<ComponentKey, ComponentMetaTemplate>,
+    pub templates: ComponentTemplatePool,
     pub gate_count: GateCount,
 }
 
@@ -152,39 +151,36 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                     mode, templates, ..
                 } = ctx;
 
-                let instance = templates
-                    .entry(key)
-                    .or_insert_with(|| {
-                        // Calculate the actual number of wires needed from the real input structure
-                        let expected_wire_count = input_wires.len();
+                let template = templates.get_or_insert_with(key, || {
+                    // Calculate the actual number of wires needed from the real input structure
+                    let expected_wire_count = input_wires.len();
 
-                        trace!(
-                            "For key {key:?} generate template: arity {arity}, expected_wire_count: {}",
-                            expected_wire_count
-                        );
+                    trace!(
+                        "For key {key:?} generate template: arity {arity}, expected_wire_count: {}",
+                        expected_wire_count
+                    );
 
-                        let mut child_component_meta =
-                            ComponentMetaBuilder::new(expected_wire_count);
+                    let mut child_component_meta = ComponentMetaBuilder::new(expected_wire_count);
 
-                        // Use clone_from to recreate the input structure with mock wire IDs from child_component_meta
-                        let mock_input =
-                            inputs.clone_from(&mut || child_component_meta.issue_wire());
+                    // Use clone_from to recreate the input structure with mock wire IDs from child_component_meta
+                    let mock_input = inputs.clone_from(&mut || child_component_meta.issue_wire());
 
-                        let mut child_mode = StreamingMode::<M>::MetadataPass(child_component_meta);
-                        let meta_wires_output = f(&mut child_mode, &mock_input).to_wires_vec();
+                    let mut child_mode = StreamingMode::<M>::MetadataPass(child_component_meta);
+                    let meta_wires_output = f(&mut child_mode, &mock_input).to_wires_vec();
 
-                        match child_mode {
-                            StreamingMode::MetadataPass(meta) => meta.build(&meta_wires_output),
-                            _ => unreachable!(),
-                        }
-                    })
-                    .to_instance(&pre_alloc_output_credits, |input_index, credits| {
+                    match child_mode {
+                        StreamingMode::MetadataPass(meta) => meta.build(&meta_wires_output),
+                        _ => unreachable!(),
+                    }
+                });
+
+                let instance =
+                    template.to_instance(&pre_alloc_output_credits, |input_index, credits| {
                         let wire_id = input_wires[input_index];
 
                         if wire_id != TRUE_WIRE && wire_id != FALSE_WIRE {
                             trace!("try to add credits to {wire_id:?}");
-                            mode
-                                .add_credits(&[wire_id], credits);
+                            mode.add_credits(&[wire_id], credits);
                         }
                     });
 

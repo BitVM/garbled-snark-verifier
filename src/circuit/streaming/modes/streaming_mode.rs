@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter};
+use std::iter;
 
 use log::trace;
 
@@ -6,7 +6,7 @@ pub use super::execute_mode::ExecuteMode;
 use crate::{
     CircuitContext, WireId,
     circuit::streaming::{
-        CircuitMode, EncodeInput,
+        CircuitMode, ComponentTemplatePool, EncodeInput,
         component_key::ComponentKey,
         component_meta::ComponentMetaBuilder,
         streaming_mode::{StreamingContext, StreamingMode},
@@ -46,7 +46,7 @@ impl StreamingMode<ExecuteMode> {
         StreamingMode::ExecutionPass(StreamingContext {
             mode: ExecuteMode::with_capacity(capacity),
             stack: vec![],
-            templates: HashMap::default(),
+            templates: ComponentTemplatePool::new(),
             gate_count: GateCount::default(),
         })
     }
@@ -86,9 +86,9 @@ impl<M: CircuitMode> StreamingMode<M> {
                 mode,
                 stack: vec![instance],
                 templates: {
-                    let mut map = HashMap::default();
-                    map.insert(ROOT_KEY, meta);
-                    map
+                    let mut pool = ComponentTemplatePool::new();
+                    pool.insert(ROOT_KEY, meta);
+                    pool
                 },
                 gate_count: GateCount::default(),
             });
