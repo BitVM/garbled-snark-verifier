@@ -25,7 +25,7 @@ pub(crate) fn garble<H: GateHasher>(
     (ct, w)
 }
 
-pub(super) fn degarble<H: GateHasher>(
+pub fn degarble<H: GateHasher>(
     gate_id: GateId,
     gate_type: GateType,
     ciphertext: &crate::S,

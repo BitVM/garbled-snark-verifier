@@ -6,10 +6,12 @@ use crossbeam::channel;
 use log::debug;
 
 use crate::{
-    S, WireId,
+    EvaluatedWire, S, WireId,
     circuit::streaming::{
         component_meta::ComponentMetaBuilder,
-        modes::{Execute, ExecuteMode, GarbleMode, GarbleModeBlake3},
+        modes::{
+            EvaluateMode, EvaluateModeBlake3, Execute, ExecuteMode, GarbleMode, GarbleModeBlake3,
+        },
     },
     core::{gate::garbling::GateHasher, gate_type::GateCount},
 };
@@ -200,6 +202,61 @@ impl CircuitBuilder<GarbleModeBlake3> {
         F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
     {
         Self::streaming_garbling(inputs, live_wires_capacity, seed, output_sender, f)
+    }
+}
+
+impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
+    pub fn streaming_evaluation<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        true_wire: EvaluatedWire,
+        false_wire: EvaluatedWire,
+        ciphertext_receiver: channel::Receiver<(usize, S)>,
+        f: F,
+    ) -> StreamingResult<EvaluateMode<H>, I, O>
+    where
+        I: CircuitInput + EncodeInput<<EvaluateMode<H> as CircuitMode>::WireValue>,
+        O: CircuitOutput<EvaluateMode<H>>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<EvaluateMode<H>>, &I::WireRepr) -> O::WireRepr,
+    {
+        CircuitBuilder::run_streaming(
+            inputs,
+            EvaluateMode::new(
+                live_wires_capacity,
+                true_wire,
+                false_wire,
+                ciphertext_receiver,
+            ),
+            f,
+        )
+    }
+}
+
+// Convenience impl for Blake3 (backward compatibility)
+impl CircuitBuilder<EvaluateModeBlake3> {
+    pub fn streaming_evaluation_blake3<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        true_wire: EvaluatedWire,
+        false_wire: EvaluatedWire,
+        ciphertext_receiver: channel::Receiver<(usize, S)>,
+        f: F,
+    ) -> StreamingResult<EvaluateModeBlake3, I, O>
+    where
+        I: CircuitInput + EncodeInput<<EvaluateModeBlake3 as CircuitMode>::WireValue>,
+        O: CircuitOutput<EvaluateModeBlake3>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<EvaluateModeBlake3>, &I::WireRepr) -> O::WireRepr,
+    {
+        Self::streaming_evaluation(
+            inputs,
+            live_wires_capacity,
+            true_wire,
+            false_wire,
+            ciphertext_receiver,
+            f,
+        )
     }
 }
 
@@ -766,3 +823,7 @@ mod exec_test {
         assert!(output.output_wires[0]); // Should still be true after 1000 AND operations with TRUE
     }
 }
+
+#[cfg(test)]
+#[path = "garble_evaluate_integration_test.rs"]
+mod garble_evaluate_integration_test;
