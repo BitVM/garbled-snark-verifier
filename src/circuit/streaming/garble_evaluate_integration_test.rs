@@ -79,26 +79,13 @@ impl EncodeInput<GarbledWire> for TestCircuitInputs {
         let mut rng = ChaChaRng::seed_from_u64(42);
         let delta = Delta::generate(&mut rng);
 
-        let wire_a = if self.a {
-            GarbledWire::random(&mut rng, &delta)
-        } else {
-            let wire = GarbledWire::random(&mut rng, &delta);
-            // For false: label0 should be the active label
-            wire
-        };
-
-        let wire_b = if self.b {
-            GarbledWire::random(&mut rng, &delta)
-        } else {
-            let wire = GarbledWire::random(&mut rng, &delta);
-            wire
-        };
+        let wire_a = GarbledWire::random(&mut rng, &delta);
+        let wire_b = GarbledWire::random(&mut rng, &delta);
 
         let wire_c = if self.c {
             GarbledWire::random(&mut rng, &delta)
         } else {
-            let wire = GarbledWire::random(&mut rng, &delta);
-            wire
+            GarbledWire::random(&mut rng, &delta)
         };
 
         cache.feed_wire(repr.a, wire_a);

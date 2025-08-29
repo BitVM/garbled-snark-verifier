@@ -94,7 +94,7 @@ fn test_evaluate_mode_basic() {
 
     // XOR of true and false should be true
     assert_eq!(result.output_wires.len(), 1);
-    assert_eq!(result.output_wires[0].value, true);
+    assert!(result.output_wires[0].value);
 
     println!("Test passed: XOR gate evaluation works correctly");
 }
@@ -139,7 +139,7 @@ fn test_evaluate_mode_with_constants() {
     );
 
     // (true XOR true) XOR true = false XOR true = true
-    assert_eq!(result.output_wires[0].value, true);
+    assert!(result.output_wires[0].value);
 
     println!("Test passed: Constant wire evaluation works correctly");
 }

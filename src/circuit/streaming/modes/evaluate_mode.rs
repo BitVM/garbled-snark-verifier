@@ -57,8 +57,8 @@ impl<H: GateHasher> EvaluateMode<H> {
     }
 
     fn consume_ciphertext(&mut self, gate_id: usize) -> Option<S> {
-        // Try to receive the ciphertext for this gate
-        match self.ciphertext_receiver.try_recv() {
+        // Block and wait to receive the ciphertext for this gate
+        match self.ciphertext_receiver.recv() {
             Ok((received_gate_id, ciphertext)) => {
                 if received_gate_id == gate_id {
                     Some(ciphertext)
@@ -70,11 +70,7 @@ impl<H: GateHasher> EvaluateMode<H> {
                     None
                 }
             }
-            Err(channel::TryRecvError::Empty) => {
-                error!("No ciphertext available for gate {}", gate_id);
-                None
-            }
-            Err(channel::TryRecvError::Disconnected) => {
+            Err(channel::RecvError) => {
                 error!("Ciphertext channel disconnected at gate {}", gate_id);
                 None
             }

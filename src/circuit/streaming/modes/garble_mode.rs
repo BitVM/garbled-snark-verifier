@@ -61,6 +61,33 @@ impl<H: GateHasher> GarbleMode<H> {
         }
     }
 
+    /// Generate input wires for Groth16 circuit using deterministic seed
+    /// This allows both garbler and evaluator to create identical input wire structure
+    ///
+    /// # Parameters
+    /// - `seed`: Deterministic seed for wire generation
+    /// - `num_input_wires`: Total number of input wires needed (Fr scalars + G1 points)
+    ///
+    /// # Returns
+    /// - `(Vec<GarbledWire>, GarbledWire, GarbledWire, Delta)`: (input_wires, true_wire, false_wire, delta)
+    pub fn generate_groth16_input_wires(
+        seed: u64,
+        num_input_wires: usize,
+    ) -> (Vec<GarbledWire>, GarbledWire, GarbledWire) {
+        let mut rng = ChaChaRng::seed_from_u64(seed);
+        let delta = Delta::generate(&mut rng);
+
+        // Generate constant wires (true/false)
+        let [false_wire, true_wire] = array::from_fn(|_| GarbledWire::random(&mut rng, &delta));
+
+        // Generate all input wires
+        let input_wires: Vec<GarbledWire> = (0..num_input_wires)
+            .map(|_| GarbledWire::random(&mut rng, &delta))
+            .collect();
+
+        (input_wires, true_wire, false_wire)
+    }
+
     fn next_gate_index(&mut self) -> usize {
         let index = self.gate_index;
         self.gate_index += 1;
