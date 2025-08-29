@@ -68,12 +68,10 @@ impl<H: GateHasher> GarbleMode<H> {
     }
 
     fn stream_table_entry(&mut self, gate_id: usize, entry: Option<S>) {
-        // Only send actual ciphertext entries, not None for free gates
-        if let Some(ciphertext) = entry {
-            // Ignore send errors - receiver might have dropped
-            if let Err(err) = self.output_sender.send((gate_id, ciphertext)) {
-                error!("Error while send gate_id {gate_id} ciphertext: {err}");
-            }
+        if let Some(ciphertext) = entry
+            && let Err(err) = self.output_sender.send((gate_id, ciphertext))
+        {
+            error!("Error while send gate_id {gate_id} ciphertext: {err}");
         }
     }
 }

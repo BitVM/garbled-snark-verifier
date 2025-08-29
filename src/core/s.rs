@@ -129,6 +129,18 @@ impl BitXorAssign<&S> for S {
     }
 }
 
+impl AsRef<[u8]> for S {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8; 16]> for S {
+    fn as_ref(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::SeedableRng;

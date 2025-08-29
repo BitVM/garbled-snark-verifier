@@ -1,3 +1,4 @@
+pub mod ciphertext_hasher;
 pub mod circuit;
 mod core;
 mod gadgets;
@@ -15,6 +16,7 @@ pub use core::{
     wire::{EvaluatedWire, GarbledWire, GarbledWires, WireError, WireId},
 };
 
+pub use ciphertext_hasher::CiphertextHasher;
 pub use circuit::{CircuitContext, CircuitError};
 pub use circuit_component_macro::component;
 // Publicly re-export commonly used BN254 wire types for examples/binaries

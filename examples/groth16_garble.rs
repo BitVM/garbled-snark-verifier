@@ -11,7 +11,8 @@ use ark_relations::{
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
-    self as gsv, AesNiHasher, Delta, GarbledWire, WireId, circuit::streaming::StreamingResult,
+    self as gsv, AesNiHasher, CiphertextHasher, Delta, GarbledWire, WireId,
+    circuit::streaming::StreamingResult,
 };
 use gsv::{
     FrWire, G1Wire,
@@ -215,7 +216,21 @@ fn main() {
     // Create channel for garbled tables
     let (sender, receiver) = crossbeam::channel::unbounded();
 
-    std::thread::spawn(move || while receiver.recv().is_ok() {});
+    std::thread::spawn(move || {
+        println!("Starting ciphertext hashing thread...");
+
+        let use_batched = true;
+
+        let hasher = if use_batched {
+            CiphertextHasher::new_batched()
+        } else {
+            CiphertextHasher::new_sequential()
+        };
+
+        let final_hash = hasher.run(receiver);
+        println!("Final hash: {:02x?}", final_hash);
+        println!("Ciphertext hashing thread completed");
+    });
 
     println!("Starting garbling of Groth16 verification circuit...");
 

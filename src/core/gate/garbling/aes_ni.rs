@@ -9,6 +9,9 @@
 pub(crate) mod aes_ni_impl {
     use core::{arch::x86_64::*, mem::MaybeUninit};
 
+    /// Type alias for 8-block AES operations
+    pub type EightBlocks = ([u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16]);
+
     /// AES-128 round keys (11 x 128-bit)
     pub struct Aes128 {
         round_keys: [__m128i; 11],
@@ -80,6 +83,74 @@ pub(crate) mod aes_ni_impl {
                 (out0, out1)
             }
         }
+
+        /// Encrypt eight blocks in parallel (near-peak throughput on many CPUs).
+        /// Safety: requires AES-NI (the constructor enforces this).
+        #[inline]
+        #[target_feature(enable = "aes")]
+        #[target_feature(enable = "sse2")]
+        pub unsafe fn encrypt8_blocks(&self, blocks: EightBlocks) -> EightBlocks {
+            let (b0, b1, b2, b3, b4, b5, b6, b7) = blocks;
+            unsafe {
+                let mut s0 = _mm_loadu_si128(b0.as_ptr() as *const __m128i);
+                let mut s1 = _mm_loadu_si128(b1.as_ptr() as *const __m128i);
+                let mut s2 = _mm_loadu_si128(b2.as_ptr() as *const __m128i);
+                let mut s3 = _mm_loadu_si128(b3.as_ptr() as *const __m128i);
+                let mut s4 = _mm_loadu_si128(b4.as_ptr() as *const __m128i);
+                let mut s5 = _mm_loadu_si128(b5.as_ptr() as *const __m128i);
+                let mut s6 = _mm_loadu_si128(b6.as_ptr() as *const __m128i);
+                let mut s7 = _mm_loadu_si128(b7.as_ptr() as *const __m128i);
+
+                let rk0 = self.round_keys[0];
+                s0 = _mm_xor_si128(s0, rk0);
+                s1 = _mm_xor_si128(s1, rk0);
+                s2 = _mm_xor_si128(s2, rk0);
+                s3 = _mm_xor_si128(s3, rk0);
+                s4 = _mm_xor_si128(s4, rk0);
+                s5 = _mm_xor_si128(s5, rk0);
+                s6 = _mm_xor_si128(s6, rk0);
+                s7 = _mm_xor_si128(s7, rk0);
+
+                for r in 1..10 {
+                    let rk = self.round_keys[r];
+                    s0 = _mm_aesenc_si128(s0, rk);
+                    s1 = _mm_aesenc_si128(s1, rk);
+                    s2 = _mm_aesenc_si128(s2, rk);
+                    s3 = _mm_aesenc_si128(s3, rk);
+                    s4 = _mm_aesenc_si128(s4, rk);
+                    s5 = _mm_aesenc_si128(s5, rk);
+                    s6 = _mm_aesenc_si128(s6, rk);
+                    s7 = _mm_aesenc_si128(s7, rk);
+                }
+                let rk_last = self.round_keys[10];
+                s0 = _mm_aesenclast_si128(s0, rk_last);
+                s1 = _mm_aesenclast_si128(s1, rk_last);
+                s2 = _mm_aesenclast_si128(s2, rk_last);
+                s3 = _mm_aesenclast_si128(s3, rk_last);
+                s4 = _mm_aesenclast_si128(s4, rk_last);
+                s5 = _mm_aesenclast_si128(s5, rk_last);
+                s6 = _mm_aesenclast_si128(s6, rk_last);
+                s7 = _mm_aesenclast_si128(s7, rk_last);
+
+                let mut o0 = [0u8; 16];
+                let mut o1 = [0u8; 16];
+                let mut o2 = [0u8; 16];
+                let mut o3 = [0u8; 16];
+                let mut o4 = [0u8; 16];
+                let mut o5 = [0u8; 16];
+                let mut o6 = [0u8; 16];
+                let mut o7 = [0u8; 16];
+                _mm_storeu_si128(o0.as_mut_ptr() as *mut __m128i, s0);
+                _mm_storeu_si128(o1.as_mut_ptr() as *mut __m128i, s1);
+                _mm_storeu_si128(o2.as_mut_ptr() as *mut __m128i, s2);
+                _mm_storeu_si128(o3.as_mut_ptr() as *mut __m128i, s3);
+                _mm_storeu_si128(o4.as_mut_ptr() as *mut __m128i, s4);
+                _mm_storeu_si128(o5.as_mut_ptr() as *mut __m128i, s5);
+                _mm_storeu_si128(o6.as_mut_ptr() as *mut __m128i, s6);
+                _mm_storeu_si128(o7.as_mut_ptr() as *mut __m128i, s7);
+                (o0, o1, o2, o3, o4, o5, o6, o7)
+            }
+        }
     }
 
     /// Expand AES-128 key into 11 round keys using AES-NI.
@@ -141,6 +212,12 @@ pub(crate) mod aes_ni_impl {
         Some(unsafe { cipher.encrypt2_blocks(b0, b1) })
     }
 
+    /// Safe wrapper: eight blocks in parallel with runtime AES-NI detection.
+    pub fn aes128_encrypt8_blocks(key: [u8; 16], blocks: EightBlocks) -> Option<EightBlocks> {
+        let cipher = Aes128::new(key)?;
+        Some(unsafe { cipher.encrypt8_blocks(blocks) })
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -200,6 +277,11 @@ pub mod aes_ni_unavailable {
         _b1: [u8; 16],
     ) -> Option<([u8; 16], [u8; 16])> {
         None
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn aes128_encrypt8_blocks(_key: [u8; 16], _blocks: ([u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16])) -> Option<([u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16])> {
+        panic!("AES-NI hardware support required for 8-block parallel encryption")
     }
 }
 
