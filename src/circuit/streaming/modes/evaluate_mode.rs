@@ -1,12 +1,12 @@
 use std::num::NonZero;
 
 use crossbeam::channel;
-use log::{debug, error, info};
+use log::{debug, info};
 
 use crate::{
     EvaluatedWire, Gate, S, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
-    core::gate::garbling::{Blake3Hasher, GateHasher, degarble},
+    core::gate::garbling::{Blake3Hasher, GateHasher},
     storage::{Credits, Storage},
 };
 
@@ -28,16 +28,16 @@ pub struct EvaluateMode<H: GateHasher = Blake3Hasher> {
     ciphertext_receiver: channel::Receiver<CiphertextEntry>,
     storage: Storage<WireId, Option<EvaluatedWire>>,
     // Store the constant wires (provided externally)
-    false_wire: EvaluatedWire,
-    true_wire: EvaluatedWire,
+    false_wire: S,
+    true_wire: S,
     _hasher: std::marker::PhantomData<H>,
 }
 
 impl<H: GateHasher> EvaluateMode<H> {
     pub fn new(
         capacity: usize,
-        true_wire: EvaluatedWire,
-        false_wire: EvaluatedWire,
+        true_wire: S,
+        false_wire: S,
         ciphertext_receiver: channel::Receiver<CiphertextEntry>,
     ) -> Self {
         Self {
@@ -57,22 +57,20 @@ impl<H: GateHasher> EvaluateMode<H> {
     }
 
     fn consume_ciphertext(&mut self, gate_id: usize) -> Option<S> {
-        // Block and wait to receive the ciphertext for this gate
+        // Try to receive the ciphertext for this gate
         match self.ciphertext_receiver.recv() {
             Ok((received_gate_id, ciphertext)) => {
                 if received_gate_id == gate_id {
                     Some(ciphertext)
                 } else {
-                    error!(
+                    panic!(
                         "Ciphertext gate ID mismatch: expected {}, got {}",
                         gate_id, received_gate_id
                     );
-                    None
                 }
             }
             Err(channel::RecvError) => {
-                error!("Ciphertext channel disconnected at gate {}", gate_id);
-                None
+                panic!("Ciphertext channel disconnected at gate {}", gate_id);
             }
         }
     }
@@ -82,7 +80,6 @@ impl<H: GateHasher> std::fmt::Debug for EvaluateMode<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EvaluateMode")
             .field("gate_index", &self.gate_index)
-            .field("has_constants", &true)
             .finish()
     }
 }
@@ -91,7 +88,10 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
     type WireValue = EvaluatedWire;
 
     fn false_value(&self) -> EvaluatedWire {
-        self.false_wire.clone()
+        EvaluatedWire {
+            active_label: self.false_wire,
+            value: false,
+        }
     }
 
     fn allocate_wire(&mut self, credits: Credits) -> WireId {
@@ -99,7 +99,10 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
     }
 
     fn true_value(&self) -> EvaluatedWire {
-        self.true_wire.clone()
+        EvaluatedWire {
+            active_label: self.true_wire,
+            value: true,
+        }
     }
 
     fn evaluate_gate(&mut self, gate: &Gate, a: EvaluatedWire, b: EvaluatedWire) -> EvaluatedWire {
@@ -129,53 +132,9 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
             gate.gate_type, gate.wire_a, gate.wire_b, gate.wire_c, gate_id
         );
 
-        // This follows the same logic as garble_mode but for evaluation
-        match gate.gate_type {
-            crate::GateType::Xor => {
-                // Free-XOR: c = a ⊕ b (both labels and values)
-                let c_label = a.active_label ^ &b.active_label;
-                let c_value = a.value ^ b.value;
-                EvaluatedWire {
-                    active_label: c_label,
-                    value: c_value,
-                }
-            }
-            crate::GateType::Xnor => {
-                // Free-XOR with negation: c = ¬(a ⊕ b)
-                let c_label = a.active_label ^ &b.active_label;
-                let c_value = !(a.value ^ b.value);
-                // Note: In XNOR, if the plaintext result is negated,
-                // the garbled result should also account for delta XOR
-                EvaluatedWire {
-                    active_label: c_label,
-                    value: c_value,
-                }
-            }
-            crate::GateType::Not => {
-                // NOT gate: swap the semantic meaning
-                // The label stays the same but represents the opposite value
-                EvaluatedWire {
-                    active_label: a.active_label,
-                    value: !a.value,
-                }
-            }
-            _ => {
-                // All other gates use half-gate degarbling
-                let ciphertext = self
-                    .consume_ciphertext(gate_id)
-                    .unwrap_or_else(|| panic!("Failed to get ciphertext for gate {}", gate_id));
-
-                let c_label = degarble::<H>(gate_id, gate.gate_type, &ciphertext, &a, &b);
-
-                // Compute the plaintext result for verification
-                let c_value = gate.gate_type.f()(a.value, b.value);
-
-                EvaluatedWire {
-                    active_label: c_label,
-                    value: c_value,
-                }
-            }
-        }
+        gate.evaluate::<H>(gate_id, &a, &b, || {
+            self.consume_ciphertext(gate_id).unwrap()
+        })
     }
 
     fn feed_wire(&mut self, wire_id: crate::WireId, value: Self::WireValue) {
@@ -192,21 +151,15 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
 
     fn lookup_wire(&mut self, wire_id: crate::WireId) -> Option<Self::WireValue> {
         match wire_id {
-            TRUE_WIRE => {
-                return Some(self.true_value());
-            }
-            FALSE_WIRE => {
-                return Some(self.false_value());
-            }
-            _ => (),
-        }
-
-        match self.storage.get(wire_id).map(|ew| ew.to_owned()) {
-            Ok(Some(ew)) => Some(ew),
-            Ok(None) => panic!(
-                "Called `lookup_wire` for a WireId {wire_id} that was created but not initialized"
-            ),
-            Err(_) => None,
+            TRUE_WIRE => Some(self.true_value()),
+            FALSE_WIRE => Some(self.false_value()),
+            wire_id => match self.storage.get(wire_id).map(|ew| ew.to_owned()) {
+                Ok(Some(ew)) => Some(ew),
+                Ok(None) => panic!(
+                    "Called `lookup_wire` for a WireId {wire_id} that was created but not initialized"
+                ),
+                Err(_) => None,
+            },
         }
     }
 

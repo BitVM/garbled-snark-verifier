@@ -6,7 +6,7 @@ use crossbeam::channel;
 use log::debug;
 
 use crate::{
-    EvaluatedWire, S, WireId,
+    S, WireId,
     circuit::streaming::{
         component_meta::ComponentMetaBuilder,
         modes::{
@@ -90,8 +90,8 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
     pub output_wires: O,
     pub output_wires_ids: Vec<WireId>,
 
-    pub zero_constant: M::WireValue,
-    pub one_constant: M::WireValue,
+    pub false_constant: M::WireValue,
+    pub true_constant: M::WireValue,
 }
 
 impl CircuitBuilder<ExecuteMode> {
@@ -209,8 +209,8 @@ impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
     pub fn streaming_evaluation<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
-        true_wire: EvaluatedWire,
-        false_wire: EvaluatedWire,
+        true_wire: S,
+        false_wire: S,
         ciphertext_receiver: channel::Receiver<(usize, S)>,
         f: F,
     ) -> StreamingResult<EvaluateMode<H>, I, O>
@@ -238,8 +238,8 @@ impl CircuitBuilder<EvaluateModeBlake3> {
     pub fn streaming_evaluation_blake3<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
-        true_wire: EvaluatedWire,
-        false_wire: EvaluatedWire,
+        true_wire: S,
+        false_wire: S,
         ciphertext_receiver: channel::Receiver<(usize, S)>,
         f: F,
     ) -> StreamingResult<EvaluateModeBlake3, I, O>
@@ -310,8 +310,8 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             input_wires: allocated_inputs,
             output_wires: output,
             output_wires_ids: output_wires,
-            one_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
-            zero_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
+            true_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
+            false_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
         }
     }
 }
@@ -823,7 +823,3 @@ mod exec_test {
         assert!(output.output_wires[0]); // Should still be true after 1000 AND operations with TRUE
     }
 }
-
-#[cfg(test)]
-#[path = "garble_evaluate_integration_test.rs"]
-mod garble_evaluate_integration_test;

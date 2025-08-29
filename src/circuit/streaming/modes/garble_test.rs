@@ -222,7 +222,7 @@ mod tests {
 
         // Verify constants are properly set
         assert_eq!(output.output_wires.len(), 2);
-        assert!(output.one_constant.label0 != output.zero_constant.label0);
+        assert!(output.true_constant.label0 != output.false_constant.label0);
     }
 
     #[test]

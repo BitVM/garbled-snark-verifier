@@ -16,15 +16,15 @@ use rand_chacha::ChaChaRng;
 use test_log::test;
 
 use crate::{
-    Delta, EvaluatedWire, GarbledWire, Gate, S, WireId,
     circuit::streaming::{
-        CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, StreamingResult,
-        WiresObject, modes::EvaluateModeBlake3,
+        modes::EvaluateModeBlake3, CircuitBuilder, CircuitContext, CircuitInput, CircuitMode,
+        EncodeInput, StreamingResult, WiresObject,
     },
     gadgets::{
-        bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+        bigint::{bits_from_biguint_with_len, BigUint as BigUintOutput},
         bn254::{fp254impl::Fp254Impl, fq::Fq, fq2::Fq2},
     },
+    Delta, EvaluatedWire, GarbledWire, Gate, WireId, S,
 };
 
 // Define the types locally since they're not exported
@@ -37,11 +37,26 @@ struct TestCircuitInputs {
     a: bool,
     b: bool,
     c: bool,
+    seed: Option<u64>, // Optional seed for wire generation consistency
 }
 
 impl TestCircuitInputs {
     fn new(a: bool, b: bool, c: bool) -> Self {
-        Self { a, b, c }
+        Self {
+            a,
+            b,
+            c,
+            seed: None,
+        }
+    }
+
+    fn with_seed(a: bool, b: bool, c: bool, seed: u64) -> Self {
+        Self {
+            a,
+            b,
+            c,
+            seed: Some(seed),
+        }
     }
 }
 
@@ -75,43 +90,76 @@ impl EncodeInput<GarbledWire> for TestCircuitInputs {
         repr: &Self::WireRepr,
         cache: &mut M,
     ) {
+        let wire_seed = self.seed.unwrap_or(42);
+
         // Generate garbled wires with correct semantics for the boolean values
-        let mut rng = ChaChaRng::seed_from_u64(42);
-        let delta = Delta::generate(&mut rng);
-
-        let wire_a = GarbledWire::random(&mut rng, &delta);
-        let wire_b = GarbledWire::random(&mut rng, &delta);
-
-        let wire_c = if self.c {
-            GarbledWire::random(&mut rng, &delta)
-        } else {
-            GarbledWire::random(&mut rng, &delta)
-        };
-
-        cache.feed_wire(repr.a, wire_a);
-        cache.feed_wire(repr.b, wire_b);
-        cache.feed_wire(repr.c, wire_c);
-    }
-}
-
-// Implementation for evaluation mode
-impl EncodeInput<EvaluatedWire> for TestCircuitInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
-        // Generate garbled wires with correct semantics for the boolean values
-        let mut rng = ChaChaRng::seed_from_u64(42);
+        let mut rng = ChaChaRng::seed_from_u64(wire_seed);
         let delta = Delta::generate(&mut rng);
 
         let wire_a = GarbledWire::random(&mut rng, &delta);
         let wire_b = GarbledWire::random(&mut rng, &delta);
         let wire_c = GarbledWire::random(&mut rng, &delta);
 
-        cache.feed_wire(repr.a, EvaluatedWire::new_from_garbled(&wire_a, self.a));
-        cache.feed_wire(repr.b, EvaluatedWire::new_from_garbled(&wire_b, self.b));
-        cache.feed_wire(repr.c, EvaluatedWire::new_from_garbled(&wire_c, self.c));
+        cache.feed_wire(repr.a, wire_a.clone());
+        cache.feed_wire(repr.b, wire_b.clone());
+        cache.feed_wire(repr.c, wire_c.clone());
+    }
+}
+
+// Implementation for evaluation mode - CRITICAL: Uses same seed and wire generation as garbler
+impl EncodeInput<EvaluatedWire> for TestCircuitInputs {
+    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
+        &self,
+        repr: &Self::WireRepr,
+        cache: &mut M,
+    ) {
+        let wire_seed = self.seed.unwrap_or(42);
+        println!("🔧 EVALUATOR INPUT ENCODING:");
+        println!("  Input values: a={}, b={}, c={}", self.a, self.b, self.c);
+        println!("  Using wire generation seed: {}", wire_seed);
+
+        // Generate garbled wires with correct semantics for the boolean values
+        let mut rng = ChaChaRng::seed_from_u64(wire_seed);
+        let delta = Delta::generate(&mut rng);
+        println!("  Delta: {:?}", delta);
+
+        let wire_a = GarbledWire::random(&mut rng, &delta);
+        let wire_b = GarbledWire::random(&mut rng, &delta);
+        let wire_c = GarbledWire::random(&mut rng, &delta);
+
+        println!(
+            "  Generated wire_a: label0={:?}, label1={:?}",
+            wire_a.label0, wire_a.label1
+        );
+        println!(
+            "  Generated wire_b: label0={:?}, label1={:?}",
+            wire_b.label0, wire_b.label1
+        );
+        println!(
+            "  Generated wire_c: label0={:?}, label1={:?}",
+            wire_c.label0, wire_c.label1
+        );
+
+        let eval_wire_a = EvaluatedWire::new_from_garbled(&wire_a, self.a);
+        let eval_wire_b = EvaluatedWire::new_from_garbled(&wire_b, self.b);
+        let eval_wire_c = EvaluatedWire::new_from_garbled(&wire_c, self.c);
+
+        println!(
+            "  EvaluatedWire a: active_label={:?}, value={}",
+            eval_wire_a.active_label, eval_wire_a.value
+        );
+        println!(
+            "  EvaluatedWire b: active_label={:?}, value={}",
+            eval_wire_b.active_label, eval_wire_b.value
+        );
+        println!(
+            "  EvaluatedWire c: active_label={:?}, value={}",
+            eval_wire_c.active_label, eval_wire_c.value
+        );
+
+        cache.feed_wire(repr.a, eval_wire_a);
+        cache.feed_wire(repr.b, eval_wire_b);
+        cache.feed_wire(repr.c, eval_wire_c);
     }
 }
 
@@ -232,6 +280,27 @@ fn test_garble_evaluate_connection() {
     );
     let actual_result = eval_result.output_wires[0].value;
 
+    // CRITICAL CONSISTENCY CHECK: Verify wire label consistency between garbler and evaluator
+    let garbler_output = &garble_result.output_wires[0];
+    let evaluator_output = &eval_result.output_wires[0];
+
+    let labels_match = evaluator_output.active_label == garbler_output.label0
+        || evaluator_output.active_label == garbler_output.label1;
+
+    assert!(
+        labels_match,
+        "Wire label consistency failure: \
+            Garbler labels: label0={:?}, label1={:?}, \
+            Evaluator active: {:?} (value={}). \
+            The evaluator's active label doesn't match either garbler label.",
+        garbler_output.label0,
+        garbler_output.label1,
+        evaluator_output.active_label,
+        evaluator_output.value
+    );
+
+    println!("Wire label consistency verified for garbler and evaluator");
+
     println!("Actual result from evaluation: {}", actual_result);
     assert_eq!(
         actual_result, expected,
@@ -266,14 +335,27 @@ fn test_multiple_input_combinations() {
     println!("Testing all {} input combinations...\n", test_cases.len());
 
     for (i, (a, b, c)) in test_cases.iter().enumerate() {
-        println!("Test case {}: a={}, b={}, c={}", i + 1, a, b, c);
+        println!(
+            "\n==================== Test case {}: a={}, b={}, c={} ====================",
+            i + 1,
+            a,
+            b,
+            c
+        );
 
-        let test_inputs = TestCircuitInputs::new(*a, *b, *c);
         let expected = expected_result(*a, *b, *c);
+        println!("Expected circuit result: {}", expected);
+
+        // CRITICAL: Use the SAME seed for both garbler and evaluator input wire generation
+        let wire_seed = 42u64; // Fixed seed for input wires
+        let test_inputs = TestCircuitInputs::with_seed(*a, *b, *c, wire_seed);
 
         // Garbling
+        println!("\n--- GARBLING PHASE ---");
+        println!("Using garbling seed: {}", i as u64);
+
         let (garbled_sender, garbled_receiver) = channel::unbounded();
-        let _garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
+        let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling_blake3(
                 test_inputs,
                 10_000,
@@ -283,8 +365,14 @@ fn test_multiple_input_combinations() {
             );
 
         let garbled_tables: Vec<GarbledTableEntry> = garbled_receiver.try_iter().collect();
+        println!("Garbling produced {} table entries", garbled_tables.len());
+        println!(
+            "Garbled output wire: label0={:?}, label1={:?}",
+            garble_result.output_wires[0].label0, garble_result.output_wires[0].label1
+        );
 
         // Evaluation setup
+        println!("\n--- EVALUATION SETUP ---");
         let (eval_sender, eval_receiver) = channel::unbounded();
         for (gate_id, ciphertext) in garbled_tables {
             let ciphertext_entry: CiphertextEntry = (gate_id, ciphertext);
@@ -295,26 +383,83 @@ fn test_multiple_input_combinations() {
         drop(eval_sender);
 
         // Evaluation
-        let test_inputs_eval = TestCircuitInputs::new(*a, *b, *c);
+        println!("\n--- EVALUATION PHASE ---");
 
-        let mut rng = ChaChaRng::seed_from_u64(i as u64);
-        let delta = Delta::generate(&mut rng);
-        let true_wire = GarbledWire::random(&mut rng, &delta);
-        let false_wire = GarbledWire::random(&mut rng, &delta);
+        // CRITICAL: Use the actual constant wires from the garbler's StreamingResult
+        let garbler_true_wire = garble_result.one_constant.clone();
+        let garbler_false_wire = garble_result.zero_constant.clone();
+
+        println!("Actual constant wires from garbler StreamingResult:");
+        println!(
+            "  true_wire (one_constant): label0={:?}, label1={:?}",
+            garbler_true_wire.label0, garbler_true_wire.label1
+        );
+        println!(
+            "  false_wire (zero_constant): label0={:?}, label1={:?}",
+            garbler_false_wire.label0, garbler_false_wire.label1
+        );
+
+        let test_inputs_eval = TestCircuitInputs::with_seed(*a, *b, *c, wire_seed);
 
         let eval_result: StreamingResult<EvaluateModeBlake3, _, Vec<EvaluatedWire>> =
             CircuitBuilder::<EvaluateModeBlake3>::streaming_evaluation(
                 test_inputs_eval,
                 10_000,
-                EvaluatedWire::new_from_garbled(&true_wire, true),
-                EvaluatedWire::new_from_garbled(&false_wire, false),
+                EvaluatedWire::new_from_garbled(&garbler_true_wire, true),
+                EvaluatedWire::new_from_garbled(&garbler_false_wire, false),
                 eval_receiver,
                 test_circuit,
             );
 
         let actual_result = eval_result.output_wires[0].value;
 
-        println!("   Expected: {}, Actual: {} ✓", expected, actual_result);
+        println!("\n--- RESULTS & CONSISTENCY CHECK ---");
+        println!("Actual evaluation result: {}", actual_result);
+        println!("Expected boolean result: {}", expected);
+
+        // CRITICAL: Verify wire label consistency between garbler and evaluator
+        let garbler_output = &garble_result.output_wires[0];
+        let evaluator_output = &eval_result.output_wires[0];
+
+        println!("Wire label comparison:");
+        println!(
+            "  Garbler output: label0={:?}, label1={:?}",
+            garbler_output.label0, garbler_output.label1
+        );
+        println!(
+            "  Evaluator output: active_label={:?}, value={}",
+            evaluator_output.active_label, evaluator_output.value
+        );
+
+        let match_label0 = evaluator_output.active_label == garbler_output.label0;
+        let match_label1 = evaluator_output.active_label == garbler_output.label1;
+        println!("  Active matches label0: {}", match_label0);
+        println!("  Active matches label1: {}", match_label1);
+
+        let labels_match = match_label0 || match_label1;
+
+        assert!(
+            labels_match,
+            "Wire label consistency failure in test case {}: \
+                Inputs: a={}, b={}, c={} -> expected={}. \
+                Garbler labels: label0={:?}, label1={:?}. \
+                Evaluator active: {:?} (value={}). \
+                Evaluator's active label doesn't match either garbler label.",
+            i + 1,
+            a,
+            b,
+            c,
+            expected,
+            garbler_output.label0,
+            garbler_output.label1,
+            evaluator_output.active_label,
+            evaluator_output.value
+        );
+
+        println!(
+            "   Expected: {}, Actual: {} [Wire labels consistent]",
+            expected, actual_result
+        );
         assert_eq!(
             actual_result,
             expected,
@@ -326,7 +471,95 @@ fn test_multiple_input_combinations() {
         );
     }
 
-    println!("\n✅ All test combinations passed!");
+    println!("\nAll test combinations passed with wire label consistency verified");
+}
+
+#[test]
+fn test_direct_garble_degarble_comparison() {
+    // This test directly compares garble and degarble for the same gate with the same inputs
+    use rand::SeedableRng;
+    use rand_chacha::ChaChaRng;
+
+    use crate::core::gate::garbling::{degarble, garble, Blake3Hasher};
+
+    println!("=== DIRECT GARBLE/DEGARBLE COMPARISON ===");
+
+    // Generate deterministic wires for AND gate
+    let mut rng = ChaChaRng::seed_from_u64(12345);
+    let delta = Delta::generate(&mut rng);
+
+    let a_garbled = GarbledWire::random(&mut rng, &delta);
+    let b_garbled = GarbledWire::random(&mut rng, &delta);
+
+    println!("Input wires:");
+    println!(
+        "  a_garbled: label0={:?}, label1={:?}",
+        a_garbled.label0, a_garbled.label1
+    );
+    println!(
+        "  b_garbled: label0={:?}, label1={:?}",
+        b_garbled.label0, b_garbled.label1
+    );
+    println!("  delta: {:?}", delta);
+
+    // Test case: a=false, b=false -> expected = false
+    let a_val = false;
+    let b_val = false;
+    let expected_result = a_val & b_val; // false
+
+    // Create evaluated wires
+    let a_eval = EvaluatedWire::new_from_garbled(&a_garbled, a_val);
+    let b_eval = EvaluatedWire::new_from_garbled(&b_garbled, b_val);
+
+    println!("Evaluated wires:");
+    println!(
+        "  a_eval: active_label={:?}, value={}",
+        a_eval.active_label, a_eval.value
+    );
+    println!(
+        "  b_eval: active_label={:?}, value={}",
+        b_eval.active_label, b_eval.value
+    );
+
+    // Garble the AND gate
+    let gate_id = 0;
+    let gate_type = crate::GateType::And;
+    let (ciphertext, c_garbled_label0) =
+        garble::<Blake3Hasher>(gate_id, gate_type, &a_garbled, &b_garbled, &delta);
+    let c_garbled = GarbledWire::new(c_garbled_label0, c_garbled_label0 ^ &delta);
+
+    println!("Garbled gate result:");
+    println!("  ciphertext: {:?}", ciphertext);
+    println!(
+        "  c_garbled: label0={:?}, label1={:?}",
+        c_garbled.label0, c_garbled.label1
+    );
+
+    // Get expected output wire
+    let expected_c_eval = EvaluatedWire::new_from_garbled(&c_garbled, expected_result);
+    println!(
+        "  expected active label: {:?}",
+        expected_c_eval.active_label
+    );
+
+    // Degarble the same gate
+    let degarbled_label =
+        degarble::<Blake3Hasher>(gate_id, gate_type, &ciphertext, &a_eval, &b_eval);
+
+    println!("Degarbled result:");
+    println!("  degarbled_label: {:?}", degarbled_label);
+
+    // Compare results
+    let labels_match = degarbled_label == expected_c_eval.active_label;
+    println!("Wire labels match: {}", labels_match);
+
+    assert!(
+        labels_match,
+        "Direct garble/degarble test failed!\n\
+            Expected: {:?}\n\
+            Degarbled: {:?}",
+        expected_c_eval.active_label, degarbled_label
+    );
 }
 
 #[test]
@@ -733,7 +966,6 @@ fn test_fq2_square_and_multiply_operations() {
         ark_bn254::Fq::from(c1_biguint),
     ));
 
-    println!("Actual result: {}", actual_result);
     assert_eq!(actual_result, expected);
-    println!("✅ Complex Fq2 sequence operations work correctly!");
 }
+

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::test_utils::trng;
+use crate::{GarbledWires, test_utils::trng};
 
 const GATE_ID: GateId = 0;
 
@@ -23,27 +23,33 @@ fn test_gate_e2e(gate: Gate, expected_fn: fn(bool, bool) -> bool, gate_name: &st
     let delta = create_test_delta();
     let mut wires = issue_test_wire();
 
-    let table = gate
-        .garble::<Blake3Hasher>(GATE_ID, &mut wires, &delta, &mut trng())
-        .expect("Garbling should succeed")
-        .map(|row| vec![row])
-        .unwrap_or_default();
+    let mut rng = trng();
+    let a = wires
+        .init(gate.wire_a, GarbledWire::random(&mut rng, &delta))
+        .unwrap()
+        .clone();
+    let b = wires
+        .init(gate.wire_b, GarbledWire::random(&mut rng, &delta))
+        .unwrap();
 
-    let wire_a_garbled = wires.get(gate.wire_a).expect("Wire A should exist");
-    let wire_b_garbled = wires.get(gate.wire_b).expect("Wire B should exist");
-    let wire_c_garbled = wires.get(gate.wire_c).expect("Wire C should exist");
+    let GarbleResult {
+        result: c,
+        ciphertext,
+    } = gate
+        .garble::<Blake3Hasher>(GATE_ID, &a, b, &delta)
+        .expect("Garbling should succeed");
 
     for (input_a, input_b) in TEST_CASES {
         let eval_a = EvaluatedWire {
-            active_label: wire_a_garbled.select(input_a),
+            active_label: a.select(input_a),
             value: input_a,
         };
         let eval_b = EvaluatedWire {
-            active_label: wire_b_garbled.select(input_b),
+            active_label: b.select(input_b),
             value: input_b,
         };
 
-        let eval_c = gate.evaluate(&eval_a, &eval_b, wire_c_garbled);
+        let eval_c = gate.evaluate_with_garbled_wire(&eval_a, &eval_b, &c);
 
         let expected_output = expected_fn(input_a, input_b);
         assert_eq!(
@@ -58,7 +64,12 @@ fn test_gate_e2e(gate: Gate, expected_fn: fn(bool, bool) -> bool, gate_name: &st
 
         let mut table_index = 0;
 
-        let correctness_result = gate.check_correctness(
+        let table = match ciphertext {
+            Some(ct) => vec![ct],
+            None => vec![],
+        };
+
+        let correctness_result = gate.check_correctness::<DefaultHasher>(
             GATE_ID,
             &|wire_id: WireId| evaluations.get(&wire_id),
             &table,
@@ -77,21 +88,28 @@ fn test_not_gate_e2e(gate: Gate) {
     let delta = create_test_delta();
     let mut wires = issue_test_wire();
 
-    let table = gate
-        .garble::<Blake3Hasher>(GATE_ID, &mut wires, &delta, &mut trng())
-        .expect("Garbling should succeed")
-        .map(|row| vec![row])
-        .unwrap_or_default();
+    let mut rng = trng();
+    let a = wires
+        .init(gate.wire_a, GarbledWire::random(&mut rng, &delta))
+        .unwrap();
 
-    let wire_garbled = wires.get(gate.wire_a).expect("Wire should exist");
+    let GarbleResult {
+        result: c,
+        ciphertext: None,
+    } = gate
+        .garble::<Blake3Hasher>(GATE_ID, a, a, &delta)
+        .expect("Garbling should succeed")
+    else {
+        unreachable!()
+    };
 
     for input in [false, true] {
         let eval_wire = EvaluatedWire {
-            active_label: wire_garbled.select(input),
+            active_label: c.select(input),
             value: input,
         };
 
-        let eval_c = gate.evaluate(&eval_wire, &eval_wire, wire_garbled);
+        let eval_c = gate.evaluate_with_garbled_wire(&eval_wire, &eval_wire, &c);
 
         let expected_output = !input;
         assert_eq!(
@@ -106,10 +124,10 @@ fn test_not_gate_e2e(gate: Gate) {
 
         let mut table_index = 0;
 
-        let correctness_result = gate.check_correctness(
+        let correctness_result = gate.check_correctness::<DefaultHasher>(
             GATE_ID,
             &|wire_id: WireId| evaluations.get(&wire_id),
-            &table,
+            &[],
             &mut table_index,
         );
 
@@ -193,7 +211,7 @@ fn test_xnor_gate() {
 
 #[test]
 fn test_not_gate() {
-    let mut wire_a = WireId(0);
+    let mut wire_a = WireId::MIN;
     let gate = Gate::not(&mut wire_a);
     test_not_gate_e2e(gate);
 }

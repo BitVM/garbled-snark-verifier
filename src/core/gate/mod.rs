@@ -1,14 +1,13 @@
 use std::fmt;
 
 use log::debug;
-use rand::Rng;
 
 pub use crate::GateType;
-use crate::{Delta, EvaluatedWire, GarbledWire, GarbledWires, S, WireError, WireId};
+use crate::{Delta, EvaluatedWire, GarbledWire, S, WireError, WireId};
 pub mod garbling;
 use garbling::{Blake3Hasher, GateHasher, degarble, garble};
 
-type DefaultHasher = Blake3Hasher;
+pub type DefaultHasher = Blake3Hasher;
 
 pub type GateId = usize;
 
@@ -210,97 +209,73 @@ impl Gate {
         self.gate_type.is_free()
     }
 
-    fn wire_a<'w>(
-        &self,
-        wires: &'w mut GarbledWires,
-        issue_gwire_fn: &mut impl FnMut() -> GarbledWire,
-    ) -> Result<&'w GarbledWire, Error> {
-        wires
-            .get_or_init(self.wire_a, issue_gwire_fn)
-            .map_err(|err| Error::GetWire { wire: "a", err })
-    }
-
-    fn wire_b<'w>(
-        &self,
-        wires: &'w mut GarbledWires,
-        issue_gwire_fn: &mut impl FnMut() -> GarbledWire,
-    ) -> Result<&'w GarbledWire, Error> {
-        wires
-            .get_or_init(self.wire_b, issue_gwire_fn)
-            .map_err(|err| Error::GetWire { wire: "b", err })
-    }
-
-    fn init_wire_c(&self, wires: &mut GarbledWires, label0: S, label1: S) -> Result<(), Error> {
-        wires
-            .init(self.wire_c, GarbledWire::new(label0, label1))
-            .map_err(|err| Error::InitWire { wire: "c", err })
-            .map(|_| ())
-    }
-
     /// Return ciphertext for garble table if presented
     pub fn garble<H: GateHasher>(
         &self,
         gate_id: GateId,
-        wires: &mut GarbledWires,
+        a: &GarbledWire,
+        b: &GarbledWire,
         delta: &Delta,
-        rng: &mut impl Rng,
-    ) -> Result<Option<S>, Error> {
+    ) -> Result<GarbleResult, Error> {
         debug!(
             "gate_garble: {:?} {}+{}->{} gid={}",
             self.gate_type, self.wire_a, self.wire_b, self.wire_c, gate_id
         );
 
-        let mut issue_fn = || GarbledWire::random(rng, delta);
-
         match self.gate_type {
             GateType::Xor => {
-                let a_label0 = self.wire_a(wires, &mut issue_fn)?.select(false);
-                let b_label0 = self.wire_b(wires, &mut issue_fn)?.select(false);
+                let a_label0 = a.select(false);
+                let b_label0 = b.select(false);
 
                 let c_label0 = a_label0 ^ &b_label0;
                 let c_label1 = c_label0 ^ delta;
 
-                self.init_wire_c(wires, c_label0, c_label1)?;
-
-                Ok(None)
+                Ok(GarbleResult {
+                    result: GarbledWire::new(c_label0, c_label1),
+                    ciphertext: None,
+                })
             }
             GateType::Xnor => {
-                let a_label0 = self.wire_a(wires, &mut issue_fn)?.select(false);
-                let b_label0 = self.wire_b(wires, &mut issue_fn)?.select(false);
+                let a_label0 = a.select(false);
+                let b_label0 = b.select(false);
 
                 let c_label0 = a_label0 ^ &b_label0 ^ delta;
                 let c_label1 = c_label0 ^ delta;
 
-                self.init_wire_c(wires, c_label0, c_label1)?;
-
-                Ok(None)
+                Ok(GarbleResult {
+                    result: GarbledWire::new(c_label0, c_label1),
+                    ciphertext: None,
+                })
             }
             GateType::Not => {
                 assert_eq!(self.wire_a, self.wire_b);
                 assert_eq!(self.wire_b, self.wire_c);
 
-                self.wire_a(wires, &mut issue_fn)?;
-
-                wires
-                    .toggle_wire_not_mark(self.wire_c)
-                    .map_err(|err| Error::InitWire { wire: "c", err })?;
-
-                Ok(None)
+                Ok(GarbleResult {
+                    result: GarbledWire {
+                        label0: a.label1,
+                        label1: a.label0,
+                    },
+                    ciphertext: None,
+                })
             }
             _ => {
-                let a = self.wire_a(wires, &mut issue_fn)?.clone();
-                let b = self.wire_b(wires, &mut issue_fn)?;
+                let (ciphertext, w0) = garble::<H>(gate_id, self.gate_type, a, b, delta);
 
-                let (ciphertext, w0) = garble::<H>(gate_id, self.gate_type, &a, b, delta);
-
-                self.init_wire_c(wires, w0, w0 ^ delta)?;
-
-                Ok(Some(ciphertext))
+                Ok(GarbleResult {
+                    result: GarbledWire::new(w0, w0 ^ delta),
+                    ciphertext: Some(ciphertext),
+                })
             }
         }
     }
 
-    pub fn evaluate(&self, a: &EvaluatedWire, b: &EvaluatedWire, c: &GarbledWire) -> EvaluatedWire {
+    pub fn evaluate_with_garbled_wire(
+        &self,
+        a: &EvaluatedWire,
+        b: &EvaluatedWire,
+        c: &GarbledWire,
+    ) -> EvaluatedWire {
         let evaluated_value = (self.gate_type.f())(a.value, b.value);
 
         EvaluatedWire {
@@ -312,6 +287,11 @@ impl Gate {
     pub fn execute(&self, a: bool, b: bool) -> bool {
         self.gate_type.f()(a, b)
     }
+}
+
+pub struct GarbleResult {
+    pub result: GarbledWire,
+    pub ciphertext: Option<S>,
 }
 
 #[derive(thiserror::Error, Debug, PartialEq)]
@@ -346,13 +326,12 @@ pub enum CorrectnessError {
 
 impl Gate {
     /// Calculate the expected output value and label for this gate
-    pub fn calculate_output(
+    pub fn evaluate<H: GateHasher>(
         &self,
         gate_id: GateId,
         a: &EvaluatedWire,
         b: &EvaluatedWire,
-        garble_table: &[S],
-        table_gate_index: &mut usize,
+        get_ciphertext: impl FnOnce() -> S,
     ) -> EvaluatedWire {
         let expected_value = (self.gate_type.f())(a.value, b.value);
 
@@ -363,11 +342,7 @@ impl Gate {
                 // For NOT gates, all wires are the same, so return the input
                 a.active_label
             }
-            _ => {
-                let ct = garble_table[*table_gate_index];
-                *table_gate_index += 1;
-                degarble::<DefaultHasher>(gate_id, self.gate_type, &ct, a, b)
-            }
+            _ => degarble::<H>(gate_id, self.gate_type, &get_ciphertext(), a, b),
         };
 
         EvaluatedWire {
@@ -376,7 +351,7 @@ impl Gate {
         }
     }
 
-    pub fn check_correctness<'s, 'w>(
+    pub fn check_correctness<'s, 'w, H: GateHasher>(
         &'s self,
         gate_id: GateId,
         get_evaluated: &impl Fn(WireId) -> Option<&'w EvaluatedWire>,
@@ -410,7 +385,11 @@ impl Gate {
 
         log::debug!("gate_eval: {:?} a={:?} b={:?}", self.gate_type, a, b);
 
-        let expected_output = self.calculate_output(gate_id, a, b, garble_table, table_gate_index);
+        let expected_output = self.evaluate::<H>(gate_id, a, b, || {
+            let index = *table_gate_index;
+            *table_gate_index += 1;
+            garble_table[index]
+        });
 
         // Check value correctness (skip for NOT gates as they're self-referential)
         if GateType::Not != self.gate_type && expected_output.value != c.value {

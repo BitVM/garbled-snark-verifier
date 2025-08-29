@@ -138,7 +138,7 @@ mod tests {
         assert_eq!(tables.len(), 2, "Both AND and OR should produce tables");
 
         // Verify constants are set
-        assert!(result.one_constant.label0 != result.zero_constant.label0);
+        assert!(result.true_constant.label0 != result.false_constant.label0);
     }
 
     #[test]

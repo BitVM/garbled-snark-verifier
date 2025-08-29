@@ -5,7 +5,7 @@ pub mod aes_ni;
 pub mod hashers;
 pub use hashers::{AesNiHasher, Blake3Hasher, GateHasher};
 
-pub(crate) fn garble<H: GateHasher>(
+pub fn garble<H: GateHasher>(
     gate_id: GateId,
     gate_type: GateType,
     a: &GarbledWire,

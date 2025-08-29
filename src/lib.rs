@@ -6,6 +6,7 @@ mod math;
 
 // Re-export the procedural macro
 pub use core::{
+    DefaultHasher,
     delta::Delta,
     gate::{
         Gate, GateError,

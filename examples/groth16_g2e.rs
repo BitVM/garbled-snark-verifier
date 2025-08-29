@@ -22,12 +22,12 @@ use garbled_snark_verifier::{
     self as gsv, AesNiHasher, EvaluatedWire, GarbledWire, WireId,
     circuit::streaming::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateModeBlake3, GarbleMode, GarbleModeBlake3},
+        modes::{EvaluateMode, GarbleMode},
     },
     groth16_verify,
 };
 use gsv::{FrWire, G1Wire};
-use log::{error, info};
+use log::{error, info, trace};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
@@ -66,49 +66,19 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
     }
 }
 
-// Input structure for Groth16 verification
-struct Groth16Inputs {
-    public: Vec<ark_bn254::Fr>,
-    a: ark_bn254::G1Projective,
-    c: ark_bn254::G1Projective,
-}
-
+// Wire representation for Groth16 circuit inputs
 struct Groth16InputWires {
     public: Vec<FrWire>,
     a: G1Wire,
     c: G1Wire,
 }
 
-impl CircuitInput for Groth16Inputs {
-    type WireRepr = Groth16InputWires;
-
-    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-        Groth16InputWires {
-            public: self
-                .public
-                .iter()
-                .map(|_| FrWire::new(&mut issue))
-                .collect(),
-            a: G1Wire::new(&mut issue),
-            c: G1Wire::new(&mut issue),
-        }
-    }
-
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-        let mut ids = Vec::new();
-        for s in &repr.public {
-            ids.extend(s.to_wires_vec());
-        }
-        ids.extend(repr.a.to_wires_vec());
-        ids.extend(repr.c.to_wires_vec());
-        ids
-    }
-}
-
 // Garbler's input encoding using pre-generated garbled wires
 struct GarblerInputs {
     public: Vec<ark_bn254::Fr>,
+    #[allow(dead_code)]
     a: ark_bn254::G1Projective,
+    #[allow(dead_code)]
     c: ark_bn254::G1Projective,
     garbled_wires: Vec<GarbledWire>,
 }
@@ -151,7 +121,22 @@ impl EncodeInput<GarbledWire> for GarblerInputs {
         for w in &repr.public {
             for &wire in w.iter() {
                 if wire_index < self.garbled_wires.len() {
-                    cache.feed_wire(wire, self.garbled_wires[wire_index].clone());
+                    // Use the same bit pattern as evaluator: alternating true/false
+                    let bit_value = (wire_index % 2) == 0;
+                    let mut garbled_wire = self.garbled_wires[wire_index].clone();
+                    if bit_value {
+                        // For true: swap labels so label1 becomes the "false" label and label0 becomes "true"
+                        std::mem::swap(&mut garbled_wire.label0, &mut garbled_wire.label1);
+                    }
+                    trace!(
+                        "[GARBLER][public][{}] bit={} label0={} label1={}",
+                        wire_index,
+                        bit_value,
+                        garbled_wire.label0.to_hex(),
+                        garbled_wire.label1.to_hex()
+                    );
+                    // Now label0 represents our chosen bit value
+                    cache.feed_wire(wire, garbled_wire);
                     wire_index += 1;
                 }
             }
@@ -166,7 +151,22 @@ impl EncodeInput<GarbledWire> for GarblerInputs {
             .chain(repr.a.z.iter())
         {
             if wire_index < self.garbled_wires.len() {
-                cache.feed_wire(wire_id, self.garbled_wires[wire_index].clone());
+                // Use the same bit pattern as evaluator: alternating true/false
+                let bit_value = (wire_index % 2) == 0;
+                let mut garbled_wire = self.garbled_wires[wire_index].clone();
+                if bit_value {
+                    // For true: swap labels so label1 becomes the "false" label and label0 becomes "true"
+                    std::mem::swap(&mut garbled_wire.label0, &mut garbled_wire.label1);
+                }
+                trace!(
+                    "[GARBLER][A][{}] bit={} label0={} label1={}",
+                    wire_index,
+                    bit_value,
+                    garbled_wire.label0.to_hex(),
+                    garbled_wire.label1.to_hex()
+                );
+                // Now label0 represents our chosen bit value
+                cache.feed_wire(wire_id, garbled_wire);
                 wire_index += 1;
             }
         }
@@ -179,7 +179,22 @@ impl EncodeInput<GarbledWire> for GarblerInputs {
             .chain(repr.c.z.iter())
         {
             if wire_index < self.garbled_wires.len() {
-                cache.feed_wire(wire_id, self.garbled_wires[wire_index].clone());
+                // Use the same bit pattern as evaluator: alternating true/false
+                let bit_value = (wire_index % 2) == 0;
+                let mut garbled_wire = self.garbled_wires[wire_index].clone();
+                if bit_value {
+                    // For true: swap labels so label1 becomes the "false" label and label0 becomes "true"
+                    std::mem::swap(&mut garbled_wire.label0, &mut garbled_wire.label1);
+                }
+                trace!(
+                    "[GARBLER][C][{}] bit={} label0={} label1={}",
+                    wire_index,
+                    bit_value,
+                    garbled_wire.label0.to_hex(),
+                    garbled_wire.label1.to_hex()
+                );
+                // Now label0 represents our chosen bit value
+                cache.feed_wire(wire_id, garbled_wire);
                 wire_index += 1;
             }
         }
@@ -189,7 +204,9 @@ impl EncodeInput<GarbledWire> for GarblerInputs {
 // Evaluator's input encoding using received evaluated wires
 struct EvaluatorInputs {
     public: Vec<ark_bn254::Fr>,
+    #[allow(dead_code)]
     a: ark_bn254::G1Projective,
+    #[allow(dead_code)]
     c: ark_bn254::G1Projective,
     evaluated_wires: Vec<EvaluatedWire>,
 }
@@ -232,6 +249,12 @@ impl EncodeInput<EvaluatedWire> for EvaluatorInputs {
         for w in &repr.public {
             for &wire in w.iter() {
                 if wire_index < self.evaluated_wires.len() {
+                    trace!(
+                        "[EVALUATOR][public][{}] value={} active_label={}",
+                        wire_index,
+                        self.evaluated_wires[wire_index].value,
+                        self.evaluated_wires[wire_index].active_label.to_hex()
+                    );
                     cache.feed_wire(wire, self.evaluated_wires[wire_index].clone());
                     wire_index += 1;
                 }
@@ -247,6 +270,12 @@ impl EncodeInput<EvaluatedWire> for EvaluatorInputs {
             .chain(repr.a.z.iter())
         {
             if wire_index < self.evaluated_wires.len() {
+                trace!(
+                    "[EVALUATOR][A][{}] value={} active_label={}",
+                    wire_index,
+                    self.evaluated_wires[wire_index].value,
+                    self.evaluated_wires[wire_index].active_label.to_hex()
+                );
                 cache.feed_wire(wire_id, self.evaluated_wires[wire_index].clone());
                 wire_index += 1;
             }
@@ -260,6 +289,12 @@ impl EncodeInput<EvaluatedWire> for EvaluatorInputs {
             .chain(repr.c.z.iter())
         {
             if wire_index < self.evaluated_wires.len() {
+                trace!(
+                    "[EVALUATOR][C][{}] value={} active_label={}",
+                    wire_index,
+                    self.evaluated_wires[wire_index].value,
+                    self.evaluated_wires[wire_index].active_label.to_hex()
+                );
                 cache.feed_wire(wire_id, self.evaluated_wires[wire_index].clone());
                 wire_index += 1;
             }
@@ -293,8 +328,9 @@ fn main() {
     info!("🔧 Generating deterministic input wires...");
     let garbler_seed = 42;
     let num_input_wires = 254 + 254 * 3 + 254 * 3; // Fr scalar + 2 G1 points
+    // Use AES-NI hasher for deterministic input-wire generation
     let (input_wires, true_wire, false_wire) =
-        GarbleModeBlake3::generate_groth16_input_wires(garbler_seed, num_input_wires);
+        GarbleMode::<AesNiHasher>::generate_groth16_input_wires(garbler_seed, num_input_wires);
 
     info!("📏 Generated {} input wires with delta", input_wires.len());
 
@@ -318,9 +354,18 @@ fn main() {
         .map(|(i, gw)| {
             // For demo, alternate between true/false. In real system, use actual input bits
             let bit_value = (i % 2) == 0;
-            EvaluatedWire::new_from_garbled(gw, bit_value)
+            let ew = EvaluatedWire::new_from_garbled(gw, bit_value);
+            trace!(
+                "[MAIN][eval_input][{}] value={} active_label={}",
+                i,
+                ew.value,
+                ew.active_label.to_hex()
+            );
+            ew
         })
         .collect();
+
+    info!("🔧 Input wire encoding synchronized between garbler and evaluator");
 
     // Send input wires to evaluator
     if let Err(e) = input_wire_tx.send(evaluated_input_wires) {
@@ -394,12 +439,13 @@ fn main() {
         let true_evaluated = EvaluatedWire::new_from_garbled(&true_wire, true);
         let false_evaluated = EvaluatedWire::new_from_garbled(&false_wire, false);
 
-        let result: StreamingResult<EvaluateModeBlake3, _, Vec<EvaluatedWire>> =
-            CircuitBuilder::streaming_evaluation_blake3(
+        // Evaluate with AES-NI hasher to match garbler
+        let result: StreamingResult<EvaluateMode<AesNiHasher>, _, Vec<EvaluatedWire>> =
+            CircuitBuilder::streaming_evaluation(
                 eval_inputs,
                 40_000, // wire capacity
-                true_evaluated,
-                false_evaluated,
+                true_evaluated.active_label,
+                false_evaluated.active_label,
                 ciphertext_rx,
                 |ctx, wires| {
                     let ok = groth16_verify(
@@ -417,7 +463,13 @@ fn main() {
         let elapsed = start_time.elapsed();
         info!("🔍 [EVALUATOR] Completed in {:.2}s", elapsed.as_secs_f64());
         info!("🔍 [EVALUATOR] Output wires: {}", result.output_wires.len());
-
+        if let Some(out) = result.output_wires.get(0) {
+            trace!(
+                "[EVALUATOR][output] value={} active_label={}",
+                out.value,
+                out.active_label.to_hex()
+            );
+        }
         result.output_wires
     });
 

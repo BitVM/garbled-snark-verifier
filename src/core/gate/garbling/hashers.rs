@@ -103,12 +103,10 @@ pub struct AesNiHasher;
 )))]
 impl GateHasher for AesNiHasher {
     fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: GateId) -> (S, S) {
-        // Fallback to Blake3 on non-x86 platforms
-        Blake3Hasher::hash_for_garbling(selected_label, other_label, gate_id)
+        panic!()
     }
 
     fn hash_for_degarbling(label: &S, gate_id: GateId) -> S {
-        // Fallback to Blake3 on non-x86 platforms
-        Blake3Hasher::hash_for_degarbling(label, gate_id)
+        panic!()
     }
 }

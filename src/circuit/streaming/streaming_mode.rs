@@ -197,10 +197,8 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                 }
                 ctx.stack.push(instance);
 
-                // Now call f with self
                 let output = f(self, &inputs);
 
-                // Pop from stack
                 if let StreamingMode::ExecutionPass(ctx) = self {
                     let _used_child_meta = ctx.stack.pop();
                     #[cfg(test)]

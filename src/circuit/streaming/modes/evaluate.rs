@@ -4,7 +4,7 @@ use crossbeam::channel;
 
 pub use super::evaluate_mode::{CiphertextEntry, EvaluateMode, EvaluateModeBlake3};
 use crate::{
-    EvaluatedWire, WireId,
+    EvaluatedWire, S, WireId,
     circuit::streaming::{
         CircuitInput, CircuitMode, ComponentTemplatePool, EncodeInput,
         component_key::ComponentKey,
@@ -37,8 +37,8 @@ impl<H: GateHasher> StreamingContext<EvaluateMode<H>> {
 impl Evaluate {
     pub fn new(
         capacity: usize,
-        true_wire: EvaluatedWire,
-        false_wire: EvaluatedWire,
+        true_wire: S,
+        false_wire: S,
         ciphertext_receiver: channel::Receiver<CiphertextEntry>,
     ) -> Self {
         Self::new_evaluate(capacity, true_wire, false_wire, ciphertext_receiver)
@@ -46,8 +46,8 @@ impl Evaluate {
 
     fn new_evaluate(
         capacity: usize,
-        true_wire: EvaluatedWire,
-        false_wire: EvaluatedWire,
+        true_wire: S,
+        false_wire: S,
         ciphertext_receiver: channel::Receiver<CiphertextEntry>,
     ) -> Self {
         StreamingMode::ExecutionPass(StreamingContext {

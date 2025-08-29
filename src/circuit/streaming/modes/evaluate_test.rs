@@ -1,20 +1,22 @@
+use std::{iter, thread};
+
 use crossbeam::channel;
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
-use test_log::test;
 
 use super::EvaluateMode;
 use crate::{
-    CircuitContext, Delta, EvaluatedWire, GarbledWire, Gate, WireId,
-    circuit::streaming::{CircuitBuilder, CircuitInput, EncodeInput, TRUE_WIRE},
+    Delta, EvaluatedWire, GarbledWire, Gate, GateType, S, WireId,
+    circuit::streaming::{
+        CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, TRUE_WIRE,
+    },
     core::gate::garbling::Blake3Hasher,
 };
 
-// Simple input structure for testing
 #[derive(Debug)]
-struct TestInputs {
-    a: bool,
-    b: bool,
+struct TestEvalInputs {
+    a: EvaluatedWire,
+    b: EvaluatedWire,
 }
 
 #[derive(Debug, Clone)]
@@ -23,7 +25,7 @@ struct TestInputsWire {
     b: WireId,
 }
 
-impl CircuitInput for TestInputs {
+impl CircuitInput for TestEvalInputs {
     type WireRepr = TestInputsWire;
 
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
@@ -38,108 +40,156 @@ impl CircuitInput for TestInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for TestInputs {
-    fn encode<M: crate::circuit::streaming::CircuitMode<WireValue = EvaluatedWire>>(
+impl EncodeInput<EvaluatedWire> for TestEvalInputs {
+    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
         &self,
         repr: &Self::WireRepr,
         cache: &mut M,
     ) {
-        // For testing, we'll create dummy EvaluatedWire with random labels
-        let mut rng = ChaChaRng::seed_from_u64(42);
-        let delta = Delta::generate(&mut rng);
-
-        let wire_a = GarbledWire::random(&mut rng, &delta);
-        let wire_b = GarbledWire::random(&mut rng, &delta);
-
-        cache.feed_wire(repr.a, EvaluatedWire::new_from_garbled(&wire_a, self.a));
-        cache.feed_wire(repr.b, EvaluatedWire::new_from_garbled(&wire_b, self.b));
+        cache.feed_wire(repr.a, self.a.clone());
+        cache.feed_wire(repr.b, self.b.clone());
     }
 }
 
-#[test]
-fn test_evaluate_mode_basic() {
+fn prepare() -> (S, S, TestEvalInputs) {
     let mut rng = ChaChaRng::seed_from_u64(0);
     let delta = Delta::generate(&mut rng);
 
-    // Create constant wires
     let true_wire = GarbledWire::random(&mut rng, &delta);
     let false_wire = GarbledWire::random(&mut rng, &delta);
+
+    let a = GarbledWire::random(&mut rng, &delta);
+    let b = GarbledWire::random(&mut rng, &delta);
 
     let true_evaluated = EvaluatedWire::new_from_garbled(&true_wire, true);
     let false_evaluated = EvaluatedWire::new_from_garbled(&false_wire, false);
 
-    // Create a channel for ciphertexts (empty for this test since we use only free gates)
-    let (_sender, receiver) = channel::unbounded();
+    let a_evaluated = EvaluatedWire::new_from_garbled(&a, rng.r#gen());
+    let b_evaluated = EvaluatedWire::new_from_garbled(&b, rng.r#gen());
 
-    let inputs = TestInputs { a: true, b: false };
+    let inputs = TestEvalInputs {
+        a: a_evaluated,
+        b: b_evaluated,
+    };
+
+    (
+        true_evaluated.active_label,
+        false_evaluated.active_label,
+        inputs,
+    )
+}
+
+#[test]
+fn test_xor_evaluate_mode_basic() {
+    let (_sender, receiver) = channel::unbounded();
+    let (true_wire, false_wire, inputs) = prepare();
 
     let result: crate::circuit::streaming::StreamingResult<
         EvaluateMode<Blake3Hasher>,
-        TestInputs,
+        TestEvalInputs,
         Vec<EvaluatedWire>,
     > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
         inputs,
-        10_000,
-        true_evaluated,
-        false_evaluated,
+        5,
+        true_wire,
+        false_wire,
         receiver,
         |ctx, input_wires| {
-            // Simple XOR gate test - should be free
             let output = ctx.issue_wire();
             ctx.add_gate(Gate::xor(input_wires.a, input_wires.b, output));
-
             vec![output]
         },
     );
 
-    // XOR of true and false should be true
     assert_eq!(result.output_wires.len(), 1);
     assert!(result.output_wires[0].value);
-
-    println!("Test passed: XOR gate evaluation works correctly");
 }
 
 #[test]
-fn test_evaluate_mode_with_constants() {
-    let mut rng = ChaChaRng::seed_from_u64(1);
-    let delta = Delta::generate(&mut rng);
-
-    // Create constant wires
-    let true_wire = GarbledWire::random(&mut rng, &delta);
-    let false_wire = GarbledWire::random(&mut rng, &delta);
-
-    let true_evaluated = EvaluatedWire::new_from_garbled(&true_wire, true);
-    let false_evaluated = EvaluatedWire::new_from_garbled(&false_wire, false);
-
-    // Create a channel for ciphertexts (empty for this test)
+fn test_xor_evaluate_mode_with_constants() {
     let (_sender, receiver) = channel::unbounded();
-
-    let inputs = TestInputs { a: true, b: true };
+    let (true_wire, false_wire, inputs) = prepare();
+    let a = inputs.a.value;
+    let b = inputs.b.value;
 
     let result: crate::circuit::streaming::StreamingResult<
         EvaluateMode<Blake3Hasher>,
-        TestInputs,
+        TestEvalInputs,
         Vec<EvaluatedWire>,
     > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
         inputs,
-        10_000,
-        true_evaluated,
-        false_evaluated,
+        5,
+        true_wire,
+        false_wire,
         receiver,
         |ctx, input_wires| {
-            // Test using constant wires
             let output1 = ctx.issue_wire();
             let output2 = ctx.issue_wire();
-
             ctx.add_gate(Gate::xor(input_wires.a, TRUE_WIRE, output1));
             ctx.add_gate(Gate::xor(output1, input_wires.b, output2));
-
             vec![output2]
         },
     );
 
-    // (true XOR true) XOR true = false XOR true = true
-    assert!(result.output_wires[0].value);
+    assert_eq!(result.output_wires[0].value, (a ^ true) ^ b);
+}
 
-    println!("Test passed: Constant wire evaluation works correctly");
+#[test]
+fn test_evaluate_mode() {
+    const NON_FREE_GATE_COUNT: usize = 5;
+    let (sender, receiver) = channel::unbounded();
+
+    thread::spawn(move || {
+        let mut rng = ChaChaRng::seed_from_u64(1);
+        iter::repeat_with(move || S::random(&mut rng))
+            .take(NON_FREE_GATE_COUNT)
+            .enumerate()
+            .for_each(|(i, ct)| sender.send((i, ct)).unwrap());
+    });
+
+    let (true_wire, false_wire, inputs) = prepare();
+    let a = inputs.a.value;
+    let b = inputs.b.value;
+
+    let result: crate::circuit::streaming::StreamingResult<
+        EvaluateMode<Blake3Hasher>,
+        TestEvalInputs,
+        Vec<EvaluatedWire>,
+    > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
+        inputs,
+        10,
+        true_wire,
+        false_wire,
+        receiver,
+        |ctx, input_wires| {
+            let val1 = ctx.issue_wire();
+            ctx.add_gate(Gate::and(input_wires.a, input_wires.b, val1));
+
+            let val2 = ctx.issue_wire();
+            ctx.add_gate(Gate::nimp(val1, input_wires.a, val2));
+
+            let val3 = ctx.issue_wire();
+            ctx.add_gate(Gate::nor(val1, val2, val3));
+
+            let val4 = ctx.issue_wire();
+            ctx.add_gate(Gate::imp(val2, val3, val4));
+
+            let val5 = ctx.issue_wire();
+            ctx.add_gate(Gate::imp(input_wires.a, val3, val5));
+
+            let val6 = ctx.issue_wire();
+            ctx.add_gate(Gate::xor(val5, val4, val6));
+
+            vec![val6]
+        },
+    );
+
+    let val1 = GateType::And.f()(a, b);
+    let val2 = GateType::Nimp.f()(val1, a);
+    let val3 = GateType::Nor.f()(val1, val2);
+    let val4 = GateType::Imp.f()(val2, val3);
+    let val5 = GateType::Imp.f()(a, val3);
+    let val6 = GateType::Xor.f()(val5, val4);
+
+    assert_eq!(result.output_wires[0].value, val6);
 }

@@ -8,7 +8,10 @@ use rand_chacha::ChaChaRng;
 use crate::{
     Delta, GarbledWire, Gate, S, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
-    core::gate::garbling::{Blake3Hasher, GateHasher, garble},
+    core::gate::{
+        GarbleResult,
+        garbling::{Blake3Hasher, GateHasher},
+    },
     storage::{Credits, Storage},
 };
 
@@ -154,40 +157,13 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
             gate.gate_type, gate.wire_a, gate.wire_b, gate.wire_c, gate_id
         );
 
-        // This follows the same logic as Gate::garble but adapted for streaming
-        let (c, table_entry) = match gate.gate_type {
-            crate::GateType::Xor => {
-                // Free-XOR: c = a ⊕ b
-                let c_label0 = a.label0 ^ &b.label0;
-                let c_label1 = c_label0 ^ &self.delta;
-                let c = GarbledWire::new(c_label0, c_label1);
-                (c, None)
-            }
-            crate::GateType::Xnor => {
-                // Free-XOR with negation: c = ¬(a ⊕ b)
-                let c_label0 = a.label0 ^ &b.label0 ^ &self.delta;
-                let c_label1 = c_label0 ^ &self.delta;
-                let c = GarbledWire::new(c_label0, c_label1);
-                (c, None)
-            }
-            crate::GateType::Not => {
-                // NOT gate: just swap the labels
-                // In the original code this modifies the wire in place via toggle_not
-                // Here we return a new wire with swapped labels
-                let c = GarbledWire::new(a.label1, a.label0);
-                (c, None)
-            }
-            _ => {
-                // All other gates use half-gate garbling
-                let (ciphertext, w0) = garble::<H>(gate_id, gate.gate_type, &a, &b, &self.delta);
-
-                let c = GarbledWire::new(w0, w0 ^ &self.delta);
-                (c, Some(ciphertext))
-            }
-        };
+        let GarbleResult {
+            result: c,
+            ciphertext,
+        } = gate.garble::<H>(gate_id, &a, &b, &self.delta).unwrap();
 
         // Stream the table entry if it exists
-        self.stream_table_entry(gate_id, table_entry);
+        self.stream_table_entry(gate_id, ciphertext);
 
         c
     }
