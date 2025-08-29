@@ -68,8 +68,8 @@ mod tests {
         l1.copy_from_slice(&h1.as_bytes()[..16]);
 
         GarbledWire {
-            label0: S(l0),
-            label1: S(l1),
+            label0: S::from_bytes(l0),
+            label1: S::from_bytes(l1),
         }
     }
 

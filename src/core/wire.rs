@@ -90,8 +90,8 @@ impl GarbledWire {
 impl Default for GarbledWire {
     fn default() -> Self {
         GarbledWire {
-            label0: S([0u8; crate::core::s::S_SIZE]),
-            label1: S([0u8; crate::core::s::S_SIZE]),
+            label0: S::ZERO,
+            label1: S::ZERO,
         }
     }
 }
@@ -175,7 +175,7 @@ pub struct EvaluatedWire {
 impl Default for EvaluatedWire {
     fn default() -> Self {
         Self {
-            active_label: S([0u8; crate::core::s::S_SIZE]),
+            active_label: S::ZERO,
             value: Default::default(),
         }
     }

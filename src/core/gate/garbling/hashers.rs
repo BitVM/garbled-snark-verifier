@@ -25,11 +25,12 @@ impl GateHasher for Blake3Hasher {
     fn hash_for_degarbling(label: &S, gate_id: GateId) -> S {
         let mut result = [0u8; S_SIZE];
         let mut hasher = blake3::Hasher::new();
-        hasher.update(&label.0);
+        let b = label.to_bytes();
+        hasher.update(&b);
         hasher.update(&gate_id.to_le_bytes());
         let hash = hasher.finalize();
         result.copy_from_slice(&hash.as_bytes()[0..S_SIZE]);
-        S(result)
+        S::from_bytes(result)
     }
 }
 
@@ -61,10 +62,10 @@ impl GateHasher for AesNiHasher {
 
         // Direct AES encryption without intermediate copies - use transmute for zero-cost
         let (cipher_selected, cipher_other) =
-            aes128_encrypt2_blocks(key, selected_label.0, other_label.0)
+            aes128_encrypt2_blocks(key, selected_label.to_bytes(), other_label.to_bytes())
                 .expect("AES-NI should be available when target features are enabled");
 
-        (S(cipher_selected), S(cipher_other))
+        (S::from_bytes(cipher_selected), S::from_bytes(cipher_other))
     }
 
     #[inline(always)]
@@ -80,10 +81,10 @@ impl GateHasher for AesNiHasher {
         };
 
         // Direct AES encryption without intermediate copies
-        let ciphertext = aes128_encrypt_block(key, label.0)
+        let ciphertext = aes128_encrypt_block(key, label.to_bytes())
             .expect("AES-NI should be available when target features are enabled");
 
-        S(ciphertext)
+        S::from_bytes(ciphertext)
     }
 }
 

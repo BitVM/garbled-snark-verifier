@@ -8,7 +8,8 @@ pub fn commit(wires: impl Iterator<Item = EvaluatedWire>) -> Commit {
     let mut hasher = blake3::Hasher::default();
 
     wires.for_each(|evaluated| {
-        hasher.update(evaluated.active_label.as_ref());
+        let b = evaluated.active_label.to_bytes();
+        hasher.update(&b);
         hasher.update(&[evaluated.value() as u8]);
     });
 

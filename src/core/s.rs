@@ -11,13 +11,30 @@ use rand::Rng;
 pub const S_SIZE: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct S(pub [u8; S_SIZE]);
+pub struct S([u8; S_SIZE]);
 
 impl S {
+    pub const ZERO: Self = Self([0u8; S_SIZE]);
+
     pub const fn one() -> Self {
         let mut s = [0_u8; S_SIZE];
         s[S_SIZE - 1] = 1;
         Self(s)
+    }
+
+    #[inline]
+    pub const fn from_bytes(bytes: [u8; S_SIZE]) -> Self {
+        Self(bytes)
+    }
+
+    #[inline]
+    pub fn to_bytes(&self) -> [u8; S_SIZE] {
+        self.0
+    }
+
+    #[inline]
+    pub fn write_bytes(&self, out: &mut [u8; S_SIZE]) {
+        *out = self.0;
     }
 
     pub fn to_hex(&self) -> String {
@@ -153,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_xor_zero_identity() {
-        let zero = S([0u8; S_SIZE]);
+        let zero = S::ZERO;
         let a = rnd();
         assert_eq!(&a ^ &zero, a, "a ^ 0 should be a");
         assert_eq!(&zero ^ &a, a, "0 ^ a should be a");
@@ -163,7 +180,7 @@ mod tests {
     fn test_xor_self_is_zero() {
         let a = rnd();
         let result = &a ^ &a;
-        assert_eq!(result, S([0u8; S_SIZE]), "a ^ a should be 0");
+        assert_eq!(result, S::ZERO, "a ^ a should be 0");
     }
 
     #[test]
@@ -183,9 +200,9 @@ mod tests {
 
     #[test]
     fn test_xor_known_value() {
-        let a = S([0xFF; S_SIZE]);
-        let b = S([0x0F; S_SIZE]);
-        let expected = S([0xF0; S_SIZE]);
+        let a = S::from_bytes([0xFF; S_SIZE]);
+        let b = S::from_bytes([0x0F; S_SIZE]);
+        let expected = S::from_bytes([0xF0; S_SIZE]);
         assert_eq!(&a ^ &b, expected);
     }
 
@@ -197,5 +214,22 @@ mod tests {
         let _ = &a ^ &b;
         assert_eq!(a, a, "a should remain unchanged");
         assert_eq!(b, b, "b should remain unchanged");
+    }
+
+    #[test]
+    fn test_from_to_bytes_roundtrip() {
+        let mut rng = rand::rngs::StdRng::from_seed([42u8; 32]);
+        for _ in 0..100 {
+            let arr: [u8; S_SIZE] = rng.r#gen();
+            let s = S::from_bytes(arr);
+            assert_eq!(s.to_bytes(), arr);
+        }
+    }
+
+    #[test]
+    fn test_zero_one_constants() {
+        assert_eq!(S::ZERO.to_bytes(), [0u8; S_SIZE]);
+        assert_eq!(S::one().to_bytes()[S_SIZE - 1], 1);
+        assert!(S::one().to_bytes()[..S_SIZE - 1].iter().all(|&b| b == 0));
     }
 }
