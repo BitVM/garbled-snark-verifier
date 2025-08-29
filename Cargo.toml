@@ -41,3 +41,11 @@ env_logger = "0.11"
 version = "1"
 default-features = false
 features = ["user-hooks"]
+
+[profile.flamegraph]
+inherits = "release"
+debug = true           # Essential for symbol resolution
+force-frame-pointers = true  # Ensures accurate stack traces
+codegen-units = 1      # Better inlining visibility
+lto = "fat"           # Cross-crate optimization
+panic = "abort"       # Faster execution, smaller binary
