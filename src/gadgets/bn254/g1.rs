@@ -326,7 +326,10 @@ impl G1Projective {
 
         let mut bases_wires = bases
             .iter()
-            .map(|p| G1Projective::new_constant(p).unwrap())
+            .map(|p| {
+                let p_m = G1Projective::as_montgomery(*p);
+                G1Projective::new_constant(&p_m).unwrap()
+            })
             .collect::<Vec<_>>();
 
         let mut to_be_added = Vec::new();
@@ -350,7 +353,10 @@ impl G1Projective {
             bases = new_bases;
             bases_wires = bases
                 .iter()
-                .map(|p| G1Projective::new_constant(p).unwrap())
+                .map(|p| {
+                    let p_m = G1Projective::as_montgomery(*p);
+                    G1Projective::new_constant(&p_m).unwrap()
+                })
                 .collect::<Vec<_>>();
         }
 

@@ -11,12 +11,8 @@ use circuit_component_macro::component;
 use crate::{
     CircuitContext, WireId,
     gadgets::bn254::{
-        final_exponentiation::final_exponentiation,
-        fq::Fq,
-        fq12::Fq12,
-        fr::Fr,
-        g1::G1Projective,
-        pairing::{miller_loop_const_q, pairing_const_q},
+        final_exponentiation::final_exponentiation, fq::Fq, fq12::Fq12, fr::Fr, g1::G1Projective,
+        pairing::miller_loop_const_q,
     },
 };
 
@@ -58,7 +54,8 @@ pub fn groth16_verify<C: CircuitContext>(
 
     let f_msm = miller_loop_const_q(circuit, &msm, &gamma_neg);
     let f_c = miller_loop_const_q(circuit, proof_c, &delta_neg);
-    let f_ab = pairing_const_q(circuit, proof_a, proof_b);
+    // Keep all three terms in Miller-loop form, defer final exponentiation to the end
+    let f_ab = miller_loop_const_q(circuit, proof_a, proof_b);
 
     let f_tmp = Fq12::mul_montgomery(circuit, &f_msm, &f_c);
     let f_all = Fq12::mul_montgomery(circuit, &f_tmp, &f_ab);

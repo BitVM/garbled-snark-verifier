@@ -59,6 +59,20 @@ pub fn ell_eval_const<C: CircuitContext>(
     Fq12::mul_by_034_constant4_montgomery(circuit, f, &c0_fq2, &c3_fq2, &c4_const)
 }
 
+fn g1_normalize_to_affine<C: CircuitContext>(circuit: &mut C, p: &G1Projective) -> G1Projective {
+    // Convert projective (x, y, z) to affine (x/z^2, y/z^3, 1)
+    let inv_z = Fq::inverse_montgomery(circuit, &p.z);
+    let inv_z2 = Fq::square_montgomery(circuit, &inv_z);
+    let inv_z3 = Fq::mul_montgomery(circuit, &inv_z2, &inv_z);
+
+    let x = Fq::mul_montgomery(circuit, &p.x, &inv_z2);
+    let y = Fq::mul_montgomery(circuit, &p.y, &inv_z3);
+    let one_m = Fq::as_montgomery(ark_bn254::Fq::ONE);
+    let z = Fq::new_constant(&one_m).expect("const one mont");
+
+    G1Projective { x, y, z }
+}
+
 fn new_fq12_constant_montgomery(v: ark_bn254::Fq12) -> Fq12 {
     // Convert to Montgomery form before creating constants
     let v_mont = Fq12::as_montgomery(v);
@@ -102,6 +116,8 @@ pub fn miller_loop_const_q<C: CircuitContext>(
     p: &G1Projective,
     q: &ark_bn254::G2Affine,
 ) -> Fq12 {
+    // Ensure P is in affine form for line evaluation
+    let p_aff = g1_normalize_to_affine(circuit, p);
     let coeffs = ell_coeffs(*q);
     let mut coeff_iter = coeffs.iter();
 
@@ -113,20 +129,20 @@ pub fn miller_loop_const_q<C: CircuitContext>(
         }
 
         let c = coeff_iter.next().expect("coeff present");
-        f = ell_eval_const(circuit, &f, c, p);
+        f = ell_eval_const(circuit, &f, c, &p_aff);
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let c2 = coeff_iter.next().expect("coeff present");
-            f = ell_eval_const(circuit, &f, c2, p);
+            f = ell_eval_const(circuit, &f, c2, &p_aff);
         }
     }
 
     // Final two additions outside the loop
     let c_last = coeff_iter.next().expect("coeff present");
-    f = ell_eval_const(circuit, &f, c_last, p);
+    f = ell_eval_const(circuit, &f, c_last, &p_aff);
     let c_last2 = coeff_iter.next().expect("coeff present");
-    f = ell_eval_const(circuit, &f, c_last2, p);
+    f = ell_eval_const(circuit, &f, c_last2, &p_aff);
 
     f
 }
@@ -141,7 +157,8 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
     assert_eq!(ps.len(), qs.len());
     let n = ps.len();
     if n == 0 {
-        return new_fq12_constant_montgomery(Fq12::as_montgomery(ark_bn254::Fq12::ONE));
+        // Keep initialization consistent: pass standard form, convert inside
+        return new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
     }
 
     // Precompute coeffs per Q
@@ -157,6 +174,12 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
         per_step.push(v);
     }
 
+    // Normalize all P_i to affine once
+    let ps_aff: Vec<G1Projective> = ps
+        .iter()
+        .map(|p| g1_normalize_to_affine(circuit, p))
+        .collect();
+
     let mut f = new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
     let mut per_step_iter = per_step.into_iter();
 
@@ -166,14 +189,14 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
         }
 
         let coeffs_now = per_step_iter.next().expect("coeffs present");
-        for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
+        for (c, p) in coeffs_now.into_iter().zip(ps_aff.iter()) {
             f = ell_eval_const(circuit, &f, c, p);
         }
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let coeffs_now = per_step_iter.next().expect("coeffs present");
-            for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
+            for (c, p) in coeffs_now.into_iter().zip(ps_aff.iter()) {
                 f = ell_eval_const(circuit, &f, c, p);
             }
         }
@@ -182,7 +205,7 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
     // Final two steps
     for _ in 0..2 {
         let coeffs_now = per_step_iter.next().expect("coeffs present");
-        for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
+        for (c, p) in coeffs_now.into_iter().zip(ps_aff.iter()) {
             f = ell_eval_const(circuit, &f, c, p);
         }
     }
