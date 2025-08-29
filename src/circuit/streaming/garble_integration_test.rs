@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-
+    use crossbeam::channel;
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
     use test_log::test;
@@ -63,7 +62,7 @@ mod tests {
         };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         // Build and garble a simple circuit: (a AND b) XOR c
         let _result: StreamingResult<_, _, Vec<GarbledWire>> =
@@ -108,7 +107,7 @@ mod tests {
         };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         // Circuit using constants: (input AND TRUE) OR FALSE
         let result: StreamingResult<_, _, Vec<GarbledWire>> =
@@ -167,7 +166,7 @@ mod tests {
         let inputs = SimpleGarbledInputs { wires: input_wires };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         // Circuit using component: xor_gadget(a, b) AND c
         let _result: StreamingResult<_, _, Vec<GarbledWire>> =
@@ -210,7 +209,7 @@ mod tests {
         let inputs = SimpleGarbledInputs { wires: input_wires };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         // Build a larger circuit with mixed gates
         let result: StreamingResult<_, _, Vec<GarbledWire>> =

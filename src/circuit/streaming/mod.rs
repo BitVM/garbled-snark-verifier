@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use std::{array, fmt::Debug, sync::mpsc};
+use std::{array, fmt::Debug};
 
+use crossbeam::channel;
 use log::debug;
 
 use crate::{
@@ -166,7 +167,7 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
-        output_sender: mpsc::Sender<(usize, S)>,
+        output_sender: channel::Sender<(usize, S)>,
         f: F,
     ) -> StreamingResult<GarbleMode<H>, I, O>
     where
@@ -189,7 +190,7 @@ impl CircuitBuilder<GarbleModeBlake3> {
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
-        output_sender: mpsc::Sender<(usize, S)>,
+        output_sender: channel::Sender<(usize, S)>,
         f: F,
     ) -> StreamingResult<GarbleModeBlake3, I, O>
     where

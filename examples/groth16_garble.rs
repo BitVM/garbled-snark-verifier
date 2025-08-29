@@ -213,7 +213,7 @@ fn main() {
     };
 
     // Create channel for garbled tables
-    let (sender, receiver) = std::sync::mpsc::channel();
+    let (sender, receiver) = crossbeam::channel::unbounded();
 
     std::thread::spawn(move || while receiver.recv().is_ok() {});
 

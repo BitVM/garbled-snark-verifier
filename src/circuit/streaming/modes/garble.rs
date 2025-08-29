@@ -1,4 +1,6 @@
-use std::{iter, sync::mpsc};
+use std::iter;
+
+use crossbeam::channel;
 
 pub use super::garble_mode::{GarbleMode, GarbleModeBlake3, GarbledTableEntry};
 use crate::{
@@ -33,14 +35,18 @@ impl<H: GateHasher> StreamingContext<GarbleMode<H>> {
 
 // Helper methods for Garble type alias
 impl Garble {
-    pub fn new(seed: u64, capacity: usize, output_sender: mpsc::Sender<GarbledTableEntry>) -> Self {
+    pub fn new(
+        seed: u64,
+        capacity: usize,
+        output_sender: channel::Sender<GarbledTableEntry>,
+    ) -> Self {
         Self::new_garble(seed, capacity, output_sender)
     }
 
     fn new_garble(
         seed: u64,
         capacity: usize,
-        output_sender: mpsc::Sender<GarbledTableEntry>,
+        output_sender: channel::Sender<GarbledTableEntry>,
     ) -> Self {
         StreamingMode::ExecutionPass(StreamingContext {
             mode: GarbleModeBlake3::new(capacity, seed, output_sender),

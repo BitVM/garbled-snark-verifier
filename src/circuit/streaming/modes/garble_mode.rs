@@ -1,5 +1,6 @@
-use std::{array, num::NonZero, sync::mpsc};
+use std::{array, num::NonZero};
 
+use crossbeam::channel;
 use log::{debug, error, info};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -28,7 +29,7 @@ pub struct GarbleMode<H: GateHasher = Blake3Hasher> {
     rng: ChaChaRng,
     delta: Delta,
     gate_index: usize,
-    output_sender: mpsc::Sender<GarbledTableEntry>,
+    output_sender: channel::Sender<GarbledTableEntry>,
     storage: Storage<WireId, Option<GarbledWire>>,
     // Store the constant wires
     false_wire: GarbledWire,
@@ -37,7 +38,11 @@ pub struct GarbleMode<H: GateHasher = Blake3Hasher> {
 }
 
 impl<H: GateHasher> GarbleMode<H> {
-    pub fn new(capacity: usize, seed: u64, output_sender: mpsc::Sender<GarbledTableEntry>) -> Self {
+    pub fn new(
+        capacity: usize,
+        seed: u64,
+        output_sender: channel::Sender<GarbledTableEntry>,
+    ) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seed);
         let delta = Delta::generate(&mut rng);
 

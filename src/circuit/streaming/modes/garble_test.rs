@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use std::{sync::mpsc, thread};
+    use std::thread;
 
+    use crossbeam::channel;
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
     use test_log::test;
@@ -65,7 +66,7 @@ mod tests {
         };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         let output: StreamingResult<_, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling_blake3(
@@ -112,7 +113,7 @@ mod tests {
         };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         let _output: StreamingResult<_, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling_blake3(
@@ -154,7 +155,7 @@ mod tests {
         let inputs = TestGarbledInputs { wires: input_wires };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         let _output: StreamingResult<_, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling_blake3(
@@ -198,7 +199,7 @@ mod tests {
         let inputs = TestGarbledInputs { wires: input_wires };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
         thread::spawn(move || while receiver.recv().is_ok() {});
 
         let output: StreamingResult<_, _, Vec<GarbledWire>> =
@@ -251,7 +252,7 @@ mod tests {
         let inputs = TestGarbledInputs { wires: input_wires };
 
         // Create channel for garbled tables
-        let (sender, receiver) = mpsc::channel();
+        let (sender, receiver) = channel::unbounded();
 
         let _output: StreamingResult<_, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling_blake3(
