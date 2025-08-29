@@ -10,7 +10,16 @@ pub(crate) mod aes_ni_impl {
     use core::{arch::x86_64::*, mem::MaybeUninit};
 
     /// Type alias for 8-block AES operations
-    pub type EightBlocks = ([u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16]);
+    pub type EightBlocks = (
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+    );
 
     /// AES-128 round keys (11 x 128-bit)
     pub struct Aes128 {
@@ -280,7 +289,28 @@ pub mod aes_ni_unavailable {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn aes128_encrypt8_blocks(_key: [u8; 16], _blocks: ([u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16])) -> Option<([u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16], [u8; 16])> {
+    pub fn aes128_encrypt8_blocks(
+        _key: [u8; 16],
+        _blocks: (
+            [u8; 16],
+            [u8; 16],
+            [u8; 16],
+            [u8; 16],
+            [u8; 16],
+            [u8; 16],
+            [u8; 16],
+            [u8; 16],
+        ),
+    ) -> Option<(
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+        [u8; 16],
+    )> {
         panic!("AES-NI hardware support required for 8-block parallel encryption")
     }
 }

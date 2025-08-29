@@ -13,6 +13,13 @@ fn xor_arrays(a: &[u8; 16], b: &[u8; 16]) -> [u8; 16] {
     result
 }
 
+fn xor_u128_with_bytes(running_hash: &[u8; 16], ciphertext: S) -> [u8; 16] {
+    // Convert running_hash to u128 for fast XOR, then back to bytes
+    let hash_u128 = u128::from_be_bytes(*running_hash);
+    let result_u128 = hash_u128 ^ ciphertext.to_u128(); // Fast u128 XOR!
+    result_u128.to_be_bytes()
+}
+
 fn xor_8_arrays(arrays: &[[u8; 16]; 8]) -> [u8; 16] {
     let mut result = [0u8; 16];
     for array in arrays {
@@ -57,7 +64,7 @@ impl CiphertextHasher {
         match &mut self {
             CiphertextHasher::Sequential { running_hash, key } => {
                 while let Ok((_, ciphertext)) = receiver.recv() {
-                    let input = xor_arrays(running_hash, ciphertext.as_ref());
+                    let input = xor_u128_with_bytes(running_hash, ciphertext);
                     *running_hash =
                         aes128_encrypt_block(*key, input).expect("AES-NI should be available");
                 }
@@ -74,17 +81,18 @@ impl CiphertextHasher {
 
                     if batch_buffer.len() == 8 {
                         let blocks = (
-                            *batch_buffer[0].as_ref(),
-                            *batch_buffer[1].as_ref(),
-                            *batch_buffer[2].as_ref(),
-                            *batch_buffer[3].as_ref(),
-                            *batch_buffer[4].as_ref(),
-                            *batch_buffer[5].as_ref(),
-                            *batch_buffer[6].as_ref(),
-                            *batch_buffer[7].as_ref(),
+                            batch_buffer[0].to_bytes(),
+                            batch_buffer[1].to_bytes(),
+                            batch_buffer[2].to_bytes(),
+                            batch_buffer[3].to_bytes(),
+                            batch_buffer[4].to_bytes(),
+                            batch_buffer[5].to_bytes(),
+                            batch_buffer[6].to_bytes(),
+                            batch_buffer[7].to_bytes(),
                         );
-                        let (h0, h1, h2, h3, h4, h5, h6, h7) = aes128_encrypt8_blocks(*key1, blocks)
-                            .expect("AES-NI should be available");
+                        let (h0, h1, h2, h3, h4, h5, h6, h7) =
+                            aes128_encrypt8_blocks(*key1, blocks)
+                                .expect("AES-NI should be available");
 
                         let xor_result = xor_8_arrays(&[h0, h1, h2, h3, h4, h5, h6, h7]);
                         let batch_hash = aes128_encrypt_block(*key2, xor_result)
@@ -99,7 +107,7 @@ impl CiphertextHasher {
                 }
 
                 for remaining_ciphertext in batch_buffer {
-                    let input = xor_arrays(running_hash, remaining_ciphertext.as_ref());
+                    let input = xor_u128_with_bytes(running_hash, *remaining_ciphertext);
                     *running_hash =
                         aes128_encrypt_block(*key1, input).expect("AES-NI should be available");
                 }

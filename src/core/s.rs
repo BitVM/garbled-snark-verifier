@@ -1,6 +1,5 @@
 use std::{
     fmt,
-    iter::zip,
     ops::{Add, BitXor, BitXorAssign},
 };
 
@@ -11,34 +10,38 @@ use rand::Rng;
 pub const S_SIZE: usize = 16;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct S([u8; S_SIZE]);
+pub struct S(u128);
 
 impl S {
-    pub const ZERO: Self = Self([0u8; S_SIZE]);
+    pub const ZERO: Self = Self(0);
 
+    #[inline]
     pub const fn one() -> Self {
-        let mut s = [0_u8; S_SIZE];
-        s[S_SIZE - 1] = 1;
-        Self(s)
+        Self(1)
     }
 
     #[inline]
     pub const fn from_bytes(bytes: [u8; S_SIZE]) -> Self {
-        Self(bytes)
+        Self(u128::from_be_bytes(bytes))
     }
 
     #[inline]
     pub fn to_bytes(&self) -> [u8; S_SIZE] {
-        self.0
+        self.0.to_be_bytes()
     }
 
     #[inline]
     pub fn write_bytes(&self, out: &mut [u8; S_SIZE]) {
-        *out = self.0;
+        *out = self.0.to_be_bytes();
+    }
+
+    #[inline]
+    pub fn to_u128(&self) -> u128 {
+        self.0
     }
 
     pub fn to_hex(&self) -> String {
-        self.0
+        self.to_bytes()
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<Vec<String>>()
@@ -46,46 +49,36 @@ impl S {
     }
 
     pub fn random(rng: &mut impl Rng) -> Self {
-        Self(rng.r#gen())
+        Self(rng.r#gen::<u128>())
     }
 
     pub fn neg(&self) -> Self {
-        let mut s = self.0;
-        for (i, si) in s.iter_mut().enumerate() {
-            *si = 255 - self.0[i];
-        }
-        Self(s) + Self::one()
+        Self(0u128.wrapping_sub(self.0))
     }
 
     pub fn hash(&self) -> Self {
         let mut output = [0u8; S_SIZE];
         Hasher::new()
-            .update(&self.0)
+            .update(&self.to_bytes())
             .finalize_xof()
             .fill(&mut output);
-        Self(output)
+        Self::from_bytes(output)
     }
 
     pub fn hash_together(a: Self, b: Self) -> Self {
         let mut input = [0u8; S_SIZE * 2];
-        input[..S_SIZE].copy_from_slice(&a.0);
-        input[S_SIZE..].copy_from_slice(&b.0);
+        input[..S_SIZE].copy_from_slice(&a.to_bytes());
+        input[S_SIZE..].copy_from_slice(&b.to_bytes());
         let mut output = [0u8; S_SIZE];
         Hasher::new()
             .update(&input)
             .finalize_xof()
             .fill(&mut output);
-        Self(output)
+        Self::from_bytes(output)
     }
 
     pub fn xor(a: Self, b: Self) -> Self {
-        Self(
-            zip(a.0, b.0)
-                .map(|(u, v)| u ^ v)
-                .collect::<Vec<u8>>()
-                .try_into()
-                .unwrap(),
-        )
+        Self(a.0 ^ b.0)
     }
 }
 
@@ -99,14 +92,7 @@ impl Add for S {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut s = [0_u8; S_SIZE];
-        let mut carry = 0;
-        for (i, (u, v)) in zip(self.0, rhs.0).enumerate().rev() {
-            let x = (u as u32) + (v as u32) + carry;
-            s[i] = (x % 256) as u8;
-            carry = x / 256;
-        }
-        Self(s)
+        Self(self.0.wrapping_add(rhs.0))
     }
 }
 
@@ -114,16 +100,7 @@ impl BitXor for &S {
     type Output = S;
 
     fn bitxor(self, rhs: Self) -> Self::Output {
-        let mut out = [0u8; S_SIZE];
-
-        // Why `Allow` here: the compiler will expand the call and remove the check on the fixed
-        // array
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..S_SIZE {
-            out[i] = self.0[i] ^ rhs.0[i];
-        }
-
-        S(out)
+        S(self.0 ^ rhs.0)
     }
 }
 
@@ -131,32 +108,20 @@ impl BitXor<&S> for S {
     type Output = S;
 
     fn bitxor(mut self, rhs: &S) -> Self::Output {
-        for i in 0..S_SIZE {
-            self.0[i] ^= rhs.0[i];
-        }
+        self.0 ^= rhs.0;
         self
     }
 }
 
 impl BitXorAssign<&S> for S {
     fn bitxor_assign(&mut self, rhs: &S) {
-        for i in 0..S_SIZE {
-            self.0[i] ^= rhs.0[i];
-        }
+        self.0 ^= rhs.0;
     }
 }
 
-impl AsRef<[u8]> for S {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl AsRef<[u8; 16]> for S {
-    fn as_ref(&self) -> &[u8; 16] {
-        &self.0
-    }
-}
+// Note: AsRef<[u8]> and AsRef<[u8; 16]> cannot be implemented for S with u128 backend
+// because we can't return a reference to temporary bytes.
+// Users should call .to_bytes() instead.
 
 #[cfg(test)]
 mod tests {
