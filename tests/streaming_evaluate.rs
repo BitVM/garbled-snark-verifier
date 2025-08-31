@@ -64,23 +64,15 @@ impl CircuitInput for TestGarbleInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for TestEvalInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for TestEvalInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         cache.feed_wire(repr.a, self.a.clone());
         cache.feed_wire(repr.b, self.b.clone());
     }
 }
 
-impl EncodeInput<GarbledWire> for TestGarbleInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for TestGarbleInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         cache.feed_wire(repr.a, self.a.clone());
         cache.feed_wire(repr.b, self.b.clone());
     }
@@ -263,22 +255,14 @@ impl CircuitInput for TestNotGarbleInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for TestNotEvalInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for TestNotEvalInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         cache.feed_wire(repr.a, self.a.clone());
     }
 }
 
-impl EncodeInput<GarbledWire> for TestNotGarbleInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for TestNotGarbleInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         cache.feed_wire(repr.a, self.a.clone());
     }
 }
@@ -375,12 +359,8 @@ impl CircuitInput for FqPairInputs {
     }
 }
 
-impl EncodeInput<GarbledWire> for FqPairInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl EncodeInput<GarbleMode> for FqPairInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode) {
         let mut rng = ChaChaRng::seed_from_u64(777);
         let delta = Delta::generate(&mut rng);
         for w in repr.a.0.iter().chain(repr.b.0.iter()) {
@@ -389,12 +369,8 @@ impl EncodeInput<GarbledWire> for FqPairInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for FqPairInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl EncodeInput<EvaluateMode> for FqPairInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode) {
         let mut rng = ChaChaRng::seed_from_u64(777);
         let delta = Delta::generate(&mut rng);
 

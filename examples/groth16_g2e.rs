@@ -109,12 +109,8 @@ impl CircuitInput for GarblerInputs {
     }
 }
 
-impl EncodeInput<GarbledWire> for GarblerInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Groth16InputWires,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for GarblerInputs {
+    fn encode(&self, repr: &Groth16InputWires, cache: &mut M) {
         let mut wire_index = 0;
 
         // Encode public scalars
@@ -237,12 +233,8 @@ impl CircuitInput for EvaluatorInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for EvaluatorInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Groth16InputWires,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorInputs {
+    fn encode(&self, repr: &Groth16InputWires, cache: &mut M) {
         let mut wire_index = 0;
 
         // Encode public scalars

@@ -394,12 +394,8 @@ mod tests {
                 repr.f.to_wires_vec()
             }
         }
-        impl EncodeInput<bool> for FEInput {
-            fn encode<M: CircuitMode<WireValue = bool>>(
-                &self,
-                repr: &Self::WireRepr,
-                cache: &mut M,
-            ) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for FEInput {
+            fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
                 let f_m = Fq12::as_montgomery(self.f);
                 encode_fq6_to_wires(&f_m.c0, &repr.f.0[0], cache);
                 encode_fq6_to_wires(&f_m.c1, &repr.f.0[1], cache);
@@ -520,8 +516,8 @@ mod tests {
             ids
         }
     }
-    impl EncodeInput<bool> for EllEvalInput {
-        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &EllEvalWires, cache: &mut M) {
+    impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for EllEvalInput {
+        fn encode(&self, repr: &EllEvalWires, cache: &mut M) {
             // Encode f (Fq12) in Montgomery form
             let f_m = Fq12::as_montgomery(self.f);
             encode_fq6_to_wires(&f_m.c0, &repr.f.0[0], cache);
@@ -624,8 +620,8 @@ mod tests {
                 repr.p.to_wires_vec()
             }
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &W, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
                 // Encode p (G1Projective) in Montgomery form
                 let p_m = G1Projective::as_montgomery(self.p);
                 let bits_x = bits_from_biguint_with_len(
@@ -701,8 +697,8 @@ mod tests {
                 repr.p.to_wires_vec()
             }
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &W, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
                 // Encode p (G1Projective) in Montgomery form
                 let p_m = G1Projective::as_montgomery(self.p);
                 let bits_x = bits_from_biguint_with_len(
@@ -822,8 +818,8 @@ mod tests {
                 .zip(bits_z)
                 .for_each(|(w, b)| cache.feed_wire(*w, b));
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &W, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
                 encode_p(self.p0, &repr.p0, cache);
                 encode_p(self.p1, &repr.p1, cache);
                 encode_p(self.p2, &repr.p2, cache);

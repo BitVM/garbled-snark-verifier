@@ -57,7 +57,7 @@ impl<M: CircuitMode> StreamingMode<M> {
         StreamingMode::MetadataPass(ComponentMetaBuilder::new(inputs.len()))
     }
 
-    pub fn to_root_ctx<I: EncodeInput<M::WireValue>>(
+    pub fn to_root_ctx<I: EncodeInput<M>>(
         self,
         mode: M,
         input: &I,

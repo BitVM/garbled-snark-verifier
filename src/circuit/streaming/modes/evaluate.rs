@@ -80,12 +80,8 @@ impl CircuitInput for EvaluatedInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for EvaluatedInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatedInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         self.wires
             .iter()
             .zip(repr.iter())

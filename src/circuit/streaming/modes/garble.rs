@@ -74,12 +74,8 @@ impl CircuitInput for GarbledInputs {
     }
 }
 
-impl EncodeInput<GarbledWire> for GarbledInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for GarbledInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         self.wires
             .iter()
             .zip(repr.iter())

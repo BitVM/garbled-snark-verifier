@@ -101,7 +101,7 @@ impl CircuitBuilder<ExecuteMode> {
         f: F,
     ) -> StreamingResult<ExecuteMode, I, O>
     where
-        I: CircuitInput + EncodeInput<bool>,
+        I: CircuitInput + EncodeInput<ExecuteMode>,
         O: CircuitOutput<ExecuteMode>,
         O::WireRepr: Debug,
         F: Fn(&mut Execute, &I::WireRepr) -> O::WireRepr,
@@ -173,7 +173,7 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
         f: F,
     ) -> StreamingResult<GarbleMode<H>, I, O>
     where
-        I: CircuitInput + EncodeInput<<GarbleMode<H> as CircuitMode>::WireValue>,
+        I: CircuitInput + EncodeInput<GarbleMode<H>>,
         O: CircuitOutput<GarbleMode<H>>,
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<GarbleMode<H>>, &I::WireRepr) -> O::WireRepr,
@@ -196,7 +196,7 @@ impl CircuitBuilder<GarbleModeBlake3> {
         f: F,
     ) -> StreamingResult<GarbleModeBlake3, I, O>
     where
-        I: CircuitInput + EncodeInput<<GarbleModeBlake3 as CircuitMode>::WireValue>,
+        I: CircuitInput + EncodeInput<GarbleModeBlake3>,
         O: CircuitOutput<GarbleModeBlake3>,
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
@@ -215,7 +215,7 @@ impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
         f: F,
     ) -> StreamingResult<EvaluateMode<H>, I, O>
     where
-        I: CircuitInput + EncodeInput<<EvaluateMode<H> as CircuitMode>::WireValue>,
+        I: CircuitInput + EncodeInput<EvaluateMode<H>>,
         O: CircuitOutput<EvaluateMode<H>>,
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<EvaluateMode<H>>, &I::WireRepr) -> O::WireRepr,
@@ -244,7 +244,7 @@ impl CircuitBuilder<EvaluateModeBlake3> {
         f: F,
     ) -> StreamingResult<EvaluateModeBlake3, I, O>
     where
-        I: CircuitInput + EncodeInput<<EvaluateModeBlake3 as CircuitMode>::WireValue>,
+        I: CircuitInput + EncodeInput<EvaluateModeBlake3>,
         O: CircuitOutput<EvaluateModeBlake3>,
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<EvaluateModeBlake3>, &I::WireRepr) -> O::WireRepr,
@@ -263,7 +263,7 @@ impl CircuitBuilder<EvaluateModeBlake3> {
 impl<M: CircuitMode> CircuitBuilder<M> {
     pub fn run_streaming<I, F, O>(inputs: I, mode: M, f: F) -> StreamingResult<M, I, O>
     where
-        I: CircuitInput + EncodeInput<M::WireValue>,
+        I: CircuitInput + EncodeInput<M>,
         O: CircuitOutput<M>,
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<M>, &I::WireRepr) -> O::WireRepr,
@@ -342,8 +342,8 @@ pub trait CircuitInput {
 }
 
 /// Trait for encoding semantic values into mode-specific caches
-pub trait EncodeInput<W: Clone>: Sized + CircuitInput {
-    fn encode<M: CircuitMode<WireValue = W>>(&self, repr: &Self::WireRepr, cache: &mut M);
+pub trait EncodeInput<M: CircuitMode>: Sized + CircuitInput {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M);
 }
 
 pub type SimpleInputs<const N: usize> = [bool; N];
@@ -361,8 +361,8 @@ impl<const N: usize> CircuitInput for SimpleInputs<N> {
     }
 }
 
-impl<const N: usize> EncodeInput<bool> for SimpleInputs<N> {
-    fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
+impl<const N: usize, M: CircuitMode<WireValue = bool>> EncodeInput<M> for SimpleInputs<N> {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         self.iter().zip(repr.iter()).for_each(|(v, w)| {
             cache.feed_wire(*w, *v);
         });
@@ -440,8 +440,8 @@ mod exec_test {
         }
     }
 
-    impl EncodeInput<bool> for Inputs {
-        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
+    impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
+        fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
             cache.feed_wire(repr.flag, self.flag);
             let bits = self.nonce.to_bits_le();
             for (i, bit) in bits.into_iter().enumerate() {

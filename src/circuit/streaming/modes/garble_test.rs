@@ -35,12 +35,8 @@ mod tests {
         }
     }
 
-    impl EncodeInput<GarbledWire> for TestGarbledInputs {
-        fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-            &self,
-            repr: &<Self as CircuitInput>::WireRepr,
-            cache: &mut M,
-        ) {
+    impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for TestGarbledInputs {
+        fn encode(&self, repr: &<Self as CircuitInput>::WireRepr, cache: &mut M) {
             self.wires
                 .iter()
                 .zip(repr.iter())

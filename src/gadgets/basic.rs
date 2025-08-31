@@ -366,12 +366,8 @@ mod tests {
             }
         }
 
-        impl EncodeInput<bool> for MuxInputs {
-            fn encode<M: CircuitMode<WireValue = bool>>(
-                &self,
-                repr: &Self::WireRepr,
-                cache: &mut M,
-            ) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for MuxInputs {
+            fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
                 for (i, &value) in self.data.iter().enumerate() {
                     cache.feed_wire(repr.data[i], value);
                 }

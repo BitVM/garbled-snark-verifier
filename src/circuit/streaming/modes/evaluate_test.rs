@@ -40,12 +40,8 @@ impl CircuitInput for TestEvalInputs {
     }
 }
 
-impl EncodeInput<EvaluatedWire> for TestEvalInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for TestEvalInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         cache.feed_wire(repr.a, self.a.clone());
         cache.feed_wire(repr.b, self.b.clone());
     }

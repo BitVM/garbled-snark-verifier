@@ -84,12 +84,8 @@ impl CircuitInput for TestCircuitInputs {
 }
 
 // Implementation for garbling mode
-impl EncodeInput<GarbledWire> for TestCircuitInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for TestCircuitInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         let wire_seed = self.seed.unwrap_or(42);
 
         // Generate garbled wires with correct semantics for the boolean values
@@ -107,12 +103,8 @@ impl EncodeInput<GarbledWire> for TestCircuitInputs {
 }
 
 // Implementation for evaluation mode - CRITICAL: Uses same seed and wire generation as garbler
-impl EncodeInput<EvaluatedWire> for TestCircuitInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Self::WireRepr,
-        cache: &mut M,
-    ) {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for TestCircuitInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
         let wire_seed = self.seed.unwrap_or(42);
         println!("🔧 EVALUATOR INPUT ENCODING:");
         println!("  Input values: a={}, b={}, c={}", self.a, self.b, self.c);
@@ -968,4 +960,3 @@ fn test_fq2_square_and_multiply_operations() {
 
     assert_eq!(actual_result, expected);
 }
-

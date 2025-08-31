@@ -463,8 +463,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<bool> for Fq12Input<N> {
-        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
+    impl<const N: usize, M: CircuitMode<WireValue = bool>> EncodeInput<M> for Fq12Input<N> {
+        fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
             self.values
                 .iter()
                 .zip(repr.iter())
@@ -715,8 +715,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<bool> for MulBy34Input {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &MulBy34Wire, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for MulBy34Input {
+            fn encode(&self, repr: &MulBy34Wire, cache: &mut M) {
                 // Encode a (Fq12) in montgomery form
                 let a_m = Fq12::as_montgomery(self.a);
                 encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
@@ -821,8 +821,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<bool> for MulBy034Input {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &MulBy034Wire, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for MulBy034Input {
+            fn encode(&self, repr: &MulBy034Wire, cache: &mut M) {
                 // Encode a (Fq12) in montgomery form
                 let a_m = Fq12::as_montgomery(self.a);
                 encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);
@@ -907,12 +907,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<bool> for MulBy034Const4Input {
-            fn encode<M: CircuitMode<WireValue = bool>>(
-                &self,
-                repr: &MulBy034Const4Wire,
-                cache: &mut M,
-            ) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for MulBy034Const4Input {
+            fn encode(&self, repr: &MulBy034Const4Wire, cache: &mut M) {
                 // Encode a (Fq12) in montgomery form
                 let a_m = Fq12::as_montgomery(self.a);
                 encode_fq6_to_wires(&a_m.c0, &repr.a.0[0], cache);

@@ -281,8 +281,8 @@ mod tests {
                 repr.f.to_wires_vec()
             }
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &W, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
                 let f_m = Fq12Wires::as_montgomery(self.f);
                 encode_fq6_to_wires(&f_m.c0, &repr.f.0[0], cache);
                 encode_fq6_to_wires(&f_m.c1, &repr.f.0[1], cache);

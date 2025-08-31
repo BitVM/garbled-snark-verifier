@@ -568,8 +568,8 @@ mod tests {
         }
     }
 
-    impl<const N: usize> EncodeInput<bool> for Fq6Input<N> {
-        fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &Self::WireRepr, cache: &mut M) {
+    impl<const N: usize, M: CircuitMode<WireValue = bool>> EncodeInput<M> for Fq6Input<N> {
+        fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
             self.values
                 .iter()
                 .zip(repr.iter())
@@ -817,8 +817,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &InWire, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &InWire, cache: &mut M) {
                 // encode a (Fq6) in montgomery form
                 let a_m = Fq6::as_montgomery(self.a);
                 // c0
@@ -1013,8 +1013,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &InWire, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &InWire, cache: &mut M) {
                 // a in montgomery
                 let a_m = Fq6::as_montgomery(self.a);
                 // c0
@@ -1167,8 +1167,8 @@ mod tests {
                 ids
             }
         }
-        impl EncodeInput<bool> for In {
-            fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &InWire, cache: &mut M) {
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &InWire, cache: &mut M) {
                 // a in montgomery
                 let a_m = Fq6::as_montgomery(self.a);
                 // c0

@@ -57,8 +57,8 @@ impl CircuitInput for MuxInputs {
     }
 }
 
-impl EncodeInput<bool> for MuxInputs {
-    fn encode<M: CircuitMode<WireValue = bool>>(&self, repr: &MuxWires, cache: &mut M) {
+impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for MuxInputs {
+    fn encode(&self, repr: &MuxWires, cache: &mut M) {
         for (g1_wire, g1_val) in repr.a.iter().zip(self.a.iter()) {
             let g1_fn = G1Projective::get_wire_bits_fn(g1_wire, g1_val).expect("g1 encoding fn");
             for &wire_id in g1_wire

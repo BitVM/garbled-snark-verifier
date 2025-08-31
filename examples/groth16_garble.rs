@@ -130,8 +130,8 @@ impl CircuitInput for GarbledInputs {
     }
 }
 
-impl EncodeInput<GarbledWire> for GarbledInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(&self, repr: &InputWires, cache: &mut M) {
+impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for GarbledInputs {
+    fn encode(&self, repr: &InputWires, cache: &mut M) {
         // For garbling, we use pre-generated garbled wire labels
         // In a real implementation, these would be generated based on the actual input bits
         let mut wire_index = 0;
