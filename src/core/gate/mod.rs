@@ -1,7 +1,5 @@
 use std::fmt;
 
-use log::debug;
-
 pub use crate::GateType;
 use crate::{Delta, EvaluatedWire, GarbledWire, S, WireError, WireId};
 pub mod garbling;
@@ -217,11 +215,6 @@ impl Gate {
         b: &GarbledWire,
         delta: &Delta,
     ) -> Result<GarbleResult, Error> {
-        debug!(
-            "gate_garble: {:?} {}+{}->{} gid={}",
-            self.gate_type, self.wire_a, self.wire_b, self.wire_c, gate_id
-        );
-
         match self.gate_type {
             GateType::Xor => {
                 let a_label0 = a.select(false);
@@ -383,8 +376,6 @@ impl Gate {
             }
         };
 
-        log::debug!("gate_eval: {:?} a={:?} b={:?}", self.gate_type, a, b);
-
         let expected_output = self.evaluate::<H>(gate_id, a, b, || {
             let index = *table_gate_index;
             *table_gate_index += 1;
@@ -402,8 +393,6 @@ impl Gate {
         // Check label correctness based on gate type
         match self.gate_type {
             GateType::Xor => {
-                log::debug!("gate_eval: XOR result={:?}", expected_output.active_label);
-
                 if expected_output.active_label != c.active_label {
                     errors.push(CorrectnessError::XorLabel {
                         calculated: expected_output.active_label,

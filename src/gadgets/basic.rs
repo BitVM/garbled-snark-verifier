@@ -63,27 +63,10 @@ pub fn full_subtracter<C: CircuitContext>(
 }
 
 pub fn selector<C: CircuitContext>(circuit: &mut C, a: WireId, b: WireId, c: WireId) -> WireId {
-    log::trace!("selector: inputs a={}, b={}, c={}", a.0, b.0, c.0);
-
     let [d, f, g] = array::from_fn(|_| circuit.issue_wire());
-
-    log::trace!("selector: issued wires d={}, f={}, g={}", d.0, f.0, g.0);
-
     circuit.add_gate(Gate::nand(a, c, d));
-    log::trace!("selector: added gate Nand({}, {}) -> {}", a.0, c.0, d.0);
-
     circuit.add_gate(Gate::and_variant(c, b, f, [true, false, true]));
-    log::trace!(
-        "selector: added gate AndVariant({}, {}) -> {}",
-        c.0,
-        b.0,
-        f.0
-    );
-
     circuit.add_gate(Gate::nand(d, f, g));
-    log::trace!("selector: added gate Nand({}, {}) -> {}", d.0, f.0, g.0);
-
-    log::trace!("selector: returning wire {}", g.0);
     g
 }
 

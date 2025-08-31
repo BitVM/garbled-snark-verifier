@@ -1,16 +1,19 @@
 use std::{array, num::NonZero};
 
 use crossbeam::channel;
-use log::{debug, error, info};
+use log::error;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
 use crate::{
     Delta, GarbledWire, Gate, S, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
-    core::gate::{
-        GarbleResult,
-        garbling::{Blake3Hasher, GateHasher},
+    core::{
+        gate::{
+            GarbleResult,
+            garbling::{Blake3Hasher, GateHasher},
+        },
+        progress::maybe_log_progress,
     },
     storage::{Credits, Storage},
 };
@@ -133,29 +136,7 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
     fn evaluate_gate(&mut self, gate: &Gate, a: GarbledWire, b: GarbledWire) -> GarbledWire {
         let gate_id = self.next_gate_index();
 
-        if gate_id % 10_000_000 == 0 {
-            fn format_gate_id(gate_id: u64) -> String {
-                const THOUSAND: u64 = 1_000;
-                const MILLION: u64 = 1_000_000;
-                const BILLION: u64 = 1_000_000_000;
-                const TRILLION: u64 = 1_000_000_000_000;
-
-                match gate_id {
-                    n if n >= TRILLION => format!("{:.1}t", n as f64 / TRILLION as f64),
-                    n if n >= BILLION => format!("{:.1}b", n as f64 / BILLION as f64),
-                    n if n >= MILLION => format!("{:.1}m", n as f64 / MILLION as f64),
-                    n if n >= THOUSAND => format!("{:.1}k", n as f64 / THOUSAND as f64),
-                    _ => format!("{}", gate_id),
-                }
-            }
-
-            info!("processed: {}", format_gate_id(gate_id as u64))
-        }
-
-        debug!(
-            "garble_gate: {:?} {}+{}->{} gid={}",
-            gate.gate_type, gate.wire_a, gate.wire_b, gate.wire_c, gate_id
-        );
+        maybe_log_progress("processed", gate_id);
 
         let GarbleResult {
             result: c,

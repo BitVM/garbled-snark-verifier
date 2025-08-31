@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use bitvec::prelude::*;
 use itertools::Itertools;
-use log::debug;
 
 use crate::{
     WireId,
@@ -180,13 +179,6 @@ impl WireStack {
             //if frame.size() < 5 {
             //    panic!("Frame {} is too small: {}", frame.name, frame.size());
             //}
-
-            // Standardized (debug-level) frame log; per-child metrics are emitted at component exit
-            debug!(
-                "component_frame name={} cache_entries={}",
-                frame.name(),
-                frame.size()
-            );
 
             frame.extract_outputs(outputs)
         } else {

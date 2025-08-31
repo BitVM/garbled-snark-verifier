@@ -1,7 +1,5 @@
 use std::iter;
 
-use log::trace;
-
 pub use super::execute_mode::ExecuteMode;
 use crate::{
     CircuitContext, WireId,
@@ -64,9 +62,7 @@ impl<M: CircuitMode> StreamingMode<M> {
         meta_output_wires: &[WireId],
     ) -> (Self, I::WireRepr) {
         if let StreamingMode::MetadataPass(meta) = self {
-            trace!("start root ctx");
             let meta = meta.build(meta_output_wires);
-            trace!("Build template: {meta:?}");
 
             let mut input_credits = vec![0; meta.get_input_len()];
 
@@ -79,8 +75,6 @@ impl<M: CircuitMode> StreamingMode<M> {
             // Extend the credit stack by adding the ability to allocate input through these
             // credits
             instance.credits_stack.extend_from_slice(&input_credits);
-
-            trace!("meta before input encode: {instance:?}");
 
             let mut ctx = StreamingMode::ExecutionPass(StreamingContext {
                 mode,
@@ -95,10 +89,6 @@ impl<M: CircuitMode> StreamingMode<M> {
 
             let input_repr = input.allocate(|| ctx.issue_wire());
             input.encode(&input_repr, ctx.get_mut_mode().unwrap());
-
-            if let StreamingMode::ExecutionPass(ctx) = &ctx {
-                trace!("meta after input encode: {:?}", ctx.stack.last().unwrap());
-            }
 
             (ctx, input_repr)
         } else {

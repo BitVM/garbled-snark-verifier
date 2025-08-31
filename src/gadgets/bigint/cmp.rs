@@ -1,5 +1,4 @@
 use circuit_component_macro::{bn_component, component};
-use log::debug;
 use num_bigint::BigUint;
 
 use super::BigIntWires;
@@ -164,29 +163,11 @@ pub fn select<C: CircuitContext>(
 ) -> BigIntWires {
     assert_eq!(a.len(), b.len());
 
-    debug!(
-        "select: a = {:?}",
-        a.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
-    debug!(
-        "select: b = {:?}",
-        b.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
-    debug!("select: s = {}", s.0);
-
     BigIntWires {
         bits: a
             .iter()
             .zip(b.iter())
-            .enumerate()
-            .map(|(i, (a_i, b_i))| {
-                let result = basic::selector(circuit, *a_i, *b_i, s);
-                debug!(
-                    "select: selector[{}] ({}, {}, {}) -> {}",
-                    i, a_i.0, b_i.0, s.0, result.0
-                );
-                result
-            })
+            .map(|(a_i, b_i)| basic::selector(circuit, *a_i, *b_i, s))
             .collect(),
     }
 }

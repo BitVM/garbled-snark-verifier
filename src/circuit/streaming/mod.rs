@@ -3,7 +3,6 @@
 use std::{array, fmt::Debug};
 
 use crossbeam::channel;
-use log::debug;
 
 use crate::{
     S, WireId,
@@ -273,15 +272,6 @@ impl<M: CircuitMode> CircuitBuilder<M> {
 
         let root_meta_output = f(&mut root_meta, &allocated_inputs);
 
-        debug!(
-            "metadata: declared outputs = {:?}",
-            root_meta_output
-                .to_wires_vec()
-                .iter()
-                .map(|w| w.0)
-                .collect::<Vec<_>>()
-        );
-
         let root_meta_output_wires = root_meta_output.to_wires_vec();
 
         let (mut ctx, allocated_inputs) =
@@ -289,11 +279,6 @@ impl<M: CircuitMode> CircuitBuilder<M> {
 
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
-
-        debug!(
-            "garble: output wires = {:?}",
-            output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
-        );
 
         let output = match &mut ctx {
             StreamingMode::ExecutionPass(ctx) => O::decode(output_repr, &mut ctx.mode),

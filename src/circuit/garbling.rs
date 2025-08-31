@@ -44,39 +44,29 @@ impl<G: GateSource> Circuit<G> {
             wires.get_or_init(*wire_id, &mut issue_fn).unwrap();
         });
 
-        log::debug!("garble: delta={delta:?}");
+        
 
         let garbled_table = self
             .gates
             .iter()
             .enumerate()
             .filter_map(|(i, g)| {
-                log::debug!(
-                    "garble: gate[{}] {:?} {}+{}->{}",
-                    i,
-                    g.gate_type,
-                    g.wire_a,
-                    g.wire_b,
-                    g.wire_c
-                );
+                
                 match g.garble::<H>(i, &mut wires, &delta, rng) {
                     Ok(Some(row)) => {
-                        log::debug!("garble: gate[{i}] table_entries={row:?}");
                         Some(Ok(row))
                     }
                     Ok(None) => {
-                        log::debug!("garble: gate[{i}] free");
                         None
                     }
                     Err(err) => {
-                        log::error!("garble: gate[{i}] error={err:?}");
+                        log::error!("garble error: {err:?}");
                         Some(Err(err))
                     }
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-
-        log::debug!("garble: complete table_size={}", garbled_table.len());
+        
         Ok(GarbledCircuit {
             structure: self.clone(),
             wires,
@@ -106,7 +96,7 @@ impl<G: GateSource> GarbledCircuit<G> {
                 let wire = self.wires.get(wire_id)?;
                 let active_label = wire.select(value);
 
-                log::debug!("evaluate: input {wire_id}={value} label={active_label:?}");
+                
 
                 evaluated[wire_id.0] = Some(crate::EvaluatedWire {
                     active_label,

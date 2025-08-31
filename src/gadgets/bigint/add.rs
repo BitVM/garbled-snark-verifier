@@ -169,22 +169,9 @@ pub fn half<C: CircuitContext>(_circuit: &mut C, a: &BigIntWires) -> BigIntWires
 }
 
 pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> [BigIntWires; 2] {
-    log::debug!(
-        "odd_part: input a = {:?}",
-        a.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
-
     let mut select_bn = BigIntWires::from_ctx(circuit, a.len() - 1);
-    log::debug!(
-        "odd_part: select_bn after from_ctx = {:?}",
-        select_bn.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
 
     select_bn.insert(0, a.get(0).unwrap());
-    log::debug!(
-        "odd_part: select_bn after insert = {:?}",
-        select_bn.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
 
     for i in 1..a.len() {
         circuit.add_gate(Gate::or(
@@ -195,16 +182,8 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> [BigIntW
     }
 
     let mut k = BigIntWires::from_ctx(circuit, a.len() - 1);
-    log::debug!(
-        "odd_part: k after from_ctx = {:?}",
-        k.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
 
     k.insert(0, a.get(0).unwrap());
-    log::debug!(
-        "odd_part: k after insert = {:?}",
-        k.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-    );
 
     for i in 1..a.len() {
         circuit.add_gate(Gate::and_variant(
@@ -219,23 +198,8 @@ pub fn odd_part<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> [BigIntW
 
     for i in 0..a.len() {
         let half_res = half(circuit, &odd_acc);
-        log::debug!(
-            "odd_part: iteration {} half_res = {:?}",
-            i,
-            half_res.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-        );
-        log::debug!(
-            "odd_part: iteration {} odd_acc before select = {:?}",
-            i,
-            odd_acc.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-        );
 
         odd_acc = select(circuit, &odd_acc, &half_res, select_bn.get(i).unwrap());
-        log::debug!(
-            "odd_part: iteration {} odd_acc after select = {:?}",
-            i,
-            odd_acc.bits.iter().map(|w| w.0).collect::<Vec<_>>()
-        );
     }
 
     [odd_acc, k]

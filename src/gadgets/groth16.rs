@@ -212,6 +212,7 @@ mod tests {
             // Encode public scalars
             for (w, v) in repr.public.iter().zip(self.public.iter()) {
                 let fr_fn = FrWire::get_wire_bits_fn(w, v).unwrap();
+
                 for &wire in w.iter() {
                     if let Some(bit) = fr_fn(wire) {
                         cache.feed_wire(wire, bit);
