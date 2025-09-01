@@ -7,7 +7,7 @@ use rand_chacha::ChaChaRng;
 
 use crate::{
     Delta, GarbledWire, Gate, S, WireId,
-    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
+    circuit::streaming::{CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE},
     core::{
         gate::{
             GarbleResult,
@@ -67,31 +67,26 @@ impl<H: GateHasher> GarbleMode<H> {
         }
     }
 
-    /// Generate input wires for Groth16 circuit using deterministic seed
-    /// This allows both garbler and evaluator to create identical input wire structure
-    ///
-    /// # Parameters
-    /// - `seed`: Deterministic seed for wire generation
-    /// - `num_input_wires`: Total number of input wires needed (Fr scalars + G1 points)
-    ///
-    /// # Returns
-    /// - `(Vec<GarbledWire>, GarbledWire, GarbledWire, Delta)`: (input_wires, true_wire, false_wire, delta)
-    pub fn generate_groth16_input_wires(
-        seed: u64,
-        num_input_wires: usize,
-    ) -> (Vec<GarbledWire>, GarbledWire, GarbledWire) {
-        let mut rng = ChaChaRng::seed_from_u64(seed);
-        let delta = Delta::generate(&mut rng);
+    pub fn preallocate_input<I: EncodeInput<Self>>(seed: u64, i: I) -> Vec<GarbledWire> {
+        let (sender, _receiver) = channel::bounded(1);
+        let mut self_ = Self::new(100, seed, sender);
 
-        // Generate constant wires (true/false)
-        let [false_wire, true_wire] = array::from_fn(|_| GarbledWire::random(&mut rng, &delta));
+        let mut cur = WireId::MIN;
+        let allocated = i.allocate(|| {
+            let next = cur;
+            cur.0 += 1;
+            next
+        });
+        i.encode(&allocated, &mut self_);
 
-        // Generate all input wires
-        let input_wires: Vec<GarbledWire> = (0..num_input_wires)
-            .map(|_| GarbledWire::random(&mut rng, &delta))
-            .collect();
+        (0..cur.0)
+            .map(WireId)
+            .map(|wire_id| self_.lookup_wire(wire_id).unwrap())
+            .collect()
+    }
 
-        (input_wires, true_wire, false_wire)
+    pub fn issue_garbled_wire(&mut self) -> GarbledWire {
+        GarbledWire::random(&mut self.rng, &self.delta)
     }
 
     fn next_gate_index(&mut self) -> usize {

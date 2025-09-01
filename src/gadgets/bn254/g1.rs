@@ -81,6 +81,10 @@ impl G1Projective {
         })
     }
 
+    pub fn iter_wires(&self) -> impl Iterator<Item = &WireId> {
+        self.x.iter().chain(self.y.iter()).chain(self.z.iter())
+    }
+
     pub fn from_bits_unchecked(bits: Vec<bool>) -> ark_bn254::G1Projective {
         let bits1 = &bits[0..Fq::N_BITS].to_vec();
         let bits2 = &bits[Fq::N_BITS..Fq::N_BITS * 2].to_vec();

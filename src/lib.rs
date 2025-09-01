@@ -28,6 +28,8 @@ pub use gadgets::{
 };
 pub use math::*;
 
+pub use crate::circuit::streaming::modes::GarbleMode;
+
 pub mod storage;
 
 #[cfg(test)]

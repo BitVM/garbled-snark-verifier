@@ -91,6 +91,7 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
 
     pub false_constant: M::WireValue,
     pub true_constant: M::WireValue,
+    pub input_values: Vec<M::WireValue>,
 }
 
 impl CircuitBuilder<ExecuteMode> {
@@ -106,60 +107,6 @@ impl CircuitBuilder<ExecuteMode> {
         F: Fn(&mut Execute, &I::WireRepr) -> O::WireRepr,
     {
         CircuitBuilder::run_streaming(inputs, ExecuteMode::with_capacity(live_wires_capacity), f)
-
-        //debug!(
-        //    "streaming_process_with_credits: start metadata pass capacity={}",
-        //    live_wires_capacity
-        //);
-        //let (allocated_inputs, root_meta) = ComponentMetaBuilder::new_with_input(&inputs);
-        //let mut root_meta = Execute::MetadataPass(root_meta);
-
-        //let root_meta_output = f(&mut root_meta, &allocated_inputs);
-
-        //debug!(
-        //    "metadata: declared outputs = {:?}",
-        //    root_meta_output
-        //        .to_wires_vec()
-        //        .iter()
-        //        .map(|w| w.0)
-        //        .collect::<Vec<_>>()
-        //);
-
-        //let root_meta_output_wires = root_meta_output.to_wires_vec();
-
-        //let (mut ctx, allocated_inputs) = root_meta.to_root_ctx(
-        //    ExecuteMode,
-        //    live_wires_capacity,
-        //    &inputs,
-        //    &root_meta_output_wires,
-        //);
-
-        //let output_repr = f(&mut ctx, &allocated_inputs);
-        //let output_wires = output_repr.to_wires_vec();
-
-        //debug!(
-        //    "execute: output wires = {:?}",
-        //    output_wires.iter().map(|w| w.0).collect::<Vec<_>>()
-        //);
-
-        //let output = O::decode(output_repr, &mut ctx);
-
-        //// Log final context stats before validation
-        //ctx.log_stats("after decode");
-
-        //assert!(
-        //    ctx.is_storage_empty(),
-        //    "{:?}",
-        //    ctx.iter_storage().into_iter().collect::<Vec<_>>()
-        //);
-
-        //StreamingResult {
-        //    input_wires: allocated_inputs,
-        //    output_wires: output,
-        //    output_wires_ids: output_wires,
-        //    one_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
-        //    zero_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
-        //}
     }
 }
 
@@ -285,18 +232,16 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             _ => unreachable!(),
         };
 
-        //assert!(
-        //    ctx.is_storage_empty(),
-        //    "{:?}",
-        //    ctx.iter_storage().into_iter().collect::<Vec<_>>()
-        //);
-
         StreamingResult {
-            input_wires: allocated_inputs,
             output_wires: output,
             output_wires_ids: output_wires,
             true_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
             false_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
+            input_values: I::collect_wire_ids(&allocated_inputs)
+                .into_iter()
+                .map(|wire_id| ctx.lookup_wire(wire_id).unwrap())
+                .collect(),
+            input_wires: allocated_inputs,
         }
     }
 }

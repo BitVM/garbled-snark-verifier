@@ -7,7 +7,7 @@
 //
 // Run with: `RUST_LOG=info cargo run --example groth16_g2e --release`
 
-use std::{thread, time::Instant};
+use std::{iter, thread, time::Instant};
 
 use ark_ec::AffineRepr;
 use ark_ff::UniformRand;
@@ -19,15 +19,14 @@ use ark_relations::{
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    self as gsv,
+    self as gsv, AesNiHasher, EvaluatedWire, GarbledWire, GateHasher, WireId,
     circuit::streaming::{
-        modes::{EvaluateMode, GarbleMode},
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
+        modes::{EvaluateMode, GarbleMode},
     },
-    groth16_verify, AesNiHasher, EvaluatedWire, GarbledWire, WireId,
+    groth16_verify,
 };
 use gsv::{FrWire, G1Wire};
-use itertools::Itertools;
 use log::{error, info, trace};
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -86,10 +85,8 @@ impl CircuitInput for GarblerInputs {
 
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         Groth16InputWires {
-            public: self
-                .public
-                .iter()
-                .map(|_| FrWire::new(&mut issue))
+            public: iter::repeat_with(|| FrWire::new(&mut issue))
+                .take(self.public.len())
                 .collect(),
             a: G1Wire::new(&mut issue),
             c: G1Wire::new(&mut issue),
@@ -107,83 +104,41 @@ impl CircuitInput for GarblerInputs {
     }
 }
 
-<<<<<<< Updated upstream
-impl<M: CircuitMode<WireValue = GarbledWire>> EncodeInput<M> for GarblerInputs {
-    fn encode(&self, repr: &Groth16InputWires, cache: &mut M) {
-        let mut wire_index = 0;
-||||||| Stash base
-impl EncodeInput<GarbledWire> for GarblerInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Groth16InputWires,
-        cache: &mut M,
-    ) {
-        let mut wire_index = 0;
-=======
-impl EncodeInput<GarbledWire> for GarblerInputs {
-    fn encode<M: CircuitMode<WireValue = GarbledWire>>(
-        &self,
-        repr: &Groth16InputWires,
-        cache: &mut M,
-    ) {
-        let Self { public, a, c } = self;
-        let Groth16InputWires {
-            public: public_wires,
-            a: a_w,
-            c: c_w,
-        } = repr;
->>>>>>> Stashed changes
-
-        // Encode public scalars
-        for (w, v) in public_wires.iter().zip_eq(public.iter()) {
-            let fr_fn = FrWire::get_wire_bits_fn(w, v).unwrap();
-
-            for &wire in w.iter() {
-                if let Some(bit) = fr_fn(wire) {
-                    cache.feed_wire(wire, bit);
-                }
-            }
-        }
-
-        // Encode G1 points (Montgomery coordinates)
-        let a_m = ark_bn254::G1Projective::as_montgomery(self.a);
-        let c_m = ark_bn254::G1Projective::as_montgomery(self.c);
-
-        let a_fn = ark_bn254::G1Projective::get_wire_bits_fn(&repr.a, &a_m).unwrap();
-        for &wire_id in repr
-            .a
-            .x
+impl<H: GateHasher> EncodeInput<GarbleMode<H>> for GarblerInputs {
+    fn encode(&self, repr: &Groth16InputWires, cache: &mut GarbleMode<H>) {
+        repr.public
             .iter()
-            .chain(repr.a.y.iter())
-            .chain(repr.a.z.iter())
-        {
-            if let Some(bit) = a_fn(wire_id) {
-                cache.feed_wire(wire_id, bit);
-            }
-        }
-        let c_fn = G1Projective::get_wire_bits_fn(&repr.c, &c_m).unwrap();
-        for &wire_id in repr
-            .c
-            .x
-            .iter()
-            .chain(repr.c.y.iter())
-            .chain(repr.c.z.iter())
-        {
-            if let Some(bit) = c_fn(wire_id) {
-                cache.feed_wire(wire_id, bit);
-            }
-        }
-        todo!()
+            .flat_map(|f| f.iter())
+            .chain(repr.a.iter_wires())
+            .chain(repr.c.iter_wires())
+            .for_each(|wire| {
+                let gw = cache.issue_garbled_wire();
+                cache.feed_wire(*wire, gw);
+            });
     }
 }
 
-// Evaluator's input encoding using received evaluated wires
-struct EvaluatorInputs {
-    input: GarblerInputs,
+impl GarblerInputs {
+    // Return true wire, false wire values and inputs, correctly intepret wires`
+    pub fn to_evaluated_inputs(
+        &self,
+        wires: Vec<GarbledWire>,
+    ) -> ((EvaluatedWire, EvaluatedWire), EvaluatorInputs) {
+        todo!("Given an order, associate bits of real evidence and their labels")
+    }
+}
 
-    public_wires: Vec<FrWire>,
-    a: G1Wire,
-    c: G1Wire,
+struct EvaluatedFrWires(Vec<EvaluatedWire>);
+struct EvaluatedG1Wires {
+    x: EvaluatedWire,
+    y: EvaluatedWire,
+    z: EvaluatedWire,
+}
+
+struct EvaluatorInputs {
+    public: Vec<EvaluatedFrWires>,
+    a: EvaluatedG1Wires,
+    c: EvaluatedG1Wires,
 }
 
 impl CircuitInput for EvaluatorInputs {
@@ -191,11 +146,8 @@ impl CircuitInput for EvaluatorInputs {
 
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         Groth16InputWires {
-            public: self
-                .input
-                .public
-                .iter()
-                .map(|_| FrWire::new(&mut issue))
+            public: iter::repeat_with(|| FrWire::new(&mut issue))
+                .take(self.public.len())
                 .collect(),
             a: G1Wire::new(&mut issue),
             c: G1Wire::new(&mut issue),
@@ -213,137 +165,9 @@ impl CircuitInput for EvaluatorInputs {
     }
 }
 
-<<<<<<< Updated upstream
-impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorInputs {
+impl<M: CircuitMode> EncodeInput<M> for EvaluatorInputs {
     fn encode(&self, repr: &Groth16InputWires, cache: &mut M) {
-        let mut wire_index = 0;
-
-        // Encode public scalars
-        for w in &repr.public {
-            for &wire in w.iter() {
-                if wire_index < self.evaluated_wires.len() {
-                    trace!(
-                        "[EVALUATOR][public][{}] value={} active_label={}",
-                        wire_index,
-                        self.evaluated_wires[wire_index].value,
-                        self.evaluated_wires[wire_index].active_label.to_hex()
-                    );
-                    cache.feed_wire(wire, self.evaluated_wires[wire_index].clone());
-                    wire_index += 1;
-                }
-            }
-        }
-
-        // Encode G1 points
-        for &wire_id in repr
-            .a
-            .x
-            .iter()
-            .chain(repr.a.y.iter())
-            .chain(repr.a.z.iter())
-        {
-            if wire_index < self.evaluated_wires.len() {
-                trace!(
-                    "[EVALUATOR][A][{}] value={} active_label={}",
-                    wire_index,
-                    self.evaluated_wires[wire_index].value,
-                    self.evaluated_wires[wire_index].active_label.to_hex()
-                );
-                cache.feed_wire(wire_id, self.evaluated_wires[wire_index].clone());
-                wire_index += 1;
-            }
-        }
-
-        for &wire_id in repr
-            .c
-            .x
-            .iter()
-            .chain(repr.c.y.iter())
-            .chain(repr.c.z.iter())
-        {
-            if wire_index < self.evaluated_wires.len() {
-                trace!(
-                    "[EVALUATOR][C][{}] value={} active_label={}",
-                    wire_index,
-                    self.evaluated_wires[wire_index].value,
-                    self.evaluated_wires[wire_index].active_label.to_hex()
-                );
-                cache.feed_wire(wire_id, self.evaluated_wires[wire_index].clone());
-                wire_index += 1;
-            }
-        }
-||||||| Stash base
-impl EncodeInput<EvaluatedWire> for EvaluatorInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Groth16InputWires,
-        cache: &mut M,
-    ) {
-        let mut wire_index = 0;
-
-        // Encode public scalars
-        for w in &repr.public {
-            for &wire in w.iter() {
-                if wire_index < self.evaluated_wires.len() {
-                    trace!(
-                        "[EVALUATOR][public][{}] value={} active_label={}",
-                        wire_index,
-                        self.evaluated_wires[wire_index].value,
-                        self.evaluated_wires[wire_index].active_label.to_hex()
-                    );
-                    cache.feed_wire(wire, self.evaluated_wires[wire_index].clone());
-                    wire_index += 1;
-                }
-            }
-        }
-
-        // Encode G1 points
-        for &wire_id in repr
-            .a
-            .x
-            .iter()
-            .chain(repr.a.y.iter())
-            .chain(repr.a.z.iter())
-        {
-            if wire_index < self.evaluated_wires.len() {
-                trace!(
-                    "[EVALUATOR][A][{}] value={} active_label={}",
-                    wire_index,
-                    self.evaluated_wires[wire_index].value,
-                    self.evaluated_wires[wire_index].active_label.to_hex()
-                );
-                cache.feed_wire(wire_id, self.evaluated_wires[wire_index].clone());
-                wire_index += 1;
-            }
-        }
-
-        for &wire_id in repr
-            .c
-            .x
-            .iter()
-            .chain(repr.c.y.iter())
-            .chain(repr.c.z.iter())
-        {
-            if wire_index < self.evaluated_wires.len() {
-                trace!(
-                    "[EVALUATOR][C][{}] value={} active_label={}",
-                    wire_index,
-                    self.evaluated_wires[wire_index].value,
-                    self.evaluated_wires[wire_index].active_label.to_hex()
-                );
-                cache.feed_wire(wire_id, self.evaluated_wires[wire_index].clone());
-                wire_index += 1;
-            }
-        }
-=======
-impl EncodeInput<EvaluatedWire> for EvaluatorInputs {
-    fn encode<M: CircuitMode<WireValue = EvaluatedWire>>(
-        &self,
-        repr: &Groth16InputWires,
-        cache: &mut M,
-    ) {
         todo!()
->>>>>>> Stashed changes
     }
 }
 
@@ -356,6 +180,7 @@ fn main() {
 
     // 1) Generate Groth16 proof
     info!("📊 Generating Groth16 proof...");
+
     let k = 8; // 2^k constraints - increase for larger circuits
     let mut rng = ChaCha20Rng::seed_from_u64(12345);
     let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -365,50 +190,31 @@ fn main() {
         num_constraints: 1 << k,
     };
     let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).expect("setup");
-    let c_val = circuit.a.unwrap() * circuit.b.unwrap();
     let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
+
     info!("✅ Groth16 proof generated successfully");
 
     // 2) Generate input wires using deterministic seed
     info!("🔧 Generating deterministic input wires...");
-    let garbler_seed = 42;
-    let num_input_wires = 254 + 254 * 3 + 254 * 3; // Fr scalar + 2 G1 points
-                                                   // Use AES-NI hasher for deterministic input-wire generation
-    let (input_wires, true_wire, false_wire) =
-        GarbleMode::<AesNiHasher>::generate_groth16_input_wires(garbler_seed, num_input_wires);
 
-    info!("📏 Generated {} input wires with delta", input_wires.len());
+    let garbler_seed = 42;
 
     // 3) Create channels for parallel communication
     let (ciphertext_tx, ciphertext_rx) = channel::bounded::<(usize, gsv::S)>(1000); // Bounded for backpressure
-    let (input_wire_tx, input_wire_rx) = channel::unbounded::<Vec<EvaluatedWire>>(); // Small transfer
+    let (input_wire_tx, input_wire_rx) = channel::unbounded::<EvaluatorInputs>(); // Small transfer
 
     // 4) Prepare garbler inputs
     let garbler_inputs = GarblerInputs {
-        public: vec![c_val],
+        public: vec![circuit.a.unwrap() * circuit.b.unwrap()],
         a: proof.a.into_group(),
         c: proof.c.into_group(),
-        garbled_wires: input_wires.clone(),
     };
 
     // Convert garbled wires to evaluated wires for evaluator
     // In real system, this would be determined by actual input bit values
-    let evaluated_input_wires: Vec<EvaluatedWire> = input_wires
-        .iter()
-        .enumerate()
-        .map(|(i, gw)| {
-            // For demo, alternate between true/false. In real system, use actual input bits
-            let bit_value = (i % 2) == 0;
-            let ew = EvaluatedWire::new_from_garbled(gw, bit_value);
-            trace!(
-                "[MAIN][eval_input][{}] value={} active_label={}",
-                i,
-                ew.value,
-                ew.active_label.to_hex()
-            );
-            ew
-        })
-        .collect();
+    let ((true_wire, false_wire), evaluated_input_wires) = garbler_inputs.to_evaluated_inputs(
+        GarbleMode::<AesNiHasher>::preallocate_input(garbler_seed, garbler_inputs),
+    );
 
     info!("🔧 Input wire encoding synchronized between garbler and evaluator");
 
@@ -430,7 +236,7 @@ fn main() {
         let result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(
                 garbler_inputs,
-                40_000, // wire capacity
+                40_000,
                 garbler_seed,
                 ciphertext_tx,
                 |ctx, wires| {
@@ -459,7 +265,7 @@ fn main() {
     let evaluator_handle = thread::spawn(move || {
         info!("🔍 [EVALUATOR] Waiting for input wires...");
 
-        let received_input_wires = match input_wire_rx.recv() {
+        let received_input = match input_wire_rx.recv() {
             Ok(wires) => wires,
             Err(e) => {
                 error!("🔍 [EVALUATOR] Failed to receive input wires: {}", e);
@@ -467,30 +273,15 @@ fn main() {
             }
         };
 
-        info!(
-            "🔍 [EVALUATOR] Received {} input wires, starting evaluation...",
-            received_input_wires.len()
-        );
         let start_time = Instant::now();
-
-        // Create evaluator inputs with received wires
-        let eval_inputs = EvaluatorInputs {
-            public: vec![c_val],
-            a: proof.a.into_group(),
-            c: proof.c.into_group(),
-            evaluated_wires: received_input_wires,
-        };
-
-        let true_evaluated = EvaluatedWire::new_from_garbled(&true_wire, true);
-        let false_evaluated = EvaluatedWire::new_from_garbled(&false_wire, false);
 
         // Evaluate with AES-NI hasher to match garbler
         let result: StreamingResult<EvaluateMode<AesNiHasher>, _, Vec<EvaluatedWire>> =
             CircuitBuilder::streaming_evaluation(
-                eval_inputs,
+                received_input,
                 40_000, // wire capacity
-                true_evaluated.active_label,
-                false_evaluated.active_label,
+                true_wire.active_label,
+                false_wire.active_label,
                 ciphertext_rx,
                 |ctx, wires| {
                     let ok = groth16_verify(
