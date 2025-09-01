@@ -73,6 +73,99 @@ fn g1_normalize_to_affine<C: CircuitContext>(circuit: &mut C, p: &G1Projective) 
     G1Projective { x, y, z }
 }
 
+/// Miller loop where P is already affine (z = 1), so no normalization needed.
+/// Precondition: `p.z` encodes the Montgomery ONE constant.
+#[component(offcircuit_args = "q")]
+pub fn miller_loop_const_q_affine<C: CircuitContext>(
+    circuit: &mut C,
+    p: &G1Projective,
+    q: &ark_bn254::G2Affine,
+) -> Fq12 {
+    let coeffs = ell_coeffs(*q);
+    let mut coeff_iter = coeffs.iter();
+
+    let mut f = new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
+
+    for i in (1..ark_bn254::Config::ATE_LOOP_COUNT.len()).rev() {
+        if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
+            f = Fq12::square_montgomery(circuit, &f);
+        }
+
+        let c = coeff_iter.next().expect("coeff present");
+        f = ell_eval_const(circuit, &f, c, p);
+
+        let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
+        if bit == 1 || bit == -1 {
+            let c2 = coeff_iter.next().expect("coeff present");
+            f = ell_eval_const(circuit, &f, c2, p);
+        }
+    }
+
+    // Final two steps
+    let c_last = coeff_iter.next().expect("coeff present");
+    f = ell_eval_const(circuit, &f, c_last, p);
+    let c_last2 = coeff_iter.next().expect("coeff present");
+    f = ell_eval_const(circuit, &f, c_last2, p);
+
+    f
+}
+
+/// Multi Miller loop where all P are already affine (z = 1).
+#[component(offcircuit_args = "qs")]
+pub fn multi_miller_loop_const_q_affine<C: CircuitContext>(
+    circuit: &mut C,
+    ps: &[G1Projective],
+    qs: &[ark_bn254::G2Affine],
+) -> Fq12 {
+    assert_eq!(ps.len(), qs.len());
+    let n = ps.len();
+    if n == 0 {
+        return new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
+    }
+
+    let qells: Vec<Vec<EllCoeff>> = qs.iter().copied().map(ell_coeffs).collect();
+    let steps = qells[0].len();
+    let mut per_step: Vec<Vec<&EllCoeff>> = Vec::with_capacity(steps);
+    for i in 0..steps {
+        let mut v = Vec::with_capacity(n);
+        for qell in &qells {
+            v.push(&qell[i]);
+        }
+        per_step.push(v);
+    }
+
+    let mut f = new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
+    let mut per_step_iter = per_step.into_iter();
+
+    for i in (1..ark_bn254::Config::ATE_LOOP_COUNT.len()).rev() {
+        if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
+            f = Fq12::square_montgomery(circuit, &f);
+        }
+
+        let coeffs_now = per_step_iter.next().expect("coeffs present");
+        for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
+            f = ell_eval_const(circuit, &f, c, p);
+        }
+
+        let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
+        if bit == 1 || bit == -1 {
+            let coeffs_now = per_step_iter.next().expect("coeffs present");
+            for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
+                f = ell_eval_const(circuit, &f, c, p);
+            }
+        }
+    }
+
+    for _ in 0..2 {
+        let coeffs_now = per_step_iter.next().expect("coeffs present");
+        for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
+            f = ell_eval_const(circuit, &f, c, p);
+        }
+    }
+
+    f
+}
+
 fn new_fq12_constant_montgomery(v: ark_bn254::Fq12) -> Fq12 {
     // Convert to Montgomery form before creating constants
     let v_mont = Fq12::as_montgomery(v);

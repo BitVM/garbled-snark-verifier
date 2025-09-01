@@ -11,8 +11,12 @@ use circuit_component_macro::component;
 use crate::{
     CircuitContext, WireId,
     gadgets::bn254::{
-        final_exponentiation::final_exponentiation, fq::Fq, fq12::Fq12, fr::Fr, g1::G1Projective,
-        pairing::miller_loop_const_q,
+        final_exponentiation::final_exponentiation,
+        fq::Fq,
+        fq12::Fq12,
+        fr::Fr,
+        g1::G1Projective,
+        pairing::{miller_loop_const_q, multi_miller_loop_const_q},
     },
 };
 
@@ -52,13 +56,18 @@ pub fn groth16_verify<C: CircuitContext>(
     let gamma_neg = -vk.gamma_g2;
     let delta_neg = -vk.delta_g2;
 
-    let f_msm = miller_loop_const_q(circuit, &msm, &gamma_neg);
-    let f_c = miller_loop_const_q(circuit, proof_c, &delta_neg);
-    // Keep all three terms in Miller-loop form, defer final exponentiation to the end
-    let f_ab = miller_loop_const_q(circuit, proof_a, proof_b);
-
-    let f_tmp = Fq12::mul_montgomery(circuit, &f_msm, &f_c);
-    let f_all = Fq12::mul_montgomery(circuit, &f_tmp, &f_ab);
+    // Mix optimized paths:
+    // - Fuse Miller loop for the two affine points (A, C) to avoid two inversions.
+    // - Use standard Miller loop for MSM (projective), then multiply once.
+    let a_aff = proof_a.clone();
+    let c_aff = proof_c.clone();
+    let f_aff = crate::gadgets::bn254::pairing::multi_miller_loop_const_q_affine(
+        circuit,
+        &[c_aff, a_aff],
+        &[delta_neg, *proof_b],
+    );
+    let f_msm = multi_miller_loop_const_q(circuit, &[msm], &[gamma_neg]);
+    let f_all = Fq12::mul_montgomery(circuit, &f_aff, &f_msm);
 
     // Final exponentiation and equality check against e(alpha, beta)
     let f_final = final_exponentiation(circuit, &f_all);
