@@ -25,6 +25,7 @@ pub use circuit_component_macro::component;
 pub use gadgets::{
     bits_from_biguint_with_len,
     bn254::{Fp254Impl, fq::Fq as FqWire, fr::Fr as FrWire, g1::G1Projective as G1Wire},
+    groth16::{Groth16ExecInput, Groth16ExecInputWires},
     groth16_verify, groth16_verify_compressed,
 };
 pub use math::*;

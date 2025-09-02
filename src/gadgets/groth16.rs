@@ -10,6 +10,10 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, WireId,
+    circuit::{
+        CircuitInput,
+        streaming::{CircuitMode, EncodeInput, WiresObject},
+    },
     gadgets::bn254::{
         final_exponentiation::final_exponentiation, fq::Fq, fq12::Fq12, fr::Fr, g1::G1Projective,
         pairing::multi_miller_loop_const_q,
@@ -125,6 +129,84 @@ pub fn groth16_verify_compressed<C: CircuitContext>(
     groth16_verify(circuit, public, &a, proof_b, &c, vk)
 }
 
+#[derive(Debug, Clone)]
+pub struct Groth16ExecInput {
+    pub public: Vec<ark_bn254::Fr>,
+    pub a: ark_bn254::G1Projective,
+    pub c: ark_bn254::G1Projective,
+}
+
+#[derive(Debug)]
+pub struct Groth16ExecInputWires {
+    pub public: Vec<Fr>,
+    pub a: G1Projective,
+    pub c: G1Projective,
+}
+
+impl CircuitInput for Groth16ExecInput {
+    type WireRepr = Groth16ExecInputWires;
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+        Groth16ExecInputWires {
+            public: self.public.iter().map(|_| Fr::new(&mut issue)).collect(),
+            a: G1Projective::new(&mut issue),
+            c: G1Projective::new(issue),
+        }
+    }
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
+        let mut ids = Vec::new();
+        for s in &repr.public {
+            ids.extend(s.to_wires_vec());
+        }
+        ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.c.to_wires_vec());
+        ids
+    }
+}
+
+impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ExecInput {
+    fn encode(&self, repr: &Groth16ExecInputWires, cache: &mut M) {
+        // Encode public scalars
+        for (w, v) in repr.public.iter().zip(self.public.iter()) {
+            let fr_fn = Fr::get_wire_bits_fn(w, v).unwrap();
+
+            for &wire in w.iter() {
+                if let Some(bit) = fr_fn(wire) {
+                    cache.feed_wire(wire, bit);
+                }
+            }
+        }
+
+        // Encode G1 points (Montgomery coordinates)
+        let a_m = G1Projective::as_montgomery(self.a);
+        let c_m = G1Projective::as_montgomery(self.c);
+
+        let a_fn = G1Projective::get_wire_bits_fn(&repr.a, &a_m).unwrap();
+        for &wire_id in repr
+            .a
+            .x
+            .iter()
+            .chain(repr.a.y.iter())
+            .chain(repr.a.z.iter())
+        {
+            if let Some(bit) = a_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+        let c_fn = G1Projective::get_wire_bits_fn(&repr.c, &c_m).unwrap();
+        for &wire_id in repr
+            .c
+            .x
+            .iter()
+            .chain(repr.c.y.iter())
+            .chain(repr.c.z.iter())
+        {
+            if let Some(bit) = c_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
@@ -139,10 +221,7 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
-    use crate::{
-        circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
-        gadgets::bn254::fr::Fr as FrWire,
-    };
+    use crate::circuit::streaming::CircuitBuilder;
 
     #[derive(Copy, Clone)]
     struct DummyCircuit<F: ark_ff::PrimeField> {
@@ -176,86 +255,6 @@ mod tests {
         }
     }
 
-    struct Inputs {
-        public: Vec<ark_bn254::Fr>,
-        a: ark_bn254::G1Projective,
-        c: ark_bn254::G1Projective,
-    }
-
-    struct InputWires {
-        public: Vec<FrWire>,
-        a: G1Projective,
-        c: G1Projective,
-    }
-
-    impl CircuitInput for Inputs {
-        type WireRepr = InputWires;
-        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-            InputWires {
-                public: self
-                    .public
-                    .iter()
-                    .map(|_| FrWire::new(&mut issue))
-                    .collect(),
-                a: G1Projective::new(&mut issue),
-                c: G1Projective::new(issue),
-            }
-        }
-        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-            let mut ids = Vec::new();
-            for s in &repr.public {
-                ids.extend(s.to_wires_vec());
-            }
-            ids.extend(repr.a.to_wires_vec());
-            ids.extend(repr.c.to_wires_vec());
-            ids
-        }
-    }
-
-    impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
-        fn encode(&self, repr: &InputWires, cache: &mut M) {
-            // Encode public scalars
-            for (w, v) in repr.public.iter().zip(self.public.iter()) {
-                let fr_fn = FrWire::get_wire_bits_fn(w, v).unwrap();
-
-                for &wire in w.iter() {
-                    if let Some(bit) = fr_fn(wire) {
-                        cache.feed_wire(wire, bit);
-                    }
-                }
-            }
-
-            // Encode G1 points (Montgomery coordinates)
-            let a_m = G1Projective::as_montgomery(self.a);
-            let c_m = G1Projective::as_montgomery(self.c);
-
-            let a_fn = G1Projective::get_wire_bits_fn(&repr.a, &a_m).unwrap();
-            for &wire_id in repr
-                .a
-                .x
-                .iter()
-                .chain(repr.a.y.iter())
-                .chain(repr.a.z.iter())
-            {
-                if let Some(bit) = a_fn(wire_id) {
-                    cache.feed_wire(wire_id, bit);
-                }
-            }
-            let c_fn = G1Projective::get_wire_bits_fn(&repr.c, &c_m).unwrap();
-            for &wire_id in repr
-                .c
-                .x
-                .iter()
-                .chain(repr.c.y.iter())
-                .chain(repr.c.z.iter())
-            {
-                if let Some(bit) = c_fn(wire_id) {
-                    cache.feed_wire(wire_id, bit);
-                }
-            }
-        }
-    }
-
     #[test]
     fn test_groth16_verify_true() {
         let k = 6;
@@ -271,14 +270,14 @@ mod tests {
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
         // Build inputs for gadget (convert A,C to projective for wire encoding)
-        let inputs = Inputs {
+        let inputs = Groth16ExecInput {
             public: vec![c_val],
             a: proof.a.into_group(),
             c: proof.c.into_group(),
         };
 
         let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+            CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, wires| {
                 let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
                 vec![ok]
             });
@@ -304,7 +303,7 @@ mod tests {
         let mut a_bad = proof.a.into_group();
         a_bad.x += ark_bn254::Fq::ONE;
 
-        let inputs = Inputs {
+        let inputs = Groth16ExecInput {
             public: vec![c_val],
             a: a_bad,
             c: proof.c.into_group(),
@@ -344,7 +343,7 @@ mod tests {
         let (_pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
 
         // Random, unrelated inputs instead of a valid proof
-        let inputs = Inputs {
+        let inputs = Groth16ExecInput {
             public: vec![ark_bn254::Fr::rand(&mut rng)],
             a: (ark_bn254::G1Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
             c: (ark_bn254::G1Projective::generator() * ark_bn254::Fr::rand(&mut rng)),

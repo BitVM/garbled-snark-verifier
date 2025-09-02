@@ -3,6 +3,7 @@ use std::num::NonZero;
 use crate::{
     Gate, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
+    core::progress::maybe_log_progress,
     storage::{Credits, Error as StorageError, Storage},
 };
 
@@ -19,12 +20,14 @@ pub enum OptionalBoolean {
 #[derive(Debug)]
 pub struct ExecuteMode {
     storage: Storage<WireId, OptionalBoolean>,
+    gate_index: usize,
 }
 
 impl ExecuteMode {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             storage: Storage::new(capacity),
+            gate_index: 0,
         }
     }
 }
@@ -45,6 +48,9 @@ impl CircuitMode for ExecuteMode {
     }
 
     fn evaluate_gate(&mut self, gate: &Gate, a: bool, b: bool) -> bool {
+        maybe_log_progress("executed", self.gate_index);
+        self.gate_index += 1;
+
         gate.execute(a, b)
     }
 

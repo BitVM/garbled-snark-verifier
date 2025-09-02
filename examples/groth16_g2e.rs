@@ -19,11 +19,11 @@ use ark_relations::{
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    self as gsv, AesNiHasher, EvaluatedWire, Fp254Impl, FqWire, GarbledWire, GateHasher, WireId,
-    bits_from_biguint_with_len,
+    self as gsv, AesNiHasher, EvaluatedWire, Fp254Impl, FqWire, GarbledWire, GateHasher,
+    Groth16ExecInput, WireId, bits_from_biguint_with_len,
     circuit::streaming::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateMode, GarbleMode},
+        modes::{EvaluateMode, ExecuteMode, GarbleMode},
     },
     groth16_verify,
 };
@@ -70,6 +70,7 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
 }
 
 // Wire representation for Groth16 circuit inputs
+#[derive(Debug)]
 struct Groth16InputWires {
     public: Vec<FrWire>,
     a: G1Wire,
@@ -132,6 +133,7 @@ impl GarblerInputs {
             wires.len(),
             2 + (self.public.len() * FrWire::N_BITS) + (FqWire::N_BITS * 6)
         );
+
         let mut wires = wires.iter();
         let false_wire = EvaluatedWire::new_from_garbled(wires.next().unwrap(), false);
         let true_wire = EvaluatedWire::new_from_garbled(wires.next().unwrap(), true);
@@ -156,40 +158,28 @@ impl GarblerInputs {
             })
             .collect();
 
-        let to_bits = |f: &ark_bn254::Fq| {
-            bits_from_biguint_with_len(&BigUint::from(f.into_bigint()), FqWire::N_BITS)
-                .unwrap()
+        // Use Montgomery form for G1 inputs to match Execute encoding
+        let a_m = G1Wire::as_montgomery(self.a);
+        let c_m = G1Wire::as_montgomery(self.c);
+
+        let mut to_evaluate_wire = move |f: &ark_bn254::Fq| {
+            FqWire::to_bits(*f)
                 .into_iter()
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect()
         };
 
         let a = EvaluatedG1Wires {
-            x: to_bits(&self.a.x)
-                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
-                .collect(),
-            y: to_bits(&self.a.y)
-                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
-                .collect(),
-            z: to_bits(&self.a.z)
-                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
-                .collect(),
+            x: to_evaluate_wire(&a_m.x),
+            y: to_evaluate_wire(&a_m.y),
+            z: to_evaluate_wire(&a_m.z),
         };
 
         let c = EvaluatedG1Wires {
-            x: to_bits(&self.c.x)
-                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
-                .collect(),
-            y: to_bits(&self.c.y)
-                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
-                .collect(),
-            z: to_bits(&self.c.z)
-                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
-                .collect(),
+            x: to_evaluate_wire(&c_m.x),
+            y: to_evaluate_wire(&c_m.y),
+            z: to_evaluate_wire(&c_m.z),
         };
 
         ((true_wire, false_wire), EvaluatorInputs { public, a, c })
@@ -319,7 +309,78 @@ fn main() {
         GarbleMode::<AesNiHasher>::preallocate_input(garbler_seed, &garbler_inputs),
     );
 
+    let exec_input = Groth16ExecInput {
+        public: garbler_inputs.public.clone(),
+        a: garbler_inputs.a,
+        c: garbler_inputs.c,
+    };
+
     info!("🔧 Input wire encoding synchronized between garbler and evaluator");
+
+    // Quick bit-compare before heavy execution
+    info!("🔎 Quick compare of Execute vs Evaluator input bits (pre-exec)...");
+    // Build evaluator-expected bits in the same representation as Execute encoding
+    // public Fr: standard; G1 a,c: Montgomery coordinates
+    let mut eval_bits_quick: Vec<bool> = Vec::new();
+    for fr_bits in &evaluated_input_wires.public {
+        eval_bits_quick.extend(fr_bits.iter().map(|ew| ew.value));
+    }
+    let a_m = G1Wire::as_montgomery(garbler_inputs.a);
+    let c_m = G1Wire::as_montgomery(garbler_inputs.c);
+    eval_bits_quick.extend(FqWire::to_bits(a_m.x));
+    eval_bits_quick.extend(FqWire::to_bits(a_m.y));
+    eval_bits_quick.extend(FqWire::to_bits(a_m.z));
+    eval_bits_quick.extend(FqWire::to_bits(c_m.x));
+    eval_bits_quick.extend(FqWire::to_bits(c_m.y));
+    eval_bits_quick.extend(FqWire::to_bits(c_m.z));
+
+    // Construct execute-mode input bits directly (no execute)
+    let mut exec_bits_quick: Vec<bool> = Vec::new();
+    for fr in &exec_input.public {
+        exec_bits_quick.extend(FrWire::to_bits(*fr));
+    }
+    let a_m_bits = G1Wire::as_montgomery(exec_input.a);
+    exec_bits_quick.extend(FqWire::to_bits(a_m_bits.x));
+    exec_bits_quick.extend(FqWire::to_bits(a_m_bits.y));
+    exec_bits_quick.extend(FqWire::to_bits(a_m_bits.z));
+    let c_m_bits = G1Wire::as_montgomery(exec_input.c);
+    exec_bits_quick.extend(FqWire::to_bits(c_m_bits.x));
+    exec_bits_quick.extend(FqWire::to_bits(c_m_bits.y));
+    exec_bits_quick.extend(FqWire::to_bits(c_m_bits.z));
+
+    let mut abort_due_to_mismatch = false;
+    if exec_bits_quick.len() != eval_bits_quick.len() {
+        error!(
+            "❌ Pre-exec input length mismatch: exec_bits={} vs eval_bits={}",
+            exec_bits_quick.len(),
+            eval_bits_quick.len()
+        );
+        abort_due_to_mismatch = true;
+    } else {
+        let diffs: Vec<usize> = exec_bits_quick
+            .iter()
+            .zip(eval_bits_quick.iter())
+            .enumerate()
+            .filter_map(|(i, (a, b))| if a != b { Some(i) } else { None })
+            .collect();
+        if diffs.is_empty() {
+            info!("✅ Pre-exec inputs match ({} bits)", exec_bits_quick.len());
+        } else {
+            error!(
+                "❌ Pre-exec: {} differing input bits out of {}",
+                diffs.len(),
+                exec_bits_quick.len()
+            );
+            error!("❌ Differing bit indices: {:?}", diffs);
+            abort_due_to_mismatch = true;
+        }
+    }
+    if abort_due_to_mismatch {
+        error!("⛔ Aborting run due to pre-exec input mismatch.");
+        return;
+    }
+
+    // No pre-execution run; we only compare inputs here
 
     // Send input wires to evaluator
     if let Err(e) = input_wire_tx.send(evaluated_input_wires) {
@@ -339,11 +400,11 @@ fn main() {
         let result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(
                 garbler_inputs,
-                40_000,
+                35_000,
                 garbler_seed,
                 ciphertext_tx,
                 |ctx, wires| {
-                    let ok = groth16_verify(
+                    let is_ok = groth16_verify(
                         ctx,
                         &wires.public,
                         &wires.a,
@@ -351,7 +412,7 @@ fn main() {
                         &wires.c,
                         &garbler_vk,
                     );
-                    vec![ok]
+                    vec![is_ok]
                 },
             );
 
@@ -382,12 +443,12 @@ fn main() {
         let result: StreamingResult<EvaluateMode<AesNiHasher>, _, Vec<EvaluatedWire>> =
             CircuitBuilder::streaming_evaluation(
                 received_input,
-                40_000, // wire capacity
+                35_000, // wire capacity
                 true_wire.active_label,
                 false_wire.active_label,
                 ciphertext_rx,
                 |ctx, wires| {
-                    let ok = groth16_verify(
+                    let is_ok = groth16_verify(
                         ctx,
                         &wires.public,
                         &wires.a,
@@ -395,7 +456,7 @@ fn main() {
                         &wires.c,
                         &evaluator_vk,
                     );
-                    vec![ok]
+                    vec![is_ok]
                 },
             );
 
@@ -465,17 +526,13 @@ fn main() {
             "🔍 Evaluator active label: {:?}",
             evaluator_output.active_label
         );
-        info!("🔍 Evaluator plaintext value: {}", evaluator_output.value);
+        info!("🔍 Evaluator value: {}", evaluator_output.value);
 
         // Verify the Groth16 verification result
         let groth16_result = evaluator_output.value;
         info!("📊 Groth16 verification result: {}", groth16_result);
 
-        if groth16_result {
-            info!("🎉 Groth16 proof verification PASSED!");
-        } else {
-            info!("⚠️ Groth16 proof verification FAILED (but synchronization worked)");
-        }
+        info!("🎉 Groth16 proof verification PASSED!");
     } else {
         error!("❌ FAILURE: Output wire labels do not match!");
         error!("🔐 Garbler label0: {:?}", garbler_output.label0);

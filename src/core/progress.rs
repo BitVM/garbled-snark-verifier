@@ -1,7 +1,7 @@
 use log::info;
 
 /// Step for periodic gate progress logs.
-pub const GATE_LOG_STEP: usize = 10_000_000;
+pub const GATE_LOG_STEP: usize = 50_000_000;
 
 /// Format a gate count with compact suffixes: k, m, b, t.
 #[inline]

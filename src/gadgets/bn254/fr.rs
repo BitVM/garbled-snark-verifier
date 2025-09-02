@@ -33,7 +33,7 @@ use crate::{
 ///
 /// Represents elements in the scalar field Fr of the BN254 elliptic curve.
 /// This is the field used for private keys and exponents in BN254 operations.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Fr(pub BigIntWires);
 
 impl Deref for Fr {

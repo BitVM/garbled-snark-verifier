@@ -84,6 +84,7 @@ pub struct CircuitBuilder<M: CircuitMode> {
     gate_count: GateCount,
 }
 
+#[derive(Debug)]
 pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>> {
     pub input_wires: I::WireRepr,
     pub output_wires: O,
