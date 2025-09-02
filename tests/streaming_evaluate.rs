@@ -1,5 +1,5 @@
 use crate_lib::{
-    CircuitContext, Delta, EvaluatedWire, Fq, GarbledWire, Gate, GateType, S, WireId,
+    CircuitContext, Delta, EvaluatedWire, FqWire, GarbledWire, Gate, GateType, S, WireId,
     circuit::streaming::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
         modes::{EvaluateModeBlake3 as EvaluateMode, GarbleModeBlake3 as GarbleMode},
@@ -334,8 +334,8 @@ struct FqPairInputs {
 
 #[derive(Debug, Clone)]
 struct FqPairWires {
-    a: Fq,
-    b: Fq,
+    a: FqWire,
+    b: FqWire,
 }
 
 impl FqPairInputs {
@@ -348,8 +348,8 @@ impl CircuitInput for FqPairInputs {
     type WireRepr = FqPairWires;
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         FqPairWires {
-            a: Fq::new(&mut issue),
-            b: Fq::new(issue),
+            a: FqWire::new(&mut issue),
+            b: FqWire::new(issue),
         }
     }
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
@@ -374,8 +374,8 @@ impl EncodeInput<EvaluateMode> for FqPairInputs {
         let mut rng = ChaChaRng::seed_from_u64(777);
         let delta = Delta::generate(&mut rng);
 
-        let a_bits = Fq::to_bits(Fq::as_montgomery(self.a));
-        let b_bits = Fq::to_bits(Fq::as_montgomery(self.b));
+        let a_bits = FqWire::to_bits(FqWire::as_montgomery(self.a));
+        let b_bits = FqWire::to_bits(FqWire::as_montgomery(self.b));
 
         for (w, bit) in repr.a.0.iter().zip(a_bits.iter().copied()) {
             cache.feed_wire(
@@ -394,9 +394,9 @@ impl EncodeInput<EvaluateMode> for FqPairInputs {
 
 fn fq_complex_circuit<C: CircuitContext>(ctx: &mut C, inputs: &FqPairWires) -> Vec<WireId> {
     // Compute ((a^2) * b) + a in Montgomery form
-    let a2 = Fq::square_montgomery(ctx, &inputs.a);
-    let a2b = Fq::mul_montgomery(ctx, &a2, &inputs.b);
-    let res = Fq::add(ctx, &a2b, &inputs.a);
+    let a2 = FqWire::square_montgomery(ctx, &inputs.a);
+    let a2b = FqWire::mul_montgomery(ctx, &a2, &inputs.b);
+    let res = FqWire::add(ctx, &a2b, &inputs.a);
     res.to_wires_vec()
 }
 
@@ -442,9 +442,9 @@ fn test_bn254_fq_complex_chain_garble_eval() {
             fq_complex_circuit,
         );
 
-    let bits_len = Fq::to_bits(ark_bn254::Fq::from(0u32)).len();
+    let bits_len = FqWire::to_bits(ark_bn254::Fq::from(0u32)).len();
     assert_eq!(eval.output_wires.len(), bits_len);
     let bits: Vec<bool> = eval.output_wires.iter().map(|w| w.value).collect();
-    let actual = Fq::from_montgomery(Fq::from_bits(bits));
+    let actual = FqWire::from_montgomery(FqWire::from_bits(bits));
     assert_eq!(actual, expected);
 }

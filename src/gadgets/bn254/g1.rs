@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, iter::zip};
+use std::{cmp::min, collections::HashMap, iter};
 
 use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
 use circuit_component_macro::component;
@@ -380,10 +380,12 @@ impl G1Projective {
         bases: &[ark_bn254::G1Projective],
     ) -> G1Projective {
         assert_eq!(scalars.len(), bases.len());
-        let mut to_be_added = Vec::new();
-        for (s, base) in zip(scalars.iter(), bases) {
-            let result = Self::scalar_mul_by_constant_base_montgomery::<W, _>(circuit, s, base);
-            to_be_added.push(result);
+
+        let mut to_be_added = Vec::with_capacity(bases.len());
+        for (s, base) in iter::zip(scalars.iter(), bases) {
+            to_be_added.push(Self::scalar_mul_by_constant_base_montgomery::<W, _>(
+                circuit, s, base,
+            ));
         }
 
         let mut acc = to_be_added[0].clone();

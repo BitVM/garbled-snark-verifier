@@ -43,7 +43,10 @@ pub fn bits_from_biguint_with_len(u: &BigUint, bit_count: usize) -> Result<BitVe
     let mut bytes = u.to_bytes_le();
     let byte_count = bit_count.div_ceil(8);
     bytes.resize(byte_count, 0);
-    Ok(BitVec::from_vec(bytes))
+    let mut bv = BitVec::from_vec(bytes);
+    bv.truncate(bit_count);
+
+    Ok(bv)
 }
 
 #[derive(Debug, Clone)]

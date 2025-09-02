@@ -10,7 +10,7 @@
 use std::{iter, thread, time::Instant};
 
 use ark_ec::AffineRepr;
-use ark_ff::UniformRand;
+use ark_ff::{PrimeField, UniformRand};
 use ark_groth16::Groth16;
 use ark_relations::{
     lc,
@@ -19,7 +19,8 @@ use ark_relations::{
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    self as gsv, AesNiHasher, EvaluatedWire, GarbledWire, GateHasher, WireId,
+    self as gsv, AesNiHasher, EvaluatedWire, Fp254Impl, FqWire, GarbledWire, GateHasher, WireId,
+    bits_from_biguint_with_len,
     circuit::streaming::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
         modes::{EvaluateMode, GarbleMode},
@@ -27,7 +28,9 @@ use garbled_snark_verifier::{
     groth16_verify,
 };
 use gsv::{FrWire, G1Wire};
+use itertools::Itertools;
 use log::{error, info, trace};
+use num_bigint::BigUint;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
@@ -74,6 +77,7 @@ struct Groth16InputWires {
 }
 
 // Garbler's input encoding using pre-generated garbled wires
+#[derive(Debug)]
 struct GarblerInputs {
     public: Vec<ark_bn254::Fr>,
     a: ark_bn254::G1Projective,
@@ -124,17 +128,92 @@ impl GarblerInputs {
         &self,
         wires: Vec<GarbledWire>,
     ) -> ((EvaluatedWire, EvaluatedWire), EvaluatorInputs) {
-        todo!("Given an order, associate bits of real evidence and their labels")
+        assert_eq!(
+            wires.len(),
+            2 + (self.public.len() * FrWire::N_BITS) + (FqWire::N_BITS * 6)
+        );
+        let mut wires = wires.iter();
+        let false_wire = EvaluatedWire::new_from_garbled(wires.next().unwrap(), false);
+        let true_wire = EvaluatedWire::new_from_garbled(wires.next().unwrap(), true);
+
+        let public: Vec<EvaluatedFrWires> = self
+            .public
+            .iter()
+            .map(|f| {
+                let wires = wires.by_ref().take(FrWire::N_BITS).collect::<Box<[_]>>();
+                assert_eq!(wires.len(), FrWire::N_BITS);
+
+                let bits =
+                    bits_from_biguint_with_len(&BigUint::from(f.into_bigint()), FrWire::N_BITS)
+                        .unwrap();
+
+                assert_eq!(bits.len(), FrWire::N_BITS);
+
+                bits.into_iter()
+                    .zip_eq(wires)
+                    .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                    .collect()
+            })
+            .collect();
+
+        let to_bits = |f: &ark_bn254::Fq| {
+            bits_from_biguint_with_len(&BigUint::from(f.into_bigint()), FqWire::N_BITS)
+                .unwrap()
+                .into_iter()
+        };
+
+        let a = EvaluatedG1Wires {
+            x: to_bits(&self.a.x)
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+            y: to_bits(&self.a.y)
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+            z: to_bits(&self.a.z)
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+        };
+
+        let c = EvaluatedG1Wires {
+            x: to_bits(&self.c.x)
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+            y: to_bits(&self.c.y)
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+            z: to_bits(&self.c.z)
+                .zip_eq(wires.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+        };
+
+        ((true_wire, false_wire), EvaluatorInputs { public, a, c })
     }
 }
 
-struct EvaluatedFrWires(Vec<EvaluatedWire>);
+type EvaluatedFrWires = Vec<EvaluatedWire>;
+
+#[derive(Debug)]
 struct EvaluatedG1Wires {
-    x: EvaluatedWire,
-    y: EvaluatedWire,
-    z: EvaluatedWire,
+    x: Vec<EvaluatedWire>,
+    y: Vec<EvaluatedWire>,
+    z: Vec<EvaluatedWire>,
 }
 
+impl EvaluatedG1Wires {
+    fn iter(&self) -> impl Iterator<Item = &EvaluatedWire> {
+        let Self { x, y, z } = self;
+
+        x.iter().chain(y.iter()).chain(z.iter())
+    }
+}
+
+#[derive(Debug)]
 struct EvaluatorInputs {
     public: Vec<EvaluatedFrWires>,
     a: EvaluatedG1Wires,
@@ -165,9 +244,33 @@ impl CircuitInput for EvaluatorInputs {
     }
 }
 
-impl<M: CircuitMode> EncodeInput<M> for EvaluatorInputs {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorInputs {
     fn encode(&self, repr: &Groth16InputWires, cache: &mut M) {
-        todo!()
+        repr.public
+            .iter()
+            .zip_eq(self.public.iter())
+            .for_each(|(wires, vars)| {
+                wires
+                    .iter()
+                    .zip_eq(vars.iter())
+                    .for_each(|(wire_id, evaluated_wire)| {
+                        cache.feed_wire(*wire_id, evaluated_wire.clone());
+                    });
+            });
+
+        repr.a
+            .iter_wires()
+            .zip_eq(self.a.iter())
+            .for_each(|(wire_id, evaluated_wire)| {
+                cache.feed_wire(*wire_id, evaluated_wire.clone());
+            });
+
+        repr.c
+            .iter_wires()
+            .zip_eq(self.c.iter())
+            .for_each(|(wire_id, evaluated_wire)| {
+                cache.feed_wire(*wire_id, evaluated_wire.clone());
+            });
     }
 }
 
@@ -213,7 +316,7 @@ fn main() {
     // Convert garbled wires to evaluated wires for evaluator
     // In real system, this would be determined by actual input bit values
     let ((true_wire, false_wire), evaluated_input_wires) = garbler_inputs.to_evaluated_inputs(
-        GarbleMode::<AesNiHasher>::preallocate_input(garbler_seed, garbler_inputs),
+        GarbleMode::<AesNiHasher>::preallocate_input(garbler_seed, &garbler_inputs),
     );
 
     info!("🔧 Input wire encoding synchronized between garbler and evaluator");
@@ -299,7 +402,7 @@ fn main() {
         let elapsed = start_time.elapsed();
         info!("🔍 [EVALUATOR] Completed in {:.2}s", elapsed.as_secs_f64());
         info!("🔍 [EVALUATOR] Output wires: {}", result.output_wires.len());
-        if let Some(out) = result.output_wires.get(0) {
+        if let Some(out) = result.output_wires.first() {
             trace!(
                 "[EVALUATOR][output] value={} active_label={}",
                 out.value,

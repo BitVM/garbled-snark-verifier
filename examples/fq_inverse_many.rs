@@ -9,7 +9,7 @@ use std::env;
 use ark_ff::{UniformRand, Zero};
 use garbled_snark_verifier::{self as gsv, WireId, circuit::streaming::StreamingResult};
 use gsv::{
-    Fq,
+    FqWire,
     circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput},
 };
 use rand::SeedableRng;
@@ -20,14 +20,14 @@ struct Inputs {
 }
 
 struct Wires {
-    vals: Vec<Fq>,
+    vals: Vec<FqWire>,
 }
 
 impl CircuitInput for Inputs {
     type WireRepr = Wires;
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         Wires {
-            vals: self.vals.iter().map(|_| Fq::new(&mut issue)).collect(),
+            vals: self.vals.iter().map(|_| FqWire::new(&mut issue)).collect(),
         }
     }
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {
@@ -41,7 +41,7 @@ impl CircuitInput for Inputs {
 impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
     fn encode(&self, repr: &Wires, cache: &mut M) {
         for (w, v) in repr.vals.iter().zip(self.vals.iter()) {
-            let fnc = Fq::get_wire_bits_fn(w, v).expect("fq encoding fn");
+            let fnc = FqWire::get_wire_bits_fn(w, v).expect("fq encoding fn");
             for &wire in w.0.iter() {
                 if let Some(bit) = fnc(wire) {
                     cache.feed_wire(wire, bit);
@@ -64,7 +64,7 @@ fn main() {
     while vals.len() < n {
         let v = ark_bn254::Fq::rand(&mut rng);
         if !v.is_zero() {
-            vals.push(Fq::as_montgomery(v));
+            vals.push(FqWire::as_montgomery(v));
         }
     }
 
@@ -75,7 +75,7 @@ fn main() {
             // compute inverses and return all wires
             let mut out_ids = Vec::new();
             for fq in &wires.vals {
-                let inv = Fq::inverse(ctx, fq);
+                let inv = FqWire::inverse(ctx, fq);
                 out_ids.extend(inv.0.iter());
             }
             out_ids

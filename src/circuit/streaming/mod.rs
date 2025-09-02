@@ -224,6 +224,11 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         let (mut ctx, allocated_inputs) =
             root_meta.to_root_ctx(mode, &inputs, &root_meta_output_wires);
 
+        let input_values = I::collect_wire_ids(&allocated_inputs)
+            .into_iter()
+            .map(|wire_id| ctx.lookup_wire(wire_id).unwrap())
+            .collect();
+
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
 
@@ -237,11 +242,8 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             output_wires_ids: output_wires,
             true_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
             false_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
-            input_values: I::collect_wire_ids(&allocated_inputs)
-                .into_iter()
-                .map(|wire_id| ctx.lookup_wire(wire_id).unwrap())
-                .collect(),
             input_wires: allocated_inputs,
+            input_values,
         }
     }
 }

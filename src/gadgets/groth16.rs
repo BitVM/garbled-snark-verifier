@@ -11,12 +11,8 @@ use circuit_component_macro::component;
 use crate::{
     CircuitContext, WireId,
     gadgets::bn254::{
-        final_exponentiation::final_exponentiation,
-        fq::Fq,
-        fq12::Fq12,
-        fr::Fr,
-        g1::G1Projective,
-        pairing::{miller_loop_const_q, multi_miller_loop_const_q},
+        final_exponentiation::final_exponentiation, fq::Fq, fq12::Fq12, fr::Fr, g1::G1Projective,
+        pairing::multi_miller_loop_const_q,
     },
 };
 

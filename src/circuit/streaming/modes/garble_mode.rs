@@ -67,20 +67,16 @@ impl<H: GateHasher> GarbleMode<H> {
         }
     }
 
-    pub fn preallocate_input<I: EncodeInput<Self>>(seed: u64, i: I) -> Vec<GarbledWire> {
+    pub fn preallocate_input<I: EncodeInput<Self>>(seed: u64, i: &I) -> Vec<GarbledWire> {
         let (sender, _receiver) = channel::bounded(1);
-        let mut self_ = Self::new(100, seed, sender);
+        let mut self_ = Self::new(3200, seed, sender);
 
-        let mut cur = WireId::MIN;
-        let allocated = i.allocate(|| {
-            let next = cur;
-            cur.0 += 1;
-            next
-        });
+        let allocated = i.allocate(|| self_.allocate_wire(1));
         i.encode(&allocated, &mut self_);
 
-        (0..cur.0)
-            .map(WireId)
+        [FALSE_WIRE, TRUE_WIRE]
+            .into_iter()
+            .chain(I::collect_wire_ids(&allocated))
             .map(|wire_id| self_.lookup_wire(wire_id).unwrap())
             .collect()
     }

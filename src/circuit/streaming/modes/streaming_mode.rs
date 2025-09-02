@@ -64,7 +64,8 @@ impl<M: CircuitMode> StreamingMode<M> {
         if let StreamingMode::MetadataPass(meta) = self {
             let meta = meta.build(meta_output_wires);
 
-            let mut input_credits = vec![0; meta.get_input_len()];
+            // Here `1` needed for request this values to `StreamingResult`
+            let mut input_credits = vec![1; meta.get_input_len()];
 
             let mut instance =
                 meta.to_instance(&vec![1; meta_output_wires.len()], |index, credits| {
