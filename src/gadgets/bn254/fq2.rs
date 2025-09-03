@@ -83,6 +83,10 @@ impl Fq2 {
     pub fn len(&self) -> usize {
         self.0.iter().map(|fq| fq.len()).sum()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &WireId> {
+        self.0.iter().flat_map(|fq2| fq2.iter())
+    }
 }
 
 impl Fq2 {
@@ -297,6 +301,7 @@ impl Fq2 {
         Fq2::from_components(c0, c1)
     }
 
+    #[component(offcircuit_args = "a")]
     pub fn mul_constant_by_fq_montgomery<C: CircuitContext>(
         circuit: &mut C,
         a: &ark_bn254::Fq2,

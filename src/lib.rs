@@ -24,7 +24,10 @@ pub use circuit_component_macro::component;
 // Publicly re-export commonly used BN254 wire types for examples/binaries
 pub use gadgets::{
     bits_from_biguint_with_len,
-    bn254::{Fp254Impl, fq::Fq as FqWire, fr::Fr as FrWire, g1::G1Projective as G1Wire},
+    bn254::{
+        Fp254Impl, fq::Fq as FqWire, fr::Fr as FrWire, g1::G1Projective as G1Wire,
+        g2::G2Projective as G2Wire,
+    },
     groth16::{Groth16ExecInput, Groth16ExecInputWires},
     groth16_verify, groth16_verify_compressed,
 };

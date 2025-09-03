@@ -15,10 +15,32 @@ use crate::{
         streaming::{CircuitMode, EncodeInput, WiresObject},
     },
     gadgets::bn254::{
-        final_exponentiation::final_exponentiation, fq::Fq, fq12::Fq12, fr::Fr, g1::G1Projective,
-        pairing::multi_miller_loop_const_q,
+        G2Projective, final_exponentiation::final_exponentiation_montgomery, fq::Fq, fq12::Fq12,
+        fr::Fr, g1::G1Projective, pairing::multi_miller_loop_groth16_evaluate_montgomery_fast,
     },
 };
+
+#[component]
+pub fn projective_to_affine_montgomery<C: CircuitContext>(
+    circuit: &mut C,
+    p: &G1Projective,
+) -> G1Projective {
+    let x = &p.x;
+    let y = &p.y;
+    let z = &p.z;
+
+    let z_inverse = Fq::inverse_montgomery(circuit, z);
+    let z_inverse_square = Fq::square_montgomery(circuit, &z_inverse);
+    let z_inverse_cube = Fq::mul_montgomery(circuit, &z_inverse, &z_inverse_square);
+    let new_x = Fq::mul_montgomery(circuit, x, &z_inverse_square);
+    let new_y = Fq::mul_montgomery(circuit, y, &z_inverse_cube.clone());
+
+    G1Projective {
+        x: new_x,
+        y: new_y,
+        z: Fq::new_constant(&ark_bn254::Fq::ONE).unwrap(),
+    }
+}
 
 /// Verify Groth16 proof for BN254 using streaming gadgets.
 ///
@@ -28,54 +50,55 @@ use crate::{
 /// - `vk`: verifying key with constant elements (host-provided arkworks types).
 ///
 /// Returns a boolean wire that is 1 iff the proof verifies.
-#[component(offcircuit_args = "proof_b, vk")]
+#[component(offcircuit_args = "vk")]
 pub fn groth16_verify<C: CircuitContext>(
     circuit: &mut C,
     public: &[Fr],
     proof_a: &G1Projective,
-    proof_b: &ark_bn254::G2Affine,
+    proof_b: &G2Projective,
     proof_c: &G1Projective,
     vk: &ark_groth16::VerifyingKey<ark_bn254::Bn254>,
 ) -> WireId {
-    // Compute MSM over vk.gamma_abc_g1 with scalars [1] ++ public
-    let mut scalars: Vec<Fr> = Vec::with_capacity(public.len() + 1);
-    scalars.push(Fr::new_constant(&ark_bn254::Fr::ONE).expect("const one"));
-    scalars.extend_from_slice(public);
-
-    let bases: Vec<_> = vk
+    // MSM: sum_i public[i] * gamma_abc_g1[i+1]
+    let bases: Vec<ark_bn254::G1Projective> = vk
         .gamma_abc_g1
         .iter()
-        .take(scalars.len())
-        .map(|g| g.into_group())
+        .skip(1)
+        .take(public.len())
+        .map(|a| a.into_group())
         .collect();
+    let msm_temp =
+        G1Projective::msm_with_constant_bases_montgomery::<10, _>(circuit, public, &bases);
 
-    // Windowed MSM with constant bases
-    let msm = G1Projective::msm_with_constant_bases_montgomery::<10, _>(circuit, &scalars, &bases);
+    // Add the constant term gamma_abc_g1[0] in Montgomery form
+    let gamma0_m = G1Projective::as_montgomery(vk.gamma_abc_g1[0].into_group());
+    let msm =
+        G1Projective::add_montgomery(circuit, &msm_temp, &G1Projective::new_constant(&gamma0_m));
 
-    // Miller loop accumulators for the three terms
-    let gamma_neg = -vk.gamma_g2;
-    let delta_neg = -vk.delta_g2;
+    let msm_affine = projective_to_affine_montgomery(circuit, &msm);
 
-    // Mix optimized paths:
-    // - Fuse Miller loop for the two affine points (A, C) to avoid two inversions.
-    // - Use standard Miller loop for MSM (projective), then multiply once.
-    let a_aff = proof_a.clone();
-    let c_aff = proof_c.clone();
-    let f_aff = crate::gadgets::bn254::pairing::multi_miller_loop_const_q_affine(
+    let f = multi_miller_loop_groth16_evaluate_montgomery_fast(
         circuit,
-        &[c_aff, a_aff],
-        &[delta_neg, *proof_b],
+        &msm_affine,  // p1
+        proof_c,      // p2
+        proof_a,      // p3
+        -vk.gamma_g2, // q1
+        -vk.delta_g2, // q2
+        proof_b,      // q2
     );
-    let f_msm = multi_miller_loop_const_q(circuit, &[msm], &[gamma_neg]);
-    let f_all = Fq12::mul_montgomery(circuit, &f_aff, &f_msm);
 
-    // Final exponentiation and equality check against e(alpha, beta)
-    let f_final = final_exponentiation(circuit, &f_all);
-    let expected = {
-        let pairing = <ark_bn254::Bn254 as Pairing>::pairing(vk.alpha_g1, vk.beta_g2).0;
-        Fq12::as_montgomery(pairing)
-    };
-    Fq12::equal_constant(circuit, &f_final, &expected)
+    let alpha_beta = ark_bn254::Bn254::final_exponentiation(ark_bn254::Bn254::multi_miller_loop(
+        [vk.alpha_g1.into_group()],
+        [-vk.beta_g2],
+    ))
+    .unwrap()
+    .0
+    .inverse()
+    .unwrap();
+
+    let f = final_exponentiation_montgomery(circuit, &f);
+
+    Fq12::equal_constant(circuit, &f, &Fq12::as_montgomery(alpha_beta))
 }
 
 /// Decompress a compressed G1 point (x, sign bit) into projective wires with z = 1 (Montgomery domain).
@@ -116,23 +139,25 @@ pub fn decompress_g1_from_compressed<C: CircuitContext>(
 #[component(offcircuit_args = "proof_b, vk")]
 pub fn groth16_verify_compressed<C: CircuitContext>(
     circuit: &mut C,
-    public: &[Fr],
-    a_x: &Fq,
-    a_y_flag: crate::WireId,
+    _public: &[Fr],
+    _a_x: &Fq,
+    _a_y_flag: crate::WireId,
     proof_b: &ark_bn254::G2Affine,
-    c_x: &Fq,
-    c_y_flag: crate::WireId,
+    _c_x: &Fq,
+    _c_y_flag: crate::WireId,
     vk: &ark_groth16::VerifyingKey<ark_bn254::Bn254>,
 ) -> crate::WireId {
-    let a = decompress_g1_from_compressed(circuit, a_x, a_y_flag);
-    let c = decompress_g1_from_compressed(circuit, c_x, c_y_flag);
-    groth16_verify(circuit, public, &a, proof_b, &c, vk)
+    //let a = decompress_g1_from_compressed(circuit, a_x, a_y_flag);
+    //let c = decompress_g1_from_compressed(circuit, c_x, c_y_flag);
+    //groth16_verify(circuit, public, &a, proof_b, &c, vk)
+    todo!()
 }
 
 #[derive(Debug, Clone)]
 pub struct Groth16ExecInput {
     pub public: Vec<ark_bn254::Fr>,
     pub a: ark_bn254::G1Projective,
+    pub b: ark_bn254::G2Projective,
     pub c: ark_bn254::G1Projective,
 }
 
@@ -140,6 +165,7 @@ pub struct Groth16ExecInput {
 pub struct Groth16ExecInputWires {
     pub public: Vec<Fr>,
     pub a: G1Projective,
+    pub b: G2Projective,
     pub c: G1Projective,
 }
 
@@ -149,6 +175,7 @@ impl CircuitInput for Groth16ExecInput {
         Groth16ExecInputWires {
             public: self.public.iter().map(|_| Fr::new(&mut issue)).collect(),
             a: G1Projective::new(&mut issue),
+            b: G2Projective::new(&mut issue),
             c: G1Projective::new(issue),
         }
     }
@@ -158,6 +185,7 @@ impl CircuitInput for Groth16ExecInput {
             ids.extend(s.to_wires_vec());
         }
         ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.b.to_wires_vec());
         ids.extend(repr.c.to_wires_vec());
         ids
     }
@@ -178,6 +206,7 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ExecInput {
 
         // Encode G1 points (Montgomery coordinates)
         let a_m = G1Projective::as_montgomery(self.a);
+        let b_m = G2Projective::as_montgomery(self.b);
         let c_m = G1Projective::as_montgomery(self.c);
 
         let a_fn = G1Projective::get_wire_bits_fn(&repr.a, &a_m).unwrap();
@@ -192,6 +221,20 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ExecInput {
                 cache.feed_wire(wire_id, bit);
             }
         }
+
+        let b_fn = G2Projective::get_wire_bits_fn(&repr.b, &b_m).unwrap();
+        for &wire_id in repr
+            .b
+            .x
+            .iter()
+            .chain(repr.b.y.iter())
+            .chain(repr.b.z.iter())
+        {
+            if let Some(bit) = b_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+
         let c_fn = G1Projective::get_wire_bits_fn(&repr.c, &c_m).unwrap();
         for &wire_id in repr
             .c
@@ -273,12 +316,13 @@ mod tests {
         let inputs = Groth16ExecInput {
             public: vec![c_val],
             a: proof.a.into_group(),
+            b: proof.b.into_group(),
             c: proof.c.into_group(),
         };
 
         let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+            CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, input| {
+                let ok = groth16_verify(ctx, &input.public, &input.a, &input.b, &input.c, &vk);
                 vec![ok]
             });
 
@@ -286,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn test_groth16_verify_false_bitflip() {
+    fn test_groth16_verify_false_bitflip_a() {
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(54321);
         let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -299,19 +343,19 @@ mod tests {
         let c_val = circuit.a.unwrap() * circuit.b.unwrap();
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
-        // Corrupt A by flipping the least significant bit of x (via +1)
         let mut a_bad = proof.a.into_group();
         a_bad.x += ark_bn254::Fq::ONE;
 
         let inputs = Groth16ExecInput {
             public: vec![c_val],
             a: a_bad,
+            b: proof.b.into_group(),
             c: proof.c.into_group(),
         };
 
         let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
                 vec![ok]
             });
 
@@ -346,13 +390,17 @@ mod tests {
         let inputs = Groth16ExecInput {
             public: vec![ark_bn254::Fr::rand(&mut rng)],
             a: (ark_bn254::G1Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
+            b: (ark_bn254::G2Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
             c: (ark_bn254::G1Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
         };
         let b_rand = random_g2_affine(&mut rng);
+        let b_rand_proj = b_rand.into_group();
+        let b_rand_m = G2Projective::as_montgomery(b_rand_proj);
+        let b_rand_wires = G2Projective::new_constant(&b_rand_m).unwrap();
 
         let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &b_rand, &wires.c, &vk);
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &b_rand_wires, &wires.c, &vk);
                 vec![ok]
             });
 

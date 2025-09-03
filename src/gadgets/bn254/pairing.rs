@@ -20,7 +20,9 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, Fp254Impl,
-    circuit::streaming::{FALSE_WIRE, FromWires, TRUE_WIRE},
+    circuit::streaming::{
+        FALSE_WIRE, FromWires, OffCircuitParam, TRUE_WIRE, WiresArity, WiresObject,
+    },
     gadgets::bn254::{
         final_exponentiation::final_exponentiation, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
         g1::G1Projective, g2::G2Projective,
@@ -331,6 +333,18 @@ fn g2_line_coeffs_add<C: CircuitContext>(
     (r_next_aff, Fq6::from_components(c0, c1, c2))
 }
 
+impl FromWires for (G2Projective, Fq6) {
+    fn from_wires(wires: &[crate::WireId]) -> Option<Self> {
+        let (g2, fq6) = wires.split_at(G2Projective::ARITY);
+
+        Some((G2Projective::from_wires(g2)?, Fq6::from_wires(fq6)?))
+    }
+}
+
+impl WiresArity for (G2Projective, Fq6) {
+    const ARITY: usize = G2Projective::ARITY + Fq6::ARITY;
+}
+
 /// Mixed-add (Jacobian + affine) update R <- R + Q with line coeffs, all in Montgomery form.
 ///
 /// Implements the same internal sequence as the collector-2 mixed-add in-place algorithm:
@@ -341,6 +355,7 @@ fn g2_line_coeffs_add<C: CircuitContext>(
 /// - line coeffs scaled to avoid divisions: (c0, c1, c2) = (lambda, -theta, theta*qx - lambda*qy)
 ///
 /// Returns (R_next_projective, (c0, c1, c2)). Precondition: `q` is affine (z = 1 in Montgomery).
+#[component]
 fn double_in_place_circuit_montgomery<C: CircuitContext>(
     circuit: &mut C,
     r: &G2Projective,
@@ -390,6 +405,7 @@ fn double_in_place_circuit_montgomery<C: CircuitContext>(
     )
 }
 
+#[component]
 pub fn add_in_place_montgomery(
     circuit: &mut impl CircuitContext,
     r: &G2Projective,
@@ -455,6 +471,7 @@ pub fn g2_affine_neg_evaluate<C: CircuitContext>(
     result
 }
 
+#[component]
 pub fn mul_by_char_montgomery(circuit: &mut impl CircuitContext, r: &G2Projective) -> G2Projective {
     let r_x = &r.x;
     let r_y = &r.y;
@@ -887,6 +904,28 @@ pub fn multi_pairing_const_q<C: CircuitContext>(
     final_exponentiation(circuit, &f)
 }
 
+impl OffCircuitParam for &ark_bn254::Fq6 {
+    fn to_key_bytes(&self) -> Vec<u8> {
+        [
+            self.c0.to_key_bytes(),
+            self.c1.to_key_bytes(),
+            self.c2.to_key_bytes(),
+        ]
+        .concat()
+    }
+}
+
+impl WiresObject for (Fq12, G1Projective) {
+    fn to_wires_vec(&self) -> Vec<crate::WireId> {
+        [self.0.to_wires_vec(), self.1.to_wires_vec()].concat()
+    }
+
+    fn clone_from(&self, wire_gen: &mut impl FnMut() -> crate::WireId) -> Self {
+        (self.0.clone_from(wire_gen), self.1.clone_from(wire_gen))
+    }
+}
+
+#[component(offcircuit_args = "coeffs")]
 pub fn ell_by_constant_montgomery<C: CircuitContext>(
     circuit: &mut C,
     f: &Fq12,

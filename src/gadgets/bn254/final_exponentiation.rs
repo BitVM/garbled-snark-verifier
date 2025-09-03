@@ -162,6 +162,74 @@ pub fn final_exponentiation<C: CircuitContext>(circuit: &mut C, f: &Fq12) -> Fq1
     Fq12::mul_montgomery(circuit, &y19, &y17)
 }
 
+pub fn cyclotomic_exp_fast_inverse_montgomery_fast<C: CircuitContext>(
+    circuit: &mut C,
+    f: &Fq12,
+) -> Fq12 {
+    let mut res = Fq12::new_constant(ark_bn254::Fq12::ONE);
+    let f_inverse = Fq12::inverse_montgomery(circuit, f);
+
+    let mut found_nonzero = false;
+    for value in ark_ff::biginteger::arithmetic::find_naf(ark_bn254::Config::X)
+        .into_iter()
+        .rev()
+    {
+        if found_nonzero {
+            res = Fq12::square_montgomery(circuit, &res);
+        }
+
+        if value != 0 {
+            found_nonzero = true;
+
+            if value > 0 {
+                res = Fq12::mul_montgomery(circuit, &res, f);
+            } else {
+                res = Fq12::mul_montgomery(circuit, &res, &f_inverse);
+            }
+        }
+    }
+
+    res
+}
+
+pub fn exp_by_neg_x_montgomery<C: CircuitContext>(circuit: &mut C, f: &Fq12) -> Fq12 {
+    let f2 = cyclotomic_exp_fast_inverse_montgomery_fast(circuit, f);
+    Fq12::conjugate(circuit, &f2)
+}
+
+#[component]
+pub fn final_exponentiation_montgomery<C: CircuitContext>(circuit: &mut C, f: &Fq12) -> Fq12 {
+    let f_inv = Fq12::inverse_montgomery(circuit, f);
+    let f_conjugate = Fq12::conjugate(circuit, f);
+    let u = Fq12::mul_montgomery(circuit, &f_inv, &f_conjugate);
+    let u_frobenius = Fq12::frobenius_montgomery(circuit, &u, 2);
+    let r = Fq12::mul_montgomery(circuit, &u_frobenius, &u);
+
+    let y0 = exp_by_neg_x_montgomery(circuit, &r);
+    let y1 = Fq12::square_montgomery(circuit, &y0);
+    let y2 = Fq12::square_montgomery(circuit, &y1);
+    let y3 = Fq12::mul_montgomery(circuit, &y1, &y2);
+    let y4 = exp_by_neg_x_montgomery(circuit, &y3);
+    let y5 = Fq12::square_montgomery(circuit, &y4);
+    let y6 = exp_by_neg_x_montgomery(circuit, &y5);
+    let y7 = Fq12::conjugate(circuit, &y3);
+    let y8 = Fq12::conjugate(circuit, &y6);
+    let y9 = Fq12::mul_montgomery(circuit, &y8, &y4);
+    let y10 = Fq12::mul_montgomery(circuit, &y9, &y7);
+    let y11 = Fq12::mul_montgomery(circuit, &y10, &y1);
+    let y12 = Fq12::mul_montgomery(circuit, &y10, &y4);
+    let y13 = Fq12::mul_montgomery(circuit, &y12, &r);
+    let y14 = Fq12::frobenius_montgomery(circuit, &y11, 1);
+    let y15 = Fq12::mul_montgomery(circuit, &y14, &y13);
+    let y16 = Fq12::frobenius_montgomery(circuit, &y10, 2);
+    let y17 = Fq12::mul_montgomery(circuit, &y16, &y15);
+    let r2 = Fq12::conjugate(circuit, &r);
+    let y18 = Fq12::mul_montgomery(circuit, &r2, &y11);
+    let y19 = Fq12::frobenius_montgomery(circuit, &y18, 3);
+
+    Fq12::mul_montgomery(circuit, &y19, &y17)
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ec::pairing::Pairing;

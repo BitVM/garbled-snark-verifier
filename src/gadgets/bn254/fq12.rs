@@ -6,7 +6,7 @@ use rand::Rng;
 use super::fq6::Fq6Components;
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::WiresObject,
+    circuit::streaming::{FromWires, WiresObject},
     gadgets::{
         bigint::{self, BigIntWires, select},
         bn254::{
@@ -41,7 +41,7 @@ impl WiresObject for Fq12 {
     }
 }
 
-impl crate::circuit::streaming::FromWires for Fq12 {
+impl FromWires for Fq12 {
     fn from_wires(wires: &[WireId]) -> Option<Self> {
         if wires.len() >= 1524 {
             // 2 * 3 * 2 * 254 = 3048/2 = 1524 wires per Fq6
@@ -73,6 +73,42 @@ impl Fq12 {
 
     pub fn len(&self) -> usize {
         self.0.iter().map(|fq6| fq6.len()).sum()
+    }
+
+    pub fn new_constant(v: ark_bn254::Fq12) -> Fq12 {
+        // Convert to Montgomery form before creating constants
+        let v_mont = Fq12::as_montgomery(v);
+        let c0 = v_mont.c0;
+        let c1 = v_mont.c1;
+        let c0_0 = Fq2::from_components(
+            Fq::new_constant(&c0.c0.c0).unwrap(),
+            Fq::new_constant(&c0.c0.c1).unwrap(),
+        );
+        let c0_1 = Fq2::from_components(
+            Fq::new_constant(&c0.c1.c0).unwrap(),
+            Fq::new_constant(&c0.c1.c1).unwrap(),
+        );
+        let c0_2 = Fq2::from_components(
+            Fq::new_constant(&c0.c2.c0).unwrap(),
+            Fq::new_constant(&c0.c2.c1).unwrap(),
+        );
+        let w0 = Fq6::from_components(c0_0, c0_1, c0_2);
+
+        let c1_0 = Fq2::from_components(
+            Fq::new_constant(&c1.c0.c0).unwrap(),
+            Fq::new_constant(&c1.c0.c1).unwrap(),
+        );
+        let c1_1 = Fq2::from_components(
+            Fq::new_constant(&c1.c1.c0).unwrap(),
+            Fq::new_constant(&c1.c1.c1).unwrap(),
+        );
+        let c1_2 = Fq2::from_components(
+            Fq::new_constant(&c1.c2.c0).unwrap(),
+            Fq::new_constant(&c1.c2.c1).unwrap(),
+        );
+        let w1 = Fq6::from_components(c1_0, c1_1, c1_2);
+
+        Fq12::from_components(w0, w1)
     }
 }
 
@@ -163,6 +199,7 @@ impl Fq12 {
         Fq12::from_components(c0, c1)
     }
 
+    #[component]
     pub fn mul_montgomery<C: CircuitContext>(circuit: &mut C, a: &Fq12, b: &Fq12) -> Fq12 {
         // (a0 + a1) and (b0 + b1)
         let a_sum = Fq6::add(circuit, a.c0(), a.c1());

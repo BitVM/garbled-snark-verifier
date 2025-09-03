@@ -73,12 +73,12 @@ impl G1Projective {
         }
     }
 
-    pub fn new_constant(u: &ark_bn254::G1Projective) -> Result<Self, Error> {
-        Ok(Self {
+    pub fn new_constant(u: &ark_bn254::G1Projective) -> Self {
+        Self {
             x: Fq::new_constant(&u.x).unwrap(),
             y: Fq::new_constant(&u.y).unwrap(),
             z: Fq::new_constant(&u.z).unwrap(),
-        })
+        }
     }
 
     pub fn iter_wires(&self) -> impl Iterator<Item = &WireId> {
@@ -332,7 +332,7 @@ impl G1Projective {
             .iter()
             .map(|p| {
                 let p_m = G1Projective::as_montgomery(*p);
-                G1Projective::new_constant(&p_m).unwrap()
+                G1Projective::new_constant(&p_m)
             })
             .collect::<Vec<_>>();
 
@@ -359,7 +359,7 @@ impl G1Projective {
                 .iter()
                 .map(|p| {
                     let p_m = G1Projective::as_montgomery(*p);
-                    G1Projective::new_constant(&p_m).unwrap()
+                    G1Projective::new_constant(&p_m)
                 })
                 .collect::<Vec<_>>();
         }

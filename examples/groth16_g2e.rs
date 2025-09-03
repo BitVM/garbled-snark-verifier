@@ -27,7 +27,7 @@ use garbled_snark_verifier::{
     },
     groth16_verify,
 };
-use gsv::{FrWire, G1Wire};
+use gsv::{FrWire, G1Wire, G2Wire};
 use itertools::Itertools;
 use log::{error, info, trace};
 use num_bigint::BigUint;
@@ -82,6 +82,7 @@ struct Groth16InputWires {
 struct GarblerInputs {
     public: Vec<ark_bn254::Fr>,
     a: ark_bn254::G1Projective,
+    b: ark_bn254::G2Projective,
     c: ark_bn254::G1Projective,
 }
 
@@ -300,6 +301,7 @@ fn main() {
     let garbler_inputs = GarblerInputs {
         public: vec![circuit.a.unwrap() * circuit.b.unwrap()],
         a: proof.a.into_group(),
+        b: proof.b.into_group(),
         c: proof.c.into_group(),
     };
 
@@ -312,6 +314,7 @@ fn main() {
     let exec_input = Groth16ExecInput {
         public: garbler_inputs.public.clone(),
         a: garbler_inputs.a,
+        b: garbler_inputs.b,
         c: garbler_inputs.c,
     };
 
@@ -392,7 +395,9 @@ fn main() {
 
     // 5) Launch Garbler Thread
     let garbler_vk = vk.clone();
-    let garbler_proof_b = proof.b;
+    // Convert B (affine) to gadget wires via projective constant for garbler
+    let garbler_proof_b = G2Wire::new_constant(&gsv::G2Wire::as_montgomery(proof.b.into_group()))
+        .expect("const g2 wires");
     let garbler_handle = thread::spawn(move || {
         info!("🔐 [GARBLER] Starting garbling process...");
         let start_time = Instant::now();
@@ -425,7 +430,9 @@ fn main() {
 
     // 6) Launch Evaluator Thread
     let evaluator_vk = vk.clone();
-    let evaluator_proof_b = proof.b;
+    // Convert B (affine) to gadget wires via projective constant for evaluator
+    let evaluator_proof_b = G2Wire::new_constant(&gsv::G2Wire::as_montgomery(proof.b.into_group()))
+        .expect("const g2 wires");
     let evaluator_handle = thread::spawn(move || {
         info!("🔍 [EVALUATOR] Waiting for input wires...");
 

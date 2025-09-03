@@ -12,7 +12,7 @@ use ark_relations::{
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{self as gsv, WireId, circuit::streaming::StreamingResult};
 use gsv::{
-    FrWire, G1Wire,
+    FrWire, G1Wire, G2Wire,
     circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
     groth16_verify,
 };
@@ -57,12 +57,14 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
 struct Inputs {
     public: Vec<ark_bn254::Fr>,
     a: ark_bn254::G1Projective,
+    b: ark_bn254::G2Projective,
     c: ark_bn254::G1Projective,
 }
 
 struct InputWires {
     public: Vec<FrWire>,
     a: G1Wire,
+    b: G2Wire,
     c: G1Wire,
 }
 
@@ -76,6 +78,7 @@ impl CircuitInput for Inputs {
                 .map(|_| FrWire::new(&mut issue))
                 .collect(),
             a: G1Wire::new(&mut issue),
+            b: G2Wire::new(&mut issue),
             c: G1Wire::new(&mut issue),
         }
     }
@@ -85,6 +88,7 @@ impl CircuitInput for Inputs {
             ids.extend(s.to_wires_vec());
         }
         ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.b.to_wires_vec());
         ids.extend(repr.c.to_wires_vec());
         ids
     }
@@ -104,6 +108,7 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
 
         // Encode G1 points (Montgomery coordinates)
         let a_m = G1Wire::as_montgomery(self.a);
+        let b_m = G2Wire::as_montgomery(self.b);
         let c_m = G1Wire::as_montgomery(self.c);
 
         let a_fn = G1Wire::get_wire_bits_fn(&repr.a, &a_m).expect("g1 a encoding fn");
@@ -115,6 +120,19 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
             .chain(repr.a.z.iter())
         {
             if let Some(bit) = a_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+
+        let b_fn = G2Wire::get_wire_bits_fn(&repr.b, &b_m).expect("g1 a encoding fn");
+        for &wire_id in repr
+            .b
+            .x
+            .iter()
+            .chain(repr.b.y.iter())
+            .chain(repr.b.z.iter())
+        {
+            if let Some(bit) = b_fn(wire_id) {
                 cache.feed_wire(wire_id, bit);
             }
         }
@@ -156,13 +174,13 @@ fn main() {
     let inputs = Inputs {
         public: vec![c_val],
         a: proof.a.into_group(),
+        b: proof.b.into_group(),
         c: proof.c.into_group(),
     };
 
-    // 3) Run the streaming MPC-style execution of the Groth16 verifier gadget
     let result: StreamingResult<_, _, Vec<bool>> =
         CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, wires| {
-            let ok = groth16_verify(ctx, &wires.public, &wires.a, &proof.b, &wires.c, &vk);
+            let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
             vec![ok]
         });
 
