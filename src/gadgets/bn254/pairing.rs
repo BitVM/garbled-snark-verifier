@@ -59,6 +59,29 @@ pub fn ell_eval_const<C: CircuitContext>(
     Fq12::mul_by_034_constant4_montgomery(circuit, f, &c0_fq2, &c3_fq2, &c4_const)
 }
 
+/// Evaluate a BN254 line with variable G2 coefficients at an affine G1 point and
+/// multiply into `f` in Montgomery form (variable-`Q` path).
+///
+/// Mirrors the logic of collector-2's `ell_circuit_montgomery`/`ell_evaluate_montgomery`:
+/// - c0' = c0 * P.y (in Fq2)
+/// - c3' = c1 * P.x (in Fq2)
+/// - return f * (c0' + c3' * w^3 + c2 * w^4) via sparse mul_by_034.
+///
+/// Precondition: `p` should be affine (`z = 1`); use `g1_normalize_to_affine` beforehand.
+pub fn ell_eval_var<C: CircuitContext>(
+    circuit: &mut C,
+    f: &Fq12,
+    coeffs: &(Fq2, Fq2, Fq2),
+    p: &G1Projective,
+) -> Fq12 {
+    let (c0, c1, c2) = coeffs;
+    // Multiply first two coeffs by P's affine coordinates (Fq) inside Fq2
+    let c0_fq2 = Fq2::mul_by_fq_montgomery(circuit, c0, &p.y);
+    let c3_fq2 = Fq2::mul_by_fq_montgomery(circuit, c1, &p.x);
+    // Full variable sparse multiplication (034 indices)
+    Fq12::mul_by_034_montgomery(circuit, f, &c0_fq2, &c3_fq2, c2)
+}
+
 fn g1_normalize_to_affine<C: CircuitContext>(circuit: &mut C, p: &G1Projective) -> G1Projective {
     // Convert projective (x, y, z) to affine (x/z^2, y/z^3, 1)
     let inv_z = Fq::inverse_montgomery(circuit, &p.z);
@@ -87,6 +110,137 @@ fn g2_normalize_to_affine<C: CircuitContext>(circuit: &mut C, q: &G2Projective) 
     let z = Fq2::from_components(one_c0, zero_c1);
 
     G2Projective { x, y, z }
+}
+
+/// Apply Frobenius map to an affine G2 point: x' = (x^p) * c_x[i], y' = (y^p) * c_y[i], z = 1.
+/// Precondition: q.z encodes Montgomery ONE (affine form).
+fn g2_frobenius_map_affine<C: CircuitContext>(
+    circuit: &mut C,
+    q: &G2Projective,
+    i: usize,
+) -> G2Projective {
+    // Reduce to cases used by BN254 Miller loop: i in {0,1,2}
+    let k = i % 3;
+
+    let one_c0 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ONE)).expect("const one");
+    let zero_c1 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ZERO)).expect("const zero");
+    let z_one = Fq2::from_components(one_c0, zero_c1);
+
+    match k {
+        0 => G2Projective {
+            x: q.x.clone(),
+            y: q.y.clone(),
+            z: z_one,
+        },
+        1 => {
+            let x_f1 = Fq2::frobenius_montgomery(circuit, &q.x, 1);
+            let y_f1 = Fq2::frobenius_montgomery(circuit, &q.y, 1);
+            let cx = ark_bn254::Config::TWIST_MUL_BY_Q_X;
+            let cy = ark_bn254::Config::TWIST_MUL_BY_Q_Y;
+            // Constants must be in Montgomery form for mul_by_constant_montgomery
+            let x_new = Fq2::mul_by_constant_montgomery(circuit, &x_f1, &Fq2::as_montgomery(cx));
+            let y_new = Fq2::mul_by_constant_montgomery(circuit, &y_f1, &Fq2::as_montgomery(cy));
+            G2Projective {
+                x: x_new,
+                y: y_new,
+                z: z_one,
+            }
+        }
+        _ => {
+            let x_f1 = Fq2::frobenius_montgomery(circuit, &q.x, 1);
+            let y_f1 = Fq2::frobenius_montgomery(circuit, &q.y, 1);
+            let cx = ark_bn254::Config::TWIST_MUL_BY_Q_X;
+            let cy = ark_bn254::Config::TWIST_MUL_BY_Q_Y;
+            let x1 = Fq2::mul_by_constant_montgomery(circuit, &x_f1, &Fq2::as_montgomery(cx));
+            let y1 = Fq2::mul_by_constant_montgomery(circuit, &y_f1, &Fq2::as_montgomery(cy));
+
+            let x_f2 = Fq2::frobenius_montgomery(circuit, &x1, 1);
+            let y_f2 = Fq2::frobenius_montgomery(circuit, &y1, 1);
+            let x2 = Fq2::mul_by_constant_montgomery(circuit, &x_f2, &Fq2::as_montgomery(cx));
+            let mut y2 = Fq2::mul_by_constant_montgomery(circuit, &y_f2, &Fq2::as_montgomery(cy));
+            y2 = Fq2::neg(circuit, y2);
+            G2Projective {
+                x: x2,
+                y: y2,
+                z: z_one,
+            }
+        }
+    }
+}
+
+/// Compute tangent line coefficients at R (variable-`Q` path) and advance R <- 2R.
+///
+/// Returns (R_next_affine, (c0, c1, c2)) where the line is represented as
+/// c0 * Y + c1 * X + c2 = 0 over Fq2, matching arkworks' BN254 prepared
+/// ordering (ell_0, ell_vw, ell_vv). Later evaluation multiplies c0 by P.y
+/// and c1 by P.x and uses a sparse Fq12 mul-by-034.
+fn g2_line_coeffs_double<C: CircuitContext>(
+    circuit: &mut C,
+    r: &G2Projective,
+) -> (G2Projective, (Fq2, Fq2, Fq2)) {
+    // Normalize R to affine for simple slope/division formulas (a = 0 curve)
+    let r_aff = g2_normalize_to_affine(circuit, r);
+    let x = r_aff.x.clone();
+    let y = r_aff.y.clone();
+
+    // λ = (3*x^2) / (2*y)
+    let x2 = Fq2::square_montgomery(circuit, &x);
+    let three_x2 = Fq2::triple(circuit, &x2);
+    let two_y = Fq2::double(circuit, &y);
+    let inv_two_y = Fq2::inverse_montgomery(circuit, &two_y);
+    let lambda = Fq2::mul_montgomery(circuit, &three_x2, &inv_two_y);
+
+    // Line: Y - λ X - (y - λ x) = 0 ->
+    // c0 = 1, c1 = -λ, c2 = λ*x - y
+    let one_c0 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ONE)).expect("const one");
+    let zero_c1 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ZERO)).expect("const zero");
+    let c0 = Fq2::from_components(one_c0, zero_c1);
+    let c1 = Fq2::neg(circuit, lambda.clone());
+    let lambda_x = Fq2::mul_montgomery(circuit, &lambda, &x);
+    let c2 = Fq2::sub(circuit, &lambda_x, &y);
+
+    // Advance R <- 2R and normalize to affine for the caller
+    let r_next = crate::gadgets::bn254::g2::G2Projective::double_montgomery(circuit, r);
+    let r_next_aff = g2_normalize_to_affine(circuit, &r_next);
+
+    (r_next_aff, (c0, c1, c2))
+}
+
+/// Compute secant line coefficients through R and Q (variable-`Q` path) and advance R <- R + Q.
+///
+/// Returns (R_next_affine, (c0, c1, c2)) in the same representation order
+/// as `g2_line_coeffs_double`.
+fn g2_line_coeffs_add<C: CircuitContext>(
+    circuit: &mut C,
+    r: &G2Projective,
+    q: &G2Projective,
+) -> (G2Projective, (Fq2, Fq2, Fq2)) {
+    // Normalize to affine to compute λ = (y_q - y_r) / (x_q - x_r)
+    let r_aff = g2_normalize_to_affine(circuit, r);
+    let q_aff = g2_normalize_to_affine(circuit, q);
+    let xr = r_aff.x.clone();
+    let yr = r_aff.y.clone();
+    let xq = q_aff.x.clone();
+    let yq = q_aff.y.clone();
+
+    let dy = Fq2::sub(circuit, &yq, &yr);
+    let dx = Fq2::sub(circuit, &xq, &xr);
+    let inv_dx = Fq2::inverse_montgomery(circuit, &dx);
+    let lambda = Fq2::mul_montgomery(circuit, &dy, &inv_dx);
+
+    // Line through R and Q: Y - λ X - (y_r - λ x_r) = 0
+    let one_c0 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ONE)).expect("const one");
+    let zero_c1 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ZERO)).expect("const zero");
+    let c0 = Fq2::from_components(one_c0, zero_c1);
+    let c1 = Fq2::neg(circuit, lambda.clone());
+    let lambda_xr = Fq2::mul_montgomery(circuit, &lambda, &xr);
+    let c2 = Fq2::sub(circuit, &lambda_xr, &yr);
+
+    // Advance R <- R + Q and normalize to affine for the caller
+    let r_next = crate::gadgets::bn254::g2::G2Projective::add_montgomery(circuit, r, q);
+    let r_next_aff = g2_normalize_to_affine(circuit, &r_next);
+
+    (r_next_aff, (c0, c1, c2))
 }
 
 /// Miller loop where P is already affine (z = 1), so no normalization needed.
@@ -322,6 +476,60 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
     f
 }
 
+/// Miller loop over BN254 with variable Q (G2 wires) and variable G1 wires.
+///
+/// Normalizes P and Q to affine once, then performs the ATE loop by computing
+/// line coefficients on-the-fly (double/add) and evaluating at P via a sparse
+/// Fq12 multiplication (indices 0,3,4).
+pub fn miller_loop_var_q<C: CircuitContext>(
+    circuit: &mut C,
+    p: &G1Projective,
+    q: &G2Projective,
+) -> Fq12 {
+    // Normalize inputs to affine (z = 1) for evaluation simplicity
+    let p_aff = g1_normalize_to_affine(circuit, p);
+    let q_aff = g2_normalize_to_affine(circuit, q);
+    let mut r_aff = q_aff.clone();
+
+    let mut f = new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
+
+    for i in (1..ark_bn254::Config::ATE_LOOP_COUNT.len()).rev() {
+        if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
+            f = Fq12::square_montgomery(circuit, &f);
+        }
+
+        // Doubling step
+        let (r_next, coeff) = g2_line_coeffs_double(circuit, &r_aff);
+        f = ell_eval_var(circuit, &f, &coeff, &p_aff);
+        r_aff = r_next;
+
+        // Conditional addition depending on the signed bit
+        let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
+        if bit == 1 {
+            let (r_next, coeff) = g2_line_coeffs_add(circuit, &r_aff, &q_aff);
+            f = ell_eval_var(circuit, &f, &coeff, &p_aff);
+            r_aff = r_next;
+        } else if bit == -1 {
+            let q_neg = crate::gadgets::bn254::g2::G2Projective::neg(circuit, &q_aff);
+            let (r_next, coeff) = g2_line_coeffs_add(circuit, &r_aff, &q_neg);
+            f = ell_eval_var(circuit, &f, &coeff, &p_aff);
+            r_aff = r_next;
+        }
+    }
+
+    // Final two frobenius-based additions
+    let q1 = g2_frobenius_map_affine(circuit, &q_aff, 1);
+    let (r_next, coeff) = g2_line_coeffs_add(circuit, &r_aff, &q1);
+    f = ell_eval_var(circuit, &f, &coeff, &p_aff);
+    r_aff = r_next;
+
+    let q2 = g2_frobenius_map_affine(circuit, &q_aff, 2);
+    let (_r_final, coeff) = g2_line_coeffs_add(circuit, &r_aff, &q2);
+    f = ell_eval_var(circuit, &f, &coeff, &p_aff);
+
+    f
+}
+
 // Final exponentiation logic has moved to gadgets::bn254::final_exponentiation
 
 /// Full pairing with constant `Q`: Miller loop followed by final exponentiation.
@@ -362,7 +570,7 @@ mod tests {
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
-            bn254::{final_exponentiation, fp254impl::Fp254Impl},
+            bn254::{final_exponentiation, fp254impl::Fp254Impl, g2::G2Projective as G2Wires},
         },
     };
 
@@ -376,9 +584,159 @@ mod tests {
     }
 
     #[test]
+    fn test_ell_eval_var_matches_ark_step() {
+        // Randomized check that ell_eval_var matches host-side BN254 logic
+        let mut rng = ChaCha20Rng::seed_from_u64(77);
+
+        // Random initial accumulator f and random variable coefficients (Fq2 triple)
+        let f0 = ark_bn254::Fq12::rand(&mut rng);
+        let coeffs = (
+            ark_bn254::Fq2::rand(&mut rng),
+            ark_bn254::Fq2::rand(&mut rng),
+            ark_bn254::Fq2::rand(&mut rng),
+        );
+
+        // Random G1 point, ensure affine (z=1) by converting through affine -> projective
+        let p = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+
+        // Expected off-circuit result
+        let mut exp_f = f0;
+        let mut c0 = coeffs.0;
+        let mut c1 = coeffs.1;
+        let c2 = coeffs.2;
+        let p_aff = p.into_affine();
+        c0.mul_assign_by_fp(&p_aff.y);
+        c1.mul_assign_by_fp(&p_aff.x);
+        exp_f.mul_by_034(&c0, &c1, &c2);
+        let expected_m = Fq12::as_montgomery(exp_f);
+
+        // Wires for f, p, and wire-based coeffs
+        struct In {
+            f: ark_bn254::Fq12,
+            p: ark_bn254::G1Projective,
+            c0: ark_bn254::Fq2,
+            c1: ark_bn254::Fq2,
+            c2: ark_bn254::Fq2,
+        }
+        struct W {
+            f: Fq12,
+            p: G1Projective,
+            c0: Fq2,
+            c1: Fq2,
+            c2: Fq2,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                W {
+                    f: Fq12::new(&mut issue),
+                    p: G1Projective::new(&mut issue),
+                    c0: Fq2::new(&mut issue),
+                    c1: Fq2::new(&mut issue),
+                    c2: Fq2::new(&mut issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = repr.f.to_wires_vec();
+                ids.extend(repr.p.to_wires_vec());
+                ids.extend(repr.c0.to_wires_vec());
+                ids.extend(repr.c1.to_wires_vec());
+                ids.extend(repr.c2.to_wires_vec());
+                ids
+            }
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
+                // f in Montgomery form
+                let f_m = Fq12::as_montgomery(self.f);
+                encode_fq6_to_wires(&f_m.c0, &repr.f.0[0], cache);
+                encode_fq6_to_wires(&f_m.c1, &repr.f.0[1], cache);
+
+                // p in Montgomery form
+                let p_m = G1Projective::as_montgomery(self.p);
+                let bits_x = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.x.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let bits_y = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.y.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                let bits_z = bits_from_biguint_with_len(
+                    &BigUintOutput::from(p_m.z.into_bigint()),
+                    Fq::N_BITS,
+                )
+                .unwrap();
+                repr.p
+                    .x
+                    .0
+                    .iter()
+                    .zip(bits_x)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.p
+                    .y
+                    .0
+                    .iter()
+                    .zip(bits_y)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+                repr.p
+                    .z
+                    .0
+                    .iter()
+                    .zip(bits_z)
+                    .for_each(|(w, b)| cache.feed_wire(*w, b));
+
+                // Helper to encode Fq2 in Montgomery form into wires
+                let encode_fq2 = |val: ark_bn254::Fq2, dst: &Fq2, cache: &mut M| {
+                    let bits_c0 = bits_from_biguint_with_len(
+                        &BigUintOutput::from(val.c0.into_bigint()),
+                        Fq::N_BITS,
+                    )
+                    .unwrap();
+                    let bits_c1 = bits_from_biguint_with_len(
+                        &BigUintOutput::from(val.c1.into_bigint()),
+                        Fq::N_BITS,
+                    )
+                    .unwrap();
+                    dst.0[0]
+                        .0
+                        .iter()
+                        .zip(bits_c0)
+                        .for_each(|(w, b)| cache.feed_wire(*w, b));
+                    dst.0[1]
+                        .0
+                        .iter()
+                        .zip(bits_c1)
+                        .for_each(|(w, b)| cache.feed_wire(*w, b));
+                };
+                // Coefficients in Montgomery form
+                encode_fq2(Fq2::as_montgomery(self.c0), &repr.c0, cache);
+                encode_fq2(Fq2::as_montgomery(self.c1), &repr.c1, cache);
+                encode_fq2(Fq2::as_montgomery(self.c2), &repr.c2, cache);
+            }
+        }
+
+        let input = In {
+            f: f0,
+            p,
+            c0: coeffs.0,
+            c1: coeffs.1,
+            c2: coeffs.2,
+        };
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, w| {
+                ell_eval_var(ctx, &w.f, &(w.c0.clone(), w.c1.clone(), w.c2.clone()), &w.p)
+            });
+
+        assert_eq!(result.output_wires.value, expected_m);
+    }
     fn test_g2_normalize_to_affine_matches_host() {
         // Generate random projective G2 point and expected affine (z=1) in Montgomery
-        let mut rng = ChaCha20Rng::seed_from_u64(0xA11F_E2);
+        let mut rng = ChaCha20Rng::seed_from_u64(0xA11FE2);
         let r = ark_bn254::G2Projective::generator() * rnd_fr(&mut rng);
         let r_aff = r.into_affine();
         let expected = ark_bn254::G2Projective::new(r_aff.x, r_aff.y, ark_bn254::Fq2::ONE);
@@ -450,11 +808,306 @@ mod tests {
         let input = InputG2norm { p: r };
         let res =
             CircuitBuilder::streaming_execute::<_, _, OutG2norm>(input, 20_000, |ctx, wires| {
-                let q_aff = g2_normalize_to_affine(ctx, &wires.p);
-                q_aff
+                g2_normalize_to_affine(ctx, &wires.p)
             });
 
         assert_eq!(res.output_wires.val, expected_std);
+    }
+
+    // Local helper to decode Fq2 (Montgomery wires -> canonical field element)
+    fn decode_fq2_from_wires(w: &Fq2, cache: &mut ExecuteMode) -> ark_bn254::Fq2 {
+        let c0_bi = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(w.0[0].0.clone(), cache);
+        let c1_bi = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(w.0[1].0.clone(), cache);
+        let c0_m = ark_bn254::Fq::from(c0_bi);
+        let c1_m = ark_bn254::Fq::from(c1_bi);
+        let fq2_m = ark_bn254::Fq2::new(c0_m, c1_m);
+        Fq2::from_montgomery(fq2_m)
+    }
+
+    // Local helper to decode G2 projective wires into canonical host value
+    fn decode_g2proj_from_wires(
+        wires: &G2Projective,
+        cache: &mut ExecuteMode,
+    ) -> ark_bn254::G2Projective {
+        let x = decode_fq2_from_wires(&wires.x, cache);
+        let y = decode_fq2_from_wires(&wires.y, cache);
+        let z = decode_fq2_from_wires(&wires.z, cache);
+        ark_bn254::G2Projective::new(x, y, z)
+    }
+
+    #[test]
+    fn test_g2_line_coeffs_double_matches_host() {
+        let mut rng = ChaCha20Rng::seed_from_u64(0xD0u64);
+        let r = ark_bn254::G2Projective::generator() * rnd_fr(&mut rng);
+
+        // Host expected: coefficients from affine R and next = 2R (affine z=1)
+        let r_aff = r.into_affine();
+        let x = r_aff.x;
+        let y = r_aff.y;
+        let lambda = (x.square() + x.square() + x.square()) * (y.double()).inverse().unwrap();
+        let exp_c0 = ark_bn254::Fq2::ONE;
+        let exp_c1 = -lambda;
+        let exp_c2 = lambda * x - y;
+        let next_exp = (r.double()).into_affine();
+        let next_exp_proj =
+            ark_bn254::G2Projective::new(next_exp.x, next_exp.y, ark_bn254::Fq2::ONE);
+
+        // Execute gadget
+        struct Input {
+            r: ark_bn254::G2Projective,
+        }
+        struct Wires {
+            r: G2Projective,
+        }
+        impl CircuitInput for Input {
+            type WireRepr = Wires;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                Wires {
+                    r: G2Projective::new(&mut issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                repr.r.to_wires_vec()
+            }
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Input {
+            fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
+                let r_m = G2Projective::as_montgomery(self.r);
+                let f = G2Projective::get_wire_bits_fn(&repr.r, &r_m).unwrap();
+                for &w in repr.r.to_wires_vec().iter() {
+                    if let Some(b) = f(w) {
+                        cache.feed_wire(w, b);
+                    }
+                }
+            }
+        }
+        struct Output {
+            next: ark_bn254::G2Projective,
+            c0: ark_bn254::Fq2,
+            c1: ark_bn254::Fq2,
+            c2: ark_bn254::Fq2,
+        }
+        impl CircuitOutput<ExecuteMode> for Output {
+            type WireRepr = (G2Projective, Fq2, Fq2, Fq2);
+            fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+                let (next, c0, c1, c2) = wires;
+                Self {
+                    next: decode_g2proj_from_wires(&next, cache),
+                    c0: decode_fq2_from_wires(&c0, cache),
+                    c1: decode_fq2_from_wires(&c1, cache),
+                    c2: decode_fq2_from_wires(&c2, cache),
+                }
+            }
+        }
+
+        let res = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Output>(
+            Input { r },
+            50_000,
+            |ctx, w| {
+                let (next, (c0, c1, c2)) = g2_line_coeffs_double(ctx, &w.r);
+                (next, c0, c1, c2)
+            },
+        );
+
+        assert_eq!(res.output_wires.next, next_exp_proj);
+        assert_eq!(res.output_wires.c0, exp_c0);
+        assert_eq!(res.output_wires.c1, exp_c1);
+        assert_eq!(res.output_wires.c2, exp_c2);
+    }
+
+    #[test]
+    fn test_g2_line_coeffs_add_matches_host() {
+        let mut rng = ChaCha20Rng::seed_from_u64(0xADDu64);
+        let r = ark_bn254::G2Projective::generator() * rnd_fr(&mut rng);
+        let q = ark_bn254::G2Projective::generator() * rnd_fr(&mut rng);
+
+        // Host expected from affine forms
+        let r_aff = r.into_affine();
+        let q_aff = q.into_affine();
+        // Avoid the rare vertical line; if so, tweak q by adding generator
+        let (x1, y1) = (r_aff.x, r_aff.y);
+        let (x2, y2) = (q_aff.x, q_aff.y);
+        let mut x2a = x2;
+        let mut y2a = y2;
+        if x2a == x1 {
+            // pathological, adjust deterministically
+            let g = ark_bn254::G2Affine::generator();
+            x2a = g.x;
+            y2a = g.y;
+        }
+        let lambda = (y2a - y1) * (x2a - x1).inverse().unwrap();
+        let exp_c0 = ark_bn254::Fq2::ONE;
+        let exp_c1 = -lambda;
+        let exp_c2 = lambda * x1 - y1;
+        let next_exp = (r + q).into_affine();
+        let next_exp_proj =
+            ark_bn254::G2Projective::new(next_exp.x, next_exp.y, ark_bn254::Fq2::ONE);
+
+        // Execute gadget
+        struct Input {
+            r: ark_bn254::G2Projective,
+            q: ark_bn254::G2Projective,
+        }
+        struct Wires {
+            r: G2Projective,
+            q: G2Projective,
+        }
+        impl CircuitInput for Input {
+            type WireRepr = Wires;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                Wires {
+                    r: G2Projective::new(&mut issue),
+                    q: G2Projective::new(issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut v = repr.r.to_wires_vec();
+                v.extend(repr.q.to_wires_vec());
+                v
+            }
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Input {
+            fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
+                let r_m = G2Projective::as_montgomery(self.r);
+                let f_r = G2Projective::get_wire_bits_fn(&repr.r, &r_m).unwrap();
+                for &w in repr.r.to_wires_vec().iter() {
+                    if let Some(b) = f_r(w) {
+                        cache.feed_wire(w, b);
+                    }
+                }
+                let q_m = G2Projective::as_montgomery(self.q);
+                let f_q = G2Projective::get_wire_bits_fn(&repr.q, &q_m).unwrap();
+                for &w in repr.q.to_wires_vec().iter() {
+                    if let Some(b) = f_q(w) {
+                        cache.feed_wire(w, b);
+                    }
+                }
+            }
+        }
+        struct Output {
+            next: ark_bn254::G2Projective,
+            c0: ark_bn254::Fq2,
+            c1: ark_bn254::Fq2,
+            c2: ark_bn254::Fq2,
+        }
+        impl CircuitOutput<ExecuteMode> for Output {
+            type WireRepr = (G2Projective, Fq2, Fq2, Fq2);
+            fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+                let (next, c0, c1, c2) = wires;
+                Self {
+                    next: decode_g2proj_from_wires(&next, cache),
+                    c0: decode_fq2_from_wires(&c0, cache),
+                    c1: decode_fq2_from_wires(&c1, cache),
+                    c2: decode_fq2_from_wires(&c2, cache),
+                }
+            }
+        }
+
+        let res = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Output>(
+            Input { r, q },
+            80_000,
+            |ctx, w| {
+                let (next, (c0, c1, c2)) = g2_line_coeffs_add(ctx, &w.r, &w.q);
+                (next, c0, c1, c2)
+            },
+        );
+
+        assert_eq!(res.output_wires.next, next_exp_proj);
+        assert_eq!(res.output_wires.c0, exp_c0);
+        assert_eq!(res.output_wires.c1, exp_c1);
+        assert_eq!(res.output_wires.c2, exp_c2);
+    }
+
+    #[test]
+    fn test_g2_frobenius_map_affine_matches_host() {
+        let mut rng = ChaCha20Rng::seed_from_u64(0xF10B1);
+        let r_aff = (ark_bn254::G2Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let r_aff_proj = ark_bn254::G2Projective::new(r_aff.x, r_aff.y, ark_bn254::Fq2::ONE);
+
+        // Build expected host result for i in {1,2}
+        for i in [1usize, 2usize] {
+            let x_p = r_aff.x.frobenius_map(1);
+            let y_p = r_aff.y.frobenius_map(1);
+            let cx = ark_bn254::Config::TWIST_MUL_BY_Q_X;
+            let cy = ark_bn254::Config::TWIST_MUL_BY_Q_Y;
+            let (exp_x, exp_y) = if i == 1 {
+                (x_p * cx, y_p * cy)
+            } else {
+                let x1 = x_p * cx;
+                let y1 = y_p * cy;
+                (x1.frobenius_map(1) * cx, -(y1.frobenius_map(1) * cy))
+            };
+
+            // Streaming execute: encode affine projective (z=1) and apply gadget
+            struct Input {
+                p: ark_bn254::G2Projective,
+                i: usize,
+            }
+            struct Wires {
+                p: G2Projective,
+            }
+            impl CircuitInput for Input {
+                type WireRepr = Wires;
+                fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                    Wires {
+                        p: G2Projective::new(&mut issue),
+                    }
+                }
+                fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                    repr.p.to_wires_vec()
+                }
+            }
+            impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Input {
+                fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
+                    let p_m = G2Projective::as_montgomery(self.p);
+                    let f = G2Projective::get_wire_bits_fn(&repr.p, &p_m).unwrap();
+                    for &w in repr.p.to_wires_vec().iter() {
+                        if let Some(bit) = f(w) {
+                            cache.feed_wire(w, bit);
+                        }
+                    }
+                }
+            }
+            struct OutXY {
+                x: ark_bn254::Fq2,
+                y: ark_bn254::Fq2,
+                z: ark_bn254::Fq2,
+            }
+            impl CircuitOutput<ExecuteMode> for OutXY {
+                type WireRepr = G2Projective;
+                fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+                    fn decode_fq2_from_wires(w: &Fq2, cache: &mut ExecuteMode) -> ark_bn254::Fq2 {
+                        let c0_bi = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                            w.c0().0.clone(),
+                            cache,
+                        );
+                        let c1_bi = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                            w.c1().0.clone(),
+                            cache,
+                        );
+                        Fq2::from_montgomery(ark_bn254::Fq2::new(
+                            ark_bn254::Fq::from(c0_bi),
+                            ark_bn254::Fq::from(c1_bi),
+                        ))
+                    }
+                    let x = decode_fq2_from_wires(&wires.x, cache);
+                    let y = decode_fq2_from_wires(&wires.y, cache);
+                    let z = decode_fq2_from_wires(&wires.z, cache);
+                    OutXY { x, y, z }
+                }
+            }
+
+            let input = Input { p: r_aff_proj, i };
+            let result =
+                CircuitBuilder::streaming_execute::<_, _, OutXY>(input, 20_000, |ctx, wires| {
+                    g2_frobenius_map_affine(ctx, &wires.p, i)
+                });
+
+            let out = result.output_wires;
+            assert_eq!(out.x, exp_x);
+            assert_eq!(out.y, exp_y);
+            assert_eq!(out.z, ark_bn254::Fq2::ONE);
+        }
     }
 
     #[test]
@@ -644,6 +1297,96 @@ mod tests {
         let result = CircuitBuilder::streaming_execute::<_, _, FEO>(input, 10_000, |ctx, input| {
             final_exponentiation(ctx, &input.f)
         });
+
+        assert_eq!(result.output_wires.value, expected_m);
+    }
+
+    #[test]
+    fn test_miller_loop_var_q_matches_ark_single() {
+        use ark_ec::pairing::Pairing;
+        let mut rng = ChaCha20Rng::seed_from_u64(0x515AF1);
+        // Random P (affine) and Q (projective)
+        let p_aff = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng)).into_affine();
+        let p = p_aff.into_group();
+        let q_proj = ark_bn254::G2Projective::generator() * rnd_fr(&mut rng);
+        let q_aff = q_proj.into_affine();
+
+        // Expected: full pairing off-circuit
+        let expected = ark_bn254::Bn254::pairing(p_aff, q_aff);
+        let expected_m = Fq12::as_montgomery(expected.0);
+
+        struct In {
+            p: ark_bn254::G1Projective,
+            q: ark_bn254::G2Projective,
+        }
+        struct W {
+            p: G1Projective,
+            q: G2Wires,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                W {
+                    p: G1Projective::new(&mut issue),
+                    q: G2Wires::new(issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = repr.p.to_wires_vec();
+                ids.extend(repr.q.to_wires_vec());
+                ids
+            }
+        }
+        fn encode_p<M: CircuitMode<WireValue = bool>>(
+            p: ark_bn254::G1Projective,
+            w: &G1Projective,
+            cache: &mut M,
+        ) {
+            let p_m = G1Projective::as_montgomery(p);
+            let bits_x =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.x.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_y =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.y.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_z =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.z.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            w.x.0
+                .iter()
+                .zip(bits_x)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.y.0
+                .iter()
+                .zip(bits_y)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.z.0
+                .iter()
+                .zip(bits_z)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
+                encode_p(self.p, &repr.p, cache);
+                // Encode Q as Montgomery using helper mapping function
+                let q_m = G2Wires::as_montgomery(self.q);
+                let f = G2Wires::get_wire_bits_fn(&repr.q, &q_m).unwrap();
+                for &w in repr.q.to_wires_vec().iter() {
+                    if let Some(bit) = f(w) {
+                        cache.feed_wire(w, bit);
+                    }
+                }
+            }
+        }
+
+        let result = CircuitBuilder::streaming_execute::<_, _, Fq12Output>(
+            In { p, q: q_proj },
+            10_000,
+            |ctx, input| {
+                let f_ml = miller_loop_var_q(ctx, &input.p, &input.q);
+                final_exponentiation(ctx, &f_ml)
+            },
+        );
 
         assert_eq!(result.output_wires.value, expected_m);
     }

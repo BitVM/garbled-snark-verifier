@@ -367,14 +367,10 @@ impl Fq2 {
         assert_eq!(a.c0().len(), Self::N_BITS / 2);
         assert_eq!(a.c1().len(), Self::N_BITS / 2);
 
-        let c1 = Fq::mul_by_constant_montgomery(
-            circuit,
-            a.c1(),
-            &Fq::as_montgomery(
-                ark_bn254::Fq2Config::FROBENIUS_COEFF_FP2_C1
-                    [i % ark_bn254::Fq2Config::FROBENIUS_COEFF_FP2_C1.len()],
-            ),
-        );
+        // Multiply c1 by Frobenius coefficient (in Montgomery form to match wire representation)
+        let coef = ark_bn254::Fq2Config::FROBENIUS_COEFF_FP2_C1
+            [i % ark_bn254::Fq2Config::FROBENIUS_COEFF_FP2_C1.len()];
+        let c1 = Fq::mul_by_constant_montgomery(circuit, a.c1(), &Fq::as_montgomery(coef));
 
         Fq2::from_components(a.c0().clone(), c1)
     }

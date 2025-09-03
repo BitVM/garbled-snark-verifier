@@ -23,7 +23,7 @@ use garbled_snark_verifier::{
     Groth16ExecInput, WireId, bits_from_biguint_with_len,
     circuit::streaming::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateMode, ExecuteMode, GarbleMode},
+        modes::{EvaluateMode, GarbleMode},
     },
     groth16_verify,
 };
