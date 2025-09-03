@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct G2Projective {
     pub x: Fq2,
     pub y: Fq2,

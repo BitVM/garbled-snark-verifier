@@ -12,14 +12,14 @@
 pub type EllCoeff = (ark_bn254::Fq2, ark_bn254::Fq2, ark_bn254::Fq2);
 
 use ark_ec::bn::BnConfig;
-use ark_ff::Field;
+use ark_ff::{AdditiveGroup, Field};
 use circuit_component_macro::component;
 
 use crate::{
     CircuitContext,
     gadgets::bn254::{
         final_exponentiation::final_exponentiation, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
-        g1::G1Projective,
+        g1::G1Projective, g2::G2Projective,
     },
 };
 
@@ -71,6 +71,22 @@ fn g1_normalize_to_affine<C: CircuitContext>(circuit: &mut C, p: &G1Projective) 
     let z = Fq::new_constant(&one_m).expect("const one mont");
 
     G1Projective { x, y, z }
+}
+
+/// Normalize a G2 projective point to affine (z = 1) in Montgomery domain.
+fn g2_normalize_to_affine<C: CircuitContext>(circuit: &mut C, q: &G2Projective) -> G2Projective {
+    // Convert projective (x, y, z) to affine (x/z^2, y/z^3, 1)
+    let inv_z = Fq2::inverse_montgomery(circuit, &q.z);
+    let inv_z2 = Fq2::square_montgomery(circuit, &inv_z);
+    let inv_z3 = Fq2::mul_montgomery(circuit, &inv_z2, &inv_z);
+
+    let x = Fq2::mul_montgomery(circuit, &q.x, &inv_z2);
+    let y = Fq2::mul_montgomery(circuit, &q.y, &inv_z3);
+    let one_c0 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ONE)).expect("const one");
+    let zero_c1 = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ZERO)).expect("const zero");
+    let z = Fq2::from_components(one_c0, zero_c1);
+
+    G2Projective { x, y, z }
 }
 
 /// Miller loop where P is already affine (z = 1), so no normalization needed.
@@ -357,6 +373,88 @@ mod tests {
 
     fn random_g2_affine(rng: &mut impl Rng) -> ark_bn254::G2Affine {
         (ark_bn254::G2Projective::generator() * rnd_fr(rng)).into_affine()
+    }
+
+    #[test]
+    fn test_g2_normalize_to_affine_matches_host() {
+        // Generate random projective G2 point and expected affine (z=1) in Montgomery
+        let mut rng = ChaCha20Rng::seed_from_u64(0xA11F_E2);
+        let r = ark_bn254::G2Projective::generator() * rnd_fr(&mut rng);
+        let r_aff = r.into_affine();
+        let expected = ark_bn254::G2Projective::new(r_aff.x, r_aff.y, ark_bn254::Fq2::ONE);
+        // Keep expected in canonical field representation for comparison with decoded canonical
+        let expected_std = expected;
+
+        // Circuit input containing the projective point (Montgomery)
+        struct InputG2norm {
+            p: ark_bn254::G2Projective,
+        }
+        struct WiresG2norm {
+            p: G2Projective,
+        }
+        impl CircuitInput for InputG2norm {
+            type WireRepr = WiresG2norm;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                WiresG2norm {
+                    p: G2Projective::new(&mut issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                repr.p.to_wires_vec()
+            }
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for InputG2norm {
+            fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
+                let p_m = G2Projective::as_montgomery(self.p);
+                let f = G2Projective::get_wire_bits_fn(&repr.p, &p_m).unwrap();
+                for &w in repr.p.to_wires_vec().iter() {
+                    if let Some(bit) = f(w) {
+                        cache.feed_wire(w, bit);
+                    }
+                }
+            }
+        }
+
+        // Output decoder for G2 projective wires -> ark type
+        struct OutG2norm {
+            val: ark_bn254::G2Projective,
+        }
+        impl CircuitOutput<ExecuteMode> for OutG2norm {
+            type WireRepr = G2Projective;
+            fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+                // Decode Fq2 from wires helper
+                fn decode_fq2_from_wires(w: &Fq2, cache: &mut ExecuteMode) -> ark_bn254::Fq2 {
+                    // Read Montgomery limbs from wires, then convert back to standard form
+                    let c0_bi = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                        w.c0().0.clone(),
+                        cache,
+                    );
+                    let c1_bi = <BigUintOutput as CircuitOutput<ExecuteMode>>::decode(
+                        w.c1().0.clone(),
+                        cache,
+                    );
+                    let c0_m = ark_bn254::Fq::from(c0_bi);
+                    let c1_m = ark_bn254::Fq::from(c1_bi);
+                    let fq2_m = ark_bn254::Fq2::new(c0_m, c1_m);
+                    Fq2::from_montgomery(fq2_m)
+                }
+                let x = decode_fq2_from_wires(&wires.x, cache);
+                let y = decode_fq2_from_wires(&wires.y, cache);
+                let z = decode_fq2_from_wires(&wires.z, cache);
+                OutG2norm {
+                    val: ark_bn254::G2Projective::new(x, y, z),
+                }
+            }
+        }
+
+        let input = InputG2norm { p: r };
+        let res =
+            CircuitBuilder::streaming_execute::<_, _, OutG2norm>(input, 20_000, |ctx, wires| {
+                let q_aff = g2_normalize_to_affine(ctx, &wires.p);
+                q_aff
+            });
+
+        assert_eq!(res.output_wires.val, expected_std);
     }
 
     #[test]
