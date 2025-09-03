@@ -409,6 +409,19 @@ impl WiresObject for (Vec<G2Projective>, Vec<WireId>) {
     }
 }
 
+impl WiresObject for (Fq12, Fq6) {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        let mut wires = Vec::new();
+        wires.extend(self.0.to_wires_vec());
+        wires.extend(self.1.to_wires_vec());
+        wires
+    }
+
+    fn clone_from(&self, wire_gen: &mut impl FnMut() -> WireId) -> Self {
+        (self.0.clone_from(wire_gen), self.1.clone_from(wire_gen))
+    }
+}
+
 impl WiresObject for (Fq12, Fq2, Fq2) {
     fn to_wires_vec(&self) -> Vec<WireId> {
         let mut wires = Vec::new();
@@ -424,6 +437,20 @@ impl WiresObject for (Fq12, Fq2, Fq2) {
             self.1.clone_from(wire_gen),
             self.2.clone_from(wire_gen),
         )
+    }
+}
+
+// Specific pair needed by tests using (G2Projective, Fq6)
+impl WiresObject for (G2Projective, Fq6) {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        let mut wires = Vec::new();
+        wires.extend(self.0.to_wires_vec());
+        wires.extend(self.1.to_wires_vec());
+        wires
+    }
+
+    fn clone_from(&self, wire_gen: &mut impl FnMut() -> WireId) -> Self {
+        (self.0.clone_from(wire_gen), self.1.clone_from(wire_gen))
     }
 }
 
