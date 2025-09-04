@@ -102,7 +102,7 @@ impl BigIntWires {
         self.bits.iter()
     }
 
-    pub fn into_iter(self) -> impl IntoIterator<Item = WireId> {
+    pub fn to_into_iter(self) -> impl IntoIterator<Item = WireId> {
         self.bits.into_iter()
     }
 

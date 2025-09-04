@@ -356,7 +356,7 @@ impl WiresArity for (G2Projective, Fq6) {
 ///
 /// Returns (R_next_projective, (c0, c1, c2)). Precondition: `q` is affine (z = 1 in Montgomery).
 #[component]
-fn double_in_place_circuit_montgomery<C: CircuitContext>(
+pub fn double_in_place_circuit_montgomery<C: CircuitContext>(
     circuit: &mut C,
     r: &G2Projective,
 ) -> (G2Projective, Fq6) {

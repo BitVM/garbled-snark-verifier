@@ -1,7 +1,7 @@
 pub mod ciphertext_hasher;
 pub mod circuit;
 mod core;
-mod gadgets;
+pub mod gadgets;
 mod math;
 pub mod storage;
 

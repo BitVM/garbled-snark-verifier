@@ -961,4 +961,118 @@ mod tests {
             }
         }
     }
+
+    /// Verify that the policy in `mul` selects the minimal total gate count
+    /// compared to pure generic vs pure karatsuba implementations for lengths
+    /// 1..=526. Length 0 is intentionally skipped because adders require at
+    /// least 1 bit and would panic.
+    #[test]
+    fn karatsuba_policy_chooses_min_gate_count_up_to_526() {
+        use crate::circuit::streaming::StreamingResult;
+
+        fn gate_count_for<F>(n_bits: usize, op: F) -> u64
+        where
+            F: Fn(&mut Execute, &BigIntWires, &BigIntWires) -> BigIntWires,
+        {
+            // Input values don't affect gate count; fixed small numbers are fine.
+            let input = Input::<2>::new(n_bits, [1, 1]);
+
+            let result: StreamingResult<ExecuteMode, _, Vec<bool>> =
+                CircuitBuilder::streaming_execute(input, 200_000, |root, input| {
+                    let [a, b] = input;
+                    let out = op(root, a, b);
+                    out.to_wires_vec()
+                });
+
+            result.gate_count.total_gate_count()
+        }
+
+        for len in 1..=30 {
+            let generic_gc = gate_count_for(len, |c, a, b| super::mul_generic(c, a, b));
+            let karatsuba_gc = gate_count_for(len, |c, a, b| super::mul_karatsuba(c, a, b));
+            let selected_gc = gate_count_for(len, |c, a, b| super::mul(c, a, b));
+
+            let best = generic_gc.min(karatsuba_gc);
+            assert!(
+                selected_gc == best,
+                "len={}: selected={} generic={} karatsuba={}",
+                len,
+                selected_gc,
+                generic_gc,
+                karatsuba_gc
+            );
+        }
+    }
+
+    /// Collect and print all lengths in 1..=526 where the current policy
+    /// (`is_use_karatsuba`) does not match the minimal gate count between
+    /// pure generic and pure karatsuba implementations. This test does not
+    /// assert; it only reports mismatches.
+    #[test]
+    fn list_karatsuba_policy_mismatches_up_to_526() {
+        use crate::circuit::streaming::StreamingResult;
+
+        fn gate_count_for<F>(n_bits: usize, op: F) -> u64
+        where
+            F: Fn(&mut Execute, &BigIntWires, &BigIntWires) -> BigIntWires,
+        {
+            let input = Input::<2>::new(n_bits, [1, 1]);
+
+            let result: StreamingResult<ExecuteMode, _, Vec<bool>> =
+                CircuitBuilder::streaming_execute(input, 200_000, |root, input| {
+                    let [a, b] = input;
+                    let out = op(root, a, b);
+                    out.to_wires_vec()
+                });
+
+            result.gate_count.total_gate_count()
+        }
+
+        let mut mismatches = Vec::new();
+
+        for len in 1..=526 {
+            let generic_gc = gate_count_for(len, |c, a, b| super::mul_generic(c, a, b));
+            let karatsuba_gc = if len < 5 {
+                generic_gc // karatsuba defers to generic for len < 5
+            } else {
+                gate_count_for(len, |c, a, b| super::mul_karatsuba(c, a, b))
+            };
+
+            let policy_use_karatsuba = len >= 5 && super::is_use_karatsuba(len);
+            let selected_gc = if policy_use_karatsuba {
+                karatsuba_gc
+            } else {
+                generic_gc
+            };
+
+            let best = generic_gc.min(karatsuba_gc);
+            if selected_gc != best {
+                mismatches.push((len, selected_gc, generic_gc, karatsuba_gc));
+            }
+        }
+
+        // Pretty-print a compact list of lengths and a detailed table
+        if mismatches.is_empty() {
+            println!("No mismatches in 1..=526");
+        } else {
+            let lens: Vec<_> = mismatches.iter().map(|m| m.0).collect();
+            println!("Mismatches ({}): {:?}", mismatches.len(), lens);
+            for (len, selected_gc, generic_gc, karatsuba_gc) in mismatches {
+                let chosen = if super::is_use_karatsuba(len) {
+                    "karatsuba"
+                } else {
+                    "generic"
+                };
+                let best = if generic_gc <= karatsuba_gc {
+                    "generic"
+                } else {
+                    "karatsuba"
+                };
+                println!(
+                    "len={}: chosen={}({}), best={} -> generic={}, karatsuba={}",
+                    len, chosen, selected_gc, best, generic_gc, karatsuba_gc
+                );
+            }
+        }
+    }
 }
