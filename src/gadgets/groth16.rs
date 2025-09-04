@@ -33,12 +33,13 @@ pub fn projective_to_affine_montgomery<C: CircuitContext>(
     let z_inverse_square = Fq::square_montgomery(circuit, &z_inverse);
     let z_inverse_cube = Fq::mul_montgomery(circuit, &z_inverse, &z_inverse_square);
     let new_x = Fq::mul_montgomery(circuit, x, &z_inverse_square);
-    let new_y = Fq::mul_montgomery(circuit, y, &z_inverse_cube.clone());
+    let new_y = Fq::mul_montgomery(circuit, y, &z_inverse_cube);
 
     G1Projective {
         x: new_x,
         y: new_y,
-        z: Fq::new_constant(&ark_bn254::Fq::ONE).unwrap(),
+        // Set z = 1 in Montgomery form to stay in-domain
+        z: Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::ONE)).unwrap(),
     }
 }
 

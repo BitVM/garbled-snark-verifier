@@ -3,6 +3,7 @@
 use std::{array, fmt::Debug};
 
 use crossbeam::channel;
+use log::info;
 
 use crate::{
     S, WireId,
@@ -80,8 +81,6 @@ pub use streaming_mode::{StreamingContext, StreamingMode};
 
 pub struct CircuitBuilder<M: CircuitMode> {
     mode: M,
-    next_wire_id: usize,
-    gate_count: GateCount,
 }
 
 #[derive(Debug)]
@@ -93,6 +92,7 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
     pub false_constant: M::WireValue,
     pub true_constant: M::WireValue,
     pub input_values: Vec<M::WireValue>,
+    pub gate_count: GateCount,
 }
 
 impl CircuitBuilder<ExecuteMode> {
@@ -233,8 +233,15 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
 
-        let output = match &mut ctx {
-            StreamingMode::ExecutionPass(ctx) => O::decode(output_repr, &mut ctx.mode),
+        let (gate_count, output) = match &mut ctx {
+            StreamingMode::ExecutionPass(ctx) => {
+                info!("gate count: {}", ctx.gate_count);
+                println!("gate count: {}", ctx.gate_count);
+                (
+                    ctx.gate_count.clone(),
+                    O::decode(output_repr, &mut ctx.mode),
+                )
+            }
             _ => unreachable!(),
         };
 
@@ -245,6 +252,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
             false_constant: ctx.lookup_wire(FALSE_WIRE).unwrap(),
             input_wires: allocated_inputs,
             input_values,
+            gate_count,
         }
     }
 }
