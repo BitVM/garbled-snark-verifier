@@ -6,7 +6,10 @@ use crate::{CircuitContext, Gate, GateType, WireId, circuit::streaming::FALSE_WI
 
 /// Pre-computed Karatsuba vs Generic algorithm decisions
 const fn is_use_karatsuba(len: usize) -> bool {
-    len > 83
+    match len {
+        21 => false,
+        other => other > 19,
+    }
 }
 
 fn extend_with_zero<C: CircuitContext>(_circuit: &mut C, bits: &mut Vec<WireId>) {

@@ -75,6 +75,10 @@ impl Fq12 {
         self.0.iter().map(|fq6| fq6.len()).sum()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn new_constant(v: ark_bn254::Fq12) -> Fq12 {
         // Convert to Montgomery form before creating constants
         let v_mont = Fq12::as_montgomery(v);

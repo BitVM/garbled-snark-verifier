@@ -517,8 +517,13 @@ impl Fq6 {
             frobenius_a_c2_updated,
         )
     }
+
     pub fn len(&self) -> usize {
         self.0.iter().map(|fq2| fq2.len()).sum()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

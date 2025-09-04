@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple, List
 
 PROCESSED_RE = re.compile(
-    r'^\[(?P<ts>[^\]]+)\].*?processed:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
+    r'^\[(?P<ts>[^\]]+)\].*?(?:processed|executed):\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
 )
 PROCESS_GATE_RE = re.compile(
     r'^\[(?P<ts>[^\]]+)\].*?Process gate\s+(?P<count>\d+)\s*$'

@@ -84,6 +84,10 @@ impl Fq2 {
         self.0.iter().map(|fq| fq.len()).sum()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &WireId> {
         self.0.iter().flat_map(|fq2| fq2.iter())
     }

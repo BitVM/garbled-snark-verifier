@@ -185,5 +185,5 @@ fn main() {
         });
 
     println!("verification_result={}", result.output_wires[0]);
-    //assert!(result.output_wires[0], "expected successful verification");
+    println!("gate count is {}", result.gate_count);
 }
