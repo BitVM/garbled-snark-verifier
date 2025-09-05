@@ -174,23 +174,41 @@ fn main() {
 
     let evaluator = std::thread::spawn(move || {
         let G2EMsg::Commit {
-            output_label0_hash: _,
-            output_label1_hash: _,
-            ciphertext_hash: _,
+            output_label0_hash,
+            output_label1_hash,
+            ciphertext_hash: _, // TODO Add check of ciphertext
             input_labels,
             true_wire,
             false_wire,
         } = evaluator_receiver.recv().unwrap();
 
-        let _evaluator_result: StreamingResult<EvaluateMode<AesNiHasher>, _, Vec<EvaluatedWire>> =
-            CircuitBuilder::streaming_evaluation(
-                input_labels,
-                CAPACITY,
-                true_wire,
-                false_wire,
-                ciphertext_to_evaluator_receiver,
-                |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
-            );
+        let mut evaluator_result: StreamingResult<
+            EvaluateMode<AesNiHasher>,
+            _,
+            Vec<EvaluatedWire>,
+        > = CircuitBuilder::streaming_evaluation(
+            input_labels,
+            CAPACITY,
+            true_wire,
+            false_wire,
+            ciphertext_to_evaluator_receiver,
+            |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
+        );
+
+        let EvaluatedWire {
+            active_label: possible_secret,
+            value: is_proof_correct,
+        } = evaluator_result.output_wires.remove(0);
+
+        let result_hash = hash(&possible_secret.to_bytes());
+
+        if is_proof_correct {
+            assert_eq!(result_hash, output_label1_hash);
+        } else {
+            assert_eq!(result_hash, output_label0_hash);
+        }
+
+        assert!(is_proof_correct);
     });
 
     garbler.join().unwrap();

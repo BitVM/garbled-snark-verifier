@@ -209,9 +209,11 @@ pub mod groth16_proof {
             public_params: Vec<ark_bn254::Fr>,
             wires: Vec<GarbledWire>,
         ) -> Self {
+            // public scalars + (a.x,a.y) + (b.x,b.y as Fq2 -> 2 Fq each) + (c.x,c.y)
+            // = public.len * Fr::N_BITS + 8 * Fq::N_BITS
             assert_eq!(
                 wires.len(),
-                (public_params.len() * FrWire::N_BITS) + (FqWire::N_BITS * 2 * 3)
+                (public_params.len() * FrWire::N_BITS) + (FqWire::N_BITS * 8)
             );
 
             let mut wires = wires.iter();
@@ -246,7 +248,7 @@ pub mod groth16_proof {
             ) -> EvaluatedFrWires {
                 FqWire::to_bits(*f)
                     .into_iter()
-                    .zip_eq(wires.by_ref().take(FrWire::N_BITS))
+                    .zip_eq(wires.by_ref().take(FqWire::N_BITS))
                     .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
                     .collect()
             }
@@ -326,44 +328,50 @@ pub mod groth16_proof {
                         });
                 });
 
+            // A.x
             repr.a_x
                 .iter()
-                .zip_eq(self.a.iter())
+                .zip_eq(self.a.x.iter())
                 .for_each(|(wire_id, evaluated_wire)| {
                     cache.feed_wire(*wire_id, evaluated_wire.clone());
                 });
 
+            // A.y
             repr.a_y
                 .iter()
-                .zip_eq(self.a.iter())
+                .zip_eq(self.a.y.iter())
                 .for_each(|(wire_id, evaluated_wire)| {
                     cache.feed_wire(*wire_id, evaluated_wire.clone());
                 });
 
+            // B.x (Fq2 -> c0 then c1)
             repr.b_x
                 .iter()
-                .zip_eq(self.a.iter())
+                .zip_eq(self.b.x[0].iter().chain(self.b.x[1].iter()))
                 .for_each(|(wire_id, evaluated_wire)| {
                     cache.feed_wire(*wire_id, evaluated_wire.clone());
                 });
 
+            // B.y (Fq2 -> c0 then c1)
             repr.b_y
                 .iter()
-                .zip_eq(self.a.iter())
+                .zip_eq(self.b.y[0].iter().chain(self.b.y[1].iter()))
                 .for_each(|(wire_id, evaluated_wire)| {
                     cache.feed_wire(*wire_id, evaluated_wire.clone());
                 });
 
+            // C.x
             repr.c_x
                 .iter()
-                .zip_eq(self.c.iter())
+                .zip_eq(self.c.x.iter())
                 .for_each(|(wire_id, evaluated_wire)| {
                     cache.feed_wire(*wire_id, evaluated_wire.clone());
                 });
 
+            // C.y
             repr.c_y
                 .iter()
-                .zip_eq(self.c.iter())
+                .zip_eq(self.c.y.iter())
                 .for_each(|(wire_id, evaluated_wire)| {
                     cache.feed_wire(*wire_id, evaluated_wire.clone());
                 });
