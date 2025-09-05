@@ -134,6 +134,15 @@ fn main() {
 
     let public_param = circuit.a.unwrap() * circuit.b.unwrap();
 
+    println!(
+        "[GARBLER]
+            Label0: {:?},
+            Label1: {:?},
+            CiphertextHash: {ciphertext_hash}
+        ",
+        &garbling_result.output_wires[0].label0, &garbling_result.output_wires[0].label1,
+    );
+
     let input_labels = Groth16EvaluatorInputs::new(
         proof.a.into_group(),
         proof.b.into_group(),
@@ -176,11 +185,28 @@ fn main() {
         let G2EMsg::Commit {
             output_label0_hash,
             output_label1_hash,
-            ciphertext_hash: _, // TODO Add check of ciphertext
+            ciphertext_hash,
             input_labels,
             true_wire,
             false_wire,
         } = evaluator_receiver.recv().unwrap();
+
+        let (sender1, receiver1) = crossbeam::channel::unbounded();
+        let (sender2, receiver2) = crossbeam::channel::unbounded();
+
+        std::thread::spawn(move || {
+            while let Ok(msg) = ciphertext_to_evaluator_receiver.recv() {
+                sender1.send(msg).unwrap();
+                sender2.send(msg).unwrap();
+            }
+        });
+
+        // TODO Change API for `run and have one thread
+        let calculated_ciphertext_hash = std::thread::spawn(move || {
+            println!("Starting ciphertext hashing thread...");
+
+            CiphertextHasher::new_batched().run(receiver2)
+        });
 
         let mut evaluator_result: StreamingResult<
             EvaluateMode<AesNiHasher>,
@@ -191,7 +217,7 @@ fn main() {
             CAPACITY,
             true_wire,
             false_wire,
-            ciphertext_to_evaluator_receiver,
+            receiver1,
             |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
         );
 
@@ -200,7 +226,17 @@ fn main() {
             value: is_proof_correct,
         } = evaluator_result.output_wires.remove(0);
 
+        let calculated_ciphertext_hash = calculated_ciphertext_hash.join().unwrap();
         let result_hash = hash(&possible_secret.to_bytes());
+
+        println!(
+            "[EVALUATOR]
+            Is Proof Correct: {is_proof_correct},
+            Result Hash: {result_hash:?},
+            Label: {possible_secret:?},
+            CiphertextHash: {calculated_ciphertext_hash}
+        "
+        );
 
         if is_proof_correct {
             assert_eq!(result_hash, output_label1_hash);
@@ -209,6 +245,7 @@ fn main() {
         }
 
         assert!(is_proof_correct);
+        assert_eq!(calculated_ciphertext_hash, ciphertext_hash);
     });
 
     garbler.join().unwrap();
