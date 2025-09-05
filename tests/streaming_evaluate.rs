@@ -109,8 +109,8 @@ fn test_garble_evaluate_and_consistency() {
             CircuitBuilder::<EvaluateMode>::streaming_evaluation(
                 eval_inputs,
                 10,
-                garble_result.true_constant.select(true),
-                garble_result.false_constant.select(false),
+                garble_result.true_constant.select(true).to_u128(),
+                garble_result.false_constant.select(false).to_u128(),
                 receiver,
                 circuit_fn,
             );
@@ -178,8 +178,8 @@ macro_rules! test_gate_consistency {
                     CircuitBuilder::<EvaluateMode>::streaming_evaluation(
                         eval_inputs,
                         10,
-                        garble_result.true_constant.select(true),
-                        garble_result.false_constant.select(false),
+                        garble_result.true_constant.select(true).to_u128(),
+                        garble_result.false_constant.select(false).to_u128(),
                         receiver,
                         circuit_fn,
                     );
@@ -298,8 +298,8 @@ fn test_not_garble_evaluate_consistency() {
             CircuitBuilder::<EvaluateMode>::streaming_evaluation(
                 eval_inputs,
                 10,
-                garble_result.true_constant.select(true),
-                garble_result.false_constant.select(false),
+                garble_result.true_constant.select(true).to_u128(),
+                garble_result.false_constant.select(false).to_u128(),
                 receiver,
                 circuit_fn,
             );
@@ -436,8 +436,8 @@ fn test_bn254_fq_complex_chain_garble_eval() {
         CircuitBuilder::<EvaluateMode>::streaming_evaluation(
             inputs,
             100_000,
-            true_s,
-            false_s,
+            true_s.to_u128(),
+            false_s.to_u128(),
             e_receiver,
             fq_complex_circuit,
         );

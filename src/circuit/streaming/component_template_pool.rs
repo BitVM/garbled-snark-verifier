@@ -8,7 +8,7 @@ use slab::Slab;
 use super::{component_key::ComponentKey, component_meta::ComponentMetaTemplate};
 
 /// Maximum number of templates to keep in memory.
-const DEFAULT_CAPACITY: usize = 10_000;
+const DEFAULT_CAPACITY: usize = 5_000;
 
 #[derive(Debug)]
 struct Entry {

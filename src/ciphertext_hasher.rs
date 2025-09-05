@@ -60,7 +60,7 @@ impl CiphertextHasher {
         }
     }
 
-    pub fn run(mut self, receiver: Receiver<(usize, S)>) -> [u8; 16] {
+    pub fn run(mut self, receiver: Receiver<(usize, S)>) -> u128 {
         match &mut self {
             CiphertextHasher::Sequential { running_hash, key } => {
                 while let Ok((_, ciphertext)) = receiver.recv() {
@@ -68,7 +68,7 @@ impl CiphertextHasher {
                     *running_hash =
                         aes128_encrypt_block(*key, input).expect("AES-NI should be available");
                 }
-                *running_hash
+                u128::from_be_bytes(*running_hash)
             }
             CiphertextHasher::Batched {
                 batch_buffer,
@@ -112,7 +112,7 @@ impl CiphertextHasher {
                         aes128_encrypt_block(*key1, input).expect("AES-NI should be available");
                 }
 
-                *running_hash
+                u128::from_be_bytes(*running_hash)
             }
         }
     }

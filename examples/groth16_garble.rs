@@ -2,25 +2,23 @@
 // then garbles the verification circuit using the new streaming garble mode.
 // Run with: `RUST_LOG=info cargo run --example groth16_garble --release`
 
+use ark_ec::AffineRepr;
 use ark_ff::UniformRand;
 use ark_groth16::Groth16;
 use ark_relations::{
     lc,
     r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
 };
-use ark_snark::CircuitSpecificSetupSNARK;
+use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
-    self as gsv, AesNiHasher, CiphertextHasher, GarbledWire, WireId,
-    circuit::streaming::StreamingResult,
-};
-use gsv::{
-    FrWire, G1Wire, G2Wire,
+    AesNiHasher, CiphertextHasher, EvaluatedWire, GarbledWire,
     circuit::streaming::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject, modes::GarbleMode,
+        CircuitBuilder, StreamingResult,
+        modes::{EvaluateMode, GarbleMode},
     },
-    groth16_verify,
+    groth16_proof::{GarbledInputs, Groth16EvaluatorInputs, groth16_proof_verify},
 };
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 // Simple multiplicative circuit used to produce a valid Groth16 proof.
@@ -59,126 +57,34 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
 }
 
 #[allow(dead_code)]
-struct Inputs {
-    public: Vec<ark_bn254::Fr>,
-    a: ark_bn254::G1Projective,
-    b: ark_bn254::G2Projective,
-    c: ark_bn254::G1Projective,
+enum G2EMsg {
+    Commit {
+        /// Hash of the label that proof is wrong
+        /// Use as a secret
+        output_label0_hash: [u8; 32],
+        /// Hash of the label that proof is correct
+        /// Just a marker of correctness
+        output_label1_hash: [u8; 32],
+        ciphertext_hash: u128,
+
+        input_labels: Groth16EvaluatorInputs,
+        true_wire: u128,
+        false_wire: u128,
+    },
 }
 
-struct InputWires {
-    public: Vec<FrWire>,
-    a: G1Wire,
-    b: G2Wire,
-    c: G1Wire,
+fn hash(inp: &impl AsRef<[u8]>) -> [u8; 32] {
+    blake3::hash(inp.as_ref()).as_bytes().to_owned()
 }
 
-impl CircuitInput for Inputs {
-    type WireRepr = InputWires;
-    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-        InputWires {
-            public: self
-                .public
-                .iter()
-                .map(|_| FrWire::new(&mut issue))
-                .collect(),
-            a: G1Wire::new(&mut issue),
-            b: G2Wire::new(&mut issue),
-            c: G1Wire::new(&mut issue),
-        }
-    }
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {
-        let mut ids = Vec::new();
-        for s in &repr.public {
-            ids.extend(s.to_wires_vec());
-        }
-        ids.extend(repr.a.to_wires_vec());
-        ids.extend(repr.b.to_wires_vec());
-        ids.extend(repr.c.to_wires_vec());
-        ids
-    }
-}
-
-// For garbling, we need to generate garbled wire labels instead of boolean values
-struct GarbledInputs {
-    public_len: usize,
-}
-
-impl CircuitInput for GarbledInputs {
-    type WireRepr = InputWires;
-    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-        InputWires {
-            public: (0..self.public_len)
-                .map(|_| FrWire::new(&mut issue))
-                .collect(),
-            a: G1Wire::new(&mut issue),
-            b: G2Wire::new(&mut issue),
-            c: G1Wire::new(&mut issue),
-        }
-    }
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {
-        let mut ids = Vec::new();
-        for s in &repr.public {
-            ids.extend(s.to_wires_vec());
-        }
-        ids.extend(repr.a.to_wires_vec());
-        ids.extend(repr.b.to_wires_vec());
-        ids.extend(repr.c.to_wires_vec());
-        ids
-    }
-}
-
-impl EncodeInput<GarbleMode<AesNiHasher>> for GarbledInputs {
-    fn encode(&self, repr: &InputWires, cache: &mut GarbleMode<AesNiHasher>) {
-        // Encode public scalars
-        for w in &repr.public {
-            for &wire in w.iter() {
-                let gw = cache.issue_garbled_wire();
-                cache.feed_wire(wire, gw);
-            }
-        }
-
-        // Encode G1 points
-        for &wire_id in repr
-            .a
-            .x
-            .iter()
-            .chain(repr.a.y.iter())
-            .chain(repr.a.z.iter())
-        {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(wire_id, gw);
-        }
-
-        // Encode G2 points
-        for &wire_id in repr
-            .b
-            .x
-            .iter()
-            .chain(repr.b.y.iter())
-            .chain(repr.b.z.iter())
-        {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(wire_id, gw);
-        }
-
-        for &wire_id in repr
-            .c
-            .x
-            .iter()
-            .chain(repr.c.y.iter())
-            .chain(repr.c.z.iter())
-        {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(wire_id, gw);
-        }
-    }
-}
+const CAPACITY: usize = 150_000;
 
 fn main() {
     // Initialize logging (default to info if RUST_LOG not set)
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init();
+
+    let garbling_seed: u64 = rand::thread_rng().r#gen();
 
     println!("Setting up Groth16 proof...");
 
@@ -191,46 +97,102 @@ fn main() {
         num_variables: 10,
         num_constraints: 1 << k,
     };
-    let (_pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).expect("setup");
+    let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).expect("setup");
 
     println!("Proof generated successfully");
 
-    let inputs = GarbledInputs { public_len: 1 };
+    let inputs = GarbledInputs {
+        public_params_len: 1,
+    };
 
     // Create channel for garbled tables
-    let (sender, receiver) = crossbeam::channel::unbounded();
+    let (ciphertext_acc_hash_sender, ciphertext_acc_hash_receiver) =
+        crossbeam::channel::unbounded();
 
-    std::thread::spawn(move || {
+    let ciphertext_hash = std::thread::spawn(move || {
         println!("Starting ciphertext hashing thread...");
 
-        let use_batched = true;
-
-        let hasher = if use_batched {
-            CiphertextHasher::new_batched()
-        } else {
-            CiphertextHasher::new_sequential()
-        };
-
-        let final_hash = hasher.run(receiver);
-        println!("Final hash: {:02x?}", final_hash);
-        println!("Ciphertext hashing thread completed");
+        CiphertextHasher::new_batched().run(ciphertext_acc_hash_receiver)
     });
 
     println!("Starting garbling of Groth16 verification circuit...");
 
-    let _result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
+    let mut garbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
         CircuitBuilder::streaming_garbling(
-            inputs,
-            40_000, // wire capacity
-            42,     // garbling seed
-            sender,
-            |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
-                vec![ok]
-            },
+            inputs.clone(),
+            CAPACITY,
+            garbling_seed,
+            ciphertext_acc_hash_sender,
+            |ctx, wires| groth16_proof_verify(ctx, wires, &vk),
         );
 
-    // The output is a garbled wire representing the verification result
-    println!("Output wire labels generated successfully");
-    println!("Delta has been kept secret");
+    let GarbledWire { label0, label1 } = garbling_result.output_wires.remove(0);
+
+    let ciphertext_hash: u128 = ciphertext_hash.join().unwrap();
+
+    let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
+
+    let public_param = circuit.a.unwrap() * circuit.b.unwrap();
+
+    let input_labels = Groth16EvaluatorInputs::new(
+        proof.a.into_group(),
+        proof.b.into_group(),
+        proof.c.into_group(),
+        vec![public_param],
+        garbling_result.input_values,
+    );
+
+    let msg = G2EMsg::Commit {
+        output_label0_hash: hash(&label0.to_bytes()),
+        output_label1_hash: hash(&label1.to_bytes()),
+        ciphertext_hash,
+        input_labels,
+        true_wire: garbling_result.true_constant.select(true).to_u128(),
+        false_wire: garbling_result.false_constant.select(false).to_u128(),
+    };
+
+    // Create channel for garbled tables
+    let (evaluator_sender, evaluator_receiver) = crossbeam::channel::unbounded::<G2EMsg>();
+    let (ciphertext_to_evaluator_sender, ciphertext_to_evaluator_receiver) =
+        crossbeam::channel::unbounded();
+
+    let vk_garbler = vk.clone();
+    let vk_evaluator = vk;
+
+    let garbler = std::thread::spawn(move || {
+        evaluator_sender.send(msg).unwrap();
+
+        let _regarbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(
+                inputs,
+                CAPACITY,
+                42,
+                ciphertext_to_evaluator_sender,
+                |ctx, wires| groth16_proof_verify(ctx, wires, &vk_garbler),
+            );
+    });
+
+    let evaluator = std::thread::spawn(move || {
+        let G2EMsg::Commit {
+            output_label0_hash: _,
+            output_label1_hash: _,
+            ciphertext_hash: _,
+            input_labels,
+            true_wire,
+            false_wire,
+        } = evaluator_receiver.recv().unwrap();
+
+        let _evaluator_result: StreamingResult<EvaluateMode<AesNiHasher>, _, Vec<EvaluatedWire>> =
+            CircuitBuilder::streaming_evaluation(
+                input_labels,
+                CAPACITY,
+                true_wire,
+                false_wire,
+                ciphertext_to_evaluator_receiver,
+                |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
+            );
+    });
+
+    garbler.join().unwrap();
+    evaluator.join().unwrap();
 }

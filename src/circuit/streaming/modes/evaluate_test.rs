@@ -87,8 +87,8 @@ fn test_xor_evaluate_mode_basic() {
     > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
         inputs,
         5,
-        true_wire,
-        false_wire,
+        true_wire.to_u128(),
+        false_wire.to_u128(),
         receiver,
         |ctx, input_wires| {
             let output = ctx.issue_wire();
@@ -115,8 +115,8 @@ fn test_xor_evaluate_mode_with_constants() {
     > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
         inputs,
         5,
-        true_wire,
-        false_wire,
+        true_wire.to_u128(),
+        false_wire.to_u128(),
         receiver,
         |ctx, input_wires| {
             let output1 = ctx.issue_wire();
@@ -154,8 +154,8 @@ fn test_evaluate_mode() {
     > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
         inputs,
         10,
-        true_wire,
-        false_wire,
+        true_wire.to_u128(),
+        false_wire.to_u128(),
         receiver,
         |ctx, input_wires| {
             let val1 = ctx.issue_wire();

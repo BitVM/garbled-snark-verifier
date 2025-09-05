@@ -36,6 +36,11 @@ impl S {
     }
 
     #[inline]
+    pub fn from_u128(l: u128) -> Self {
+        Self(l)
+    }
+
+    #[inline]
     pub fn to_u128(&self) -> u128 {
         self.0
     }

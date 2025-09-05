@@ -156,8 +156,8 @@ impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
     pub fn streaming_evaluation<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
-        true_wire: S,
-        false_wire: S,
+        true_wire: u128,
+        false_wire: u128,
         ciphertext_receiver: channel::Receiver<(usize, S)>,
         f: F,
     ) -> StreamingResult<EvaluateMode<H>, I, O>
@@ -171,8 +171,8 @@ impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
             inputs,
             EvaluateMode::new(
                 live_wires_capacity,
-                true_wire,
-                false_wire,
+                S::from_u128(true_wire),
+                S::from_u128(false_wire),
                 ciphertext_receiver,
             ),
             f,
@@ -185,8 +185,8 @@ impl CircuitBuilder<EvaluateModeBlake3> {
     pub fn streaming_evaluation_blake3<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
-        true_wire: S,
-        false_wire: S,
+        true_wire: u128,
+        false_wire: u128,
         ciphertext_receiver: channel::Receiver<(usize, S)>,
         f: F,
     ) -> StreamingResult<EvaluateModeBlake3, I, O>
