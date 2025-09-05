@@ -206,7 +206,7 @@ fn main() {
         let calculated_ciphertext_hash = std::thread::spawn(move || {
             println!("Starting ciphertext hashing thread...");
 
-            CiphertextHasher::new_batched().run(receiver2)
+            CiphertextHasher::new_sequential().run(receiver2)
         });
 
         let mut evaluator_result: StreamingResult<
