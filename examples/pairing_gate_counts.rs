@@ -50,7 +50,7 @@ impl CircuitInput for Inputs {
         repr.g1
             .to_wires_vec()
             .into_iter()
-            .chain(repr.g2.to_wires_vec().into_iter())
+            .chain(repr.g2.to_wires_vec())
             .collect()
     }
 }
@@ -90,6 +90,8 @@ where
 fn main() {
     // Configuration: enable/disable specific tests
     const ENABLE_FQ_MUL_MONTGOMERY: bool = true;
+    const ENABLE_FQ2_MUL_CONSTANT_BY_FQ_MONTGOMERY: bool = true;
+    const ENABLE_FQ_MUL_CONSTANT_MONTGOMERY: bool = true;
     const ENABLE_DOUBLE_IN_PLACE_MONTGOMERY: bool = true;
     const ENABLE_ADD_IN_PLACE_MONTGOMERY: bool = true;
     const ENABLE_MUL_BY_CHAR_MONTGOMERY: bool = true;
@@ -103,11 +105,15 @@ fn main() {
     const ENABLE_MULTI_MILLER_LOOP: bool = true;
     const ENABLE_MULTI_MILLER_LOOP_EVALUATE_MONTGOMERY_FAST: bool = true;
 
-    // Deterministic inputs
+    // Deterministic inputs - use affine points with z=1 for fair comparison
     let _rng = ChaCha20Rng::seed_from_u64(42);
-    let g1 = ark_bn254::G1Projective::generator() * ark_bn254::Fr::from(5u64);
-    let g2 = ark_bn254::G2Projective::generator() * ark_bn254::Fr::from(7u64);
-    let g2_aff = g2.into_affine();
+    let g1_proj = ark_bn254::G1Projective::generator() * ark_bn254::Fr::from(5u64);
+    let g2_proj = ark_bn254::G2Projective::generator() * ark_bn254::Fr::from(7u64);
+    // Convert to affine then back to projective with z=1
+    let g1_aff = g1_proj.into_affine();
+    let g2_aff = g2_proj.into_affine();
+    let g1 = ark_bn254::G1Projective::from(g1_aff);
+    let g2 = ark_bn254::G2Projective::from(g2_aff);
     let inputs = Inputs { g1, g2, g2_aff };
 
     // Print CSV header once
@@ -126,6 +132,39 @@ fn main() {
 
     // Spawn each calculation in its own thread for parallelism
     let mut handles = Vec::new();
+
+    // 1) double_in_place_montgomery
+    // 0) fq2::mul_constant_by_fq_montgomery (only enabled target)
+    if ENABLE_FQ2_MUL_CONSTANT_BY_FQ_MONTGOMERY {
+        handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("mul_constant_by_fq_montgomery", inputs, move |ctx, w| {
+                    // Constant Fq2 (canonical form, converted internally to Montgomery)
+                    let a_const = ark_bn254::Fq2::new(
+                        ark_bn254::Fq::from(123u64),
+                        ark_bn254::Fq::from(456u64),
+                    );
+                    // Use an Fq wire from G1.x as the multiplier input
+                    let _out = Fq2::mul_constant_by_fq_montgomery(ctx, &a_const, &w.g1.x);
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_FQ_MUL_CONSTANT_MONTGOMERY {
+        handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("fq_mul_by_constant_montgomery", inputs, move |ctx, w| {
+                    let c_m = Fq::as_montgomery(ark_bn254::Fq::from(123u64));
+                    let _out = Fq::mul_by_constant_montgomery(ctx, &w.g1.x, &c_m);
+                    vec![]
+                });
+            }
+        }));
+    }
 
     // 1) double_in_place_montgomery
     if ENABLE_DOUBLE_IN_PLACE_MONTGOMERY {

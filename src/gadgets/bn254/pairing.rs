@@ -641,17 +641,11 @@ pub fn multi_miller_loop_montgomery_fast<C: CircuitContext>(
     ps: &[G1Projective],
     qs: &[G2Projective],
 ) -> Fq12 {
-    // Normalize inputs to affine once to satisfy mixed-add and line-eval preconditions.
+    // Skip normalization - assume inputs are already affine (z = 1)
     // - ell_coeffs_montgomery assumes mixed-add with affine Q (z = 1)
     // - ell_montgomery evaluates at affine P (z = 1)
-    let ps_aff: Vec<G1Projective> = ps
-        .iter()
-        .map(|p| g1_normalize_to_affine(circuit, p))
-        .collect();
-    let qs_aff: Vec<G2Projective> = qs
-        .iter()
-        .map(|q| g2_normalize_to_affine(circuit, q))
-        .collect();
+    let ps_aff = ps.to_vec();
+    let qs_aff = qs.to_vec();
 
     let mut qells = Vec::new();
     for q in &qs_aff {

@@ -311,79 +311,7 @@ fn main() {
         GarbleMode::<AesNiHasher>::preallocate_input(garbler_seed, &garbler_inputs),
     );
 
-    let exec_input = Groth16ExecInput {
-        public: garbler_inputs.public.clone(),
-        a: garbler_inputs.a,
-        b: garbler_inputs.b,
-        c: garbler_inputs.c,
-    };
-
     info!("🔧 Input wire encoding synchronized between garbler and evaluator");
-
-    // Quick bit-compare before heavy execution
-    info!("🔎 Quick compare of Execute vs Evaluator input bits (pre-exec)...");
-    // Build evaluator-expected bits in the same representation as Execute encoding
-    // public Fr: standard; G1 a,c: Montgomery coordinates
-    let mut eval_bits_quick: Vec<bool> = Vec::new();
-    for fr_bits in &evaluated_input_wires.public {
-        eval_bits_quick.extend(fr_bits.iter().map(|ew| ew.value));
-    }
-    let a_m = G1Wire::as_montgomery(garbler_inputs.a);
-    let c_m = G1Wire::as_montgomery(garbler_inputs.c);
-    eval_bits_quick.extend(FqWire::to_bits(a_m.x));
-    eval_bits_quick.extend(FqWire::to_bits(a_m.y));
-    eval_bits_quick.extend(FqWire::to_bits(a_m.z));
-    eval_bits_quick.extend(FqWire::to_bits(c_m.x));
-    eval_bits_quick.extend(FqWire::to_bits(c_m.y));
-    eval_bits_quick.extend(FqWire::to_bits(c_m.z));
-
-    // Construct execute-mode input bits directly (no execute)
-    let mut exec_bits_quick: Vec<bool> = Vec::new();
-    for fr in &exec_input.public {
-        exec_bits_quick.extend(FrWire::to_bits(*fr));
-    }
-    let a_m_bits = G1Wire::as_montgomery(exec_input.a);
-    exec_bits_quick.extend(FqWire::to_bits(a_m_bits.x));
-    exec_bits_quick.extend(FqWire::to_bits(a_m_bits.y));
-    exec_bits_quick.extend(FqWire::to_bits(a_m_bits.z));
-    let c_m_bits = G1Wire::as_montgomery(exec_input.c);
-    exec_bits_quick.extend(FqWire::to_bits(c_m_bits.x));
-    exec_bits_quick.extend(FqWire::to_bits(c_m_bits.y));
-    exec_bits_quick.extend(FqWire::to_bits(c_m_bits.z));
-
-    let mut abort_due_to_mismatch = false;
-    if exec_bits_quick.len() != eval_bits_quick.len() {
-        error!(
-            "❌ Pre-exec input length mismatch: exec_bits={} vs eval_bits={}",
-            exec_bits_quick.len(),
-            eval_bits_quick.len()
-        );
-        abort_due_to_mismatch = true;
-    } else {
-        let diffs: Vec<usize> = exec_bits_quick
-            .iter()
-            .zip(eval_bits_quick.iter())
-            .enumerate()
-            .filter_map(|(i, (a, b))| if a != b { Some(i) } else { None })
-            .collect();
-        if diffs.is_empty() {
-            info!("✅ Pre-exec inputs match ({} bits)", exec_bits_quick.len());
-        } else {
-            error!(
-                "❌ Pre-exec: {} differing input bits out of {}",
-                diffs.len(),
-                exec_bits_quick.len()
-            );
-            error!("❌ Differing bit indices: {:?}", diffs);
-            abort_due_to_mismatch = true;
-        }
-    }
-    if abort_due_to_mismatch {
-        error!("⛔ Aborting run due to pre-exec input mismatch.");
-        return;
-    }
-
-    // No pre-execution run; we only compare inputs here
 
     // Send input wires to evaluator
     if let Err(e) = input_wire_tx.send(evaluated_input_wires) {
@@ -405,7 +333,7 @@ fn main() {
         let result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(
                 garbler_inputs,
-                35_000,
+                160_000,
                 garbler_seed,
                 ciphertext_tx,
                 |ctx, wires| {
@@ -450,7 +378,7 @@ fn main() {
         let result: StreamingResult<EvaluateMode<AesNiHasher>, _, Vec<EvaluatedWire>> =
             CircuitBuilder::streaming_evaluation(
                 received_input,
-                35_000, // wire capacity
+                160_000, // wire capacity
                 true_wire.active_label,
                 false_wire.active_label,
                 ciphertext_rx,
