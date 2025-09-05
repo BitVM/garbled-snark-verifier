@@ -11,7 +11,7 @@ use ark_relations::{
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
-    AesNiHasher, CiphertextHasher, EvaluatedWire, GarbledWire,
+    AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbledWire,
     circuit::streaming::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
@@ -60,10 +60,8 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
 enum G2EMsg {
     Commit {
         /// Hash of the label that proof is wrong
-        /// Use as a secret
         output_label0_hash: [u8; 32],
         /// Hash of the label that proof is correct
-        /// Just a marker of correctness
         output_label1_hash: [u8; 32],
         ciphertext_hash: u128,
 
@@ -112,7 +110,11 @@ fn main() {
     let ciphertext_hash = std::thread::spawn(move || {
         println!("Starting ciphertext hashing thread...");
 
-        CiphertextHasher::new_sequential().run(ciphertext_acc_hash_receiver)
+        let mut hasher = CiphertextHashAcc::default();
+        while let Ok((_index, ciphertext)) = ciphertext_acc_hash_receiver.recv() {
+            hasher.update(ciphertext)
+        }
+        hasher.finalize()
     });
 
     println!("Starting garbling of Groth16 verification circuit...");
@@ -130,8 +132,14 @@ fn main() {
 
     let ciphertext_hash: u128 = ciphertext_hash.join().unwrap();
 
+    // NOTE For the SetupPhase, we must use a random set of bytes and compare
+    // them with the hash provided earlier.
+    //
+    // For PegOut, we try to prove the incorrectness of the claimer's
+    // action. If we succeed, then we will send the correct proof and receive the secret label.
     let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
+    // NOTE If you want to break the pruf, the easiest thing to do is just replace this value with whatever you want.
     let public_param = circuit.a.unwrap() * circuit.b.unwrap();
 
     println!(
@@ -192,21 +200,17 @@ fn main() {
             false_wire,
         } = evaluator_receiver.recv().unwrap();
 
-        let (sender1, receiver1) = crossbeam::channel::unbounded();
-        let (sender2, receiver2) = crossbeam::channel::unbounded();
+        let (proxy_sender, proxy_receiver) = crossbeam::channel::unbounded();
 
-        std::thread::spawn(move || {
-            while let Ok(msg) = ciphertext_to_evaluator_receiver.recv() {
-                sender1.send(msg).unwrap();
-                sender2.send(msg).unwrap();
-            }
-        });
-
-        // TODO Change API for `run and have one thread
         let calculated_ciphertext_hash = std::thread::spawn(move || {
-            println!("Starting ciphertext hashing thread...");
+            let mut hasher = CiphertextHashAcc::default();
 
-            CiphertextHasher::new_sequential().run(receiver2)
+            while let Ok((index, ciphertext)) = ciphertext_to_evaluator_receiver.recv() {
+                proxy_sender.send((index, ciphertext)).unwrap();
+                hasher.update(ciphertext);
+            }
+
+            hasher.finalize()
         });
 
         let mut evaluator_result: StreamingResult<
@@ -218,7 +222,7 @@ fn main() {
             CAPACITY,
             true_wire,
             false_wire,
-            receiver1,
+            proxy_receiver,
             |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
         );
 
@@ -245,7 +249,6 @@ fn main() {
             assert_eq!(result_hash, output_label0_hash);
         }
 
-        assert!(is_proof_correct);
         assert_eq!(calculated_ciphertext_hash, ciphertext_hash);
     });
 
