@@ -46,7 +46,7 @@ pub mod test_utils {
 }
 
 pub mod groth16_proof {
-    use ark_ff::{AdditiveGroup, PrimeField};
+    use ark_ff::{AdditiveGroup, Field, PrimeField};
     use itertools::Itertools;
     use num_bigint::BigUint;
 
@@ -383,25 +383,30 @@ pub mod groth16_proof {
         wires: &Groth16ProofWires,
         vk: &ark_groth16::VerifyingKey<ark_bn254::Bn254>,
     ) -> Vec<WireId> {
+        // z should be constant 1 in Montgomery domain for projective points
+        let one_m = FqWire::as_montgomery(ark_bn254::Fq::ONE);
+        let zero_m = FqWire::as_montgomery(ark_bn254::Fq::ZERO);
+
         let a = G1Wire {
             x: wires.a_x.clone(),
             y: wires.a_y.clone(),
-            z: FqWire::new_constant(&ark_bn254::Fq::ZERO).unwrap(),
+            z: FqWire::new_constant(&one_m).unwrap(),
         };
 
         let b = G2Wire {
             x: wires.b_x.clone(),
             y: wires.b_y.clone(),
+            // In Fq2, ONE is (c0=1, c1=0). Use Montgomery representation.
             z: Fq2Wire([
-                FqWire::new_constant(&ark_bn254::Fq::ZERO).unwrap(),
-                FqWire::new_constant(&ark_bn254::Fq::ZERO).unwrap(),
+                FqWire::new_constant(&one_m).unwrap(),
+                FqWire::new_constant(&zero_m).unwrap(),
             ]),
         };
 
         let c = G1Wire {
             x: wires.c_x.clone(),
             y: wires.c_y.clone(),
-            z: FqWire::new_constant(&ark_bn254::Fq::ZERO).unwrap(),
+            z: FqWire::new_constant(&one_m).unwrap(),
         };
 
         let is_ok = groth16_verify(ctx, &wires.public, &a, &b, &c, vk);
