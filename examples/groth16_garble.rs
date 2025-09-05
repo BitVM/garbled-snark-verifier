@@ -140,7 +140,7 @@ fn main() {
             Label1: {:?},
             CiphertextHash: {ciphertext_hash}
         ",
-        &garbling_result.output_wires[0].label0, &garbling_result.output_wires[0].label1,
+        &label0, &label1
     );
 
     let input_labels = Groth16EvaluatorInputs::new(
@@ -159,6 +159,7 @@ fn main() {
         true_wire: garbling_result.true_constant.select(true).to_u128(),
         false_wire: garbling_result.false_constant.select(false).to_u128(),
     };
+    println!("Commit sent");
 
     // Create channel for garbled tables
     let (evaluator_sender, evaluator_receiver) = crossbeam::channel::unbounded::<G2EMsg>();
