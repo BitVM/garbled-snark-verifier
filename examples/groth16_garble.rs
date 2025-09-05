@@ -112,7 +112,7 @@ fn main() {
     let ciphertext_hash = std::thread::spawn(move || {
         println!("Starting ciphertext hashing thread...");
 
-        CiphertextHasher::new_batched().run(ciphertext_acc_hash_receiver)
+        CiphertextHasher::new_sequential().run(ciphertext_acc_hash_receiver)
     });
 
     println!("Starting garbling of Groth16 verification circuit...");
@@ -175,7 +175,7 @@ fn main() {
             CircuitBuilder::streaming_garbling(
                 inputs,
                 CAPACITY,
-                42,
+                garbling_seed,
                 ciphertext_to_evaluator_sender,
                 |ctx, wires| groth16_proof_verify(ctx, wires, &vk_garbler),
             );
