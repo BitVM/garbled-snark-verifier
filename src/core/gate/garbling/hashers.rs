@@ -4,7 +4,7 @@ use super::super::GateId;
     target_feature = "aes",
     target_feature = "sse2"
 ))]
-use super::aes_ni::{aes128_encrypt_block, aes128_encrypt2_blocks};
+use super::aes_ni::{aes128_encrypt_block_static_xor, aes128_encrypt2_blocks_static_xor};
 use crate::{S, core::s::S_SIZE};
 
 pub trait GateHasher: Clone + Send + Sync {
@@ -50,42 +50,44 @@ pub struct AesNiHasher;
 impl GateHasher for AesNiHasher {
     #[inline(always)]
     fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: GateId) -> (S, S) {
-        // Ultra-fast key generation for hotpath - avoid loops and allocations
-        let key = unsafe {
-            let gate_id_u64 = gate_id as u64;
-            let mut key_u64 = [0u64; 2];
-            // Fast domain separation using bit mixing
-            key_u64[0] = gate_id_u64 ^ 0x123456789ABCDEF0;
-            key_u64[1] = gate_id_u64.wrapping_mul(0xDEADBEEFCAFEBABE);
-            core::mem::transmute::<[u64; 2], [u8; 16]>(key_u64)
-        };
+        // GateId as tweak: XOR pre-whitening with a 128-bit mix of gate_id
+        let gate_id_u64 = gate_id as u64;
+        let t0 = gate_id_u64 ^ 0x1234_5678_9ABC_DEF0u64;
+        let t1 = gate_id_u64.wrapping_mul(0xDEAD_BEEF_CAFE_BABEu64);
 
-        // Direct AES encryption without intermediate copies - use transmute for zero-cost
-        let (cipher_selected, cipher_other) =
-            aes128_encrypt2_blocks(key, selected_label.to_bytes(), other_label.to_bytes())
-                .expect("AES-NI should be available when target features are enabled");
-
-        (S::from_bytes(cipher_selected), S::from_bytes(cipher_other))
+        let (c0, c1) = aes128_encrypt2_blocks_static_xor(
+            selected_label.to_bytes(),
+            other_label.to_bytes(),
+            u64_to_mask(t0, t1),
+        )
+        .expect("AES-NI should be available when target features are enabled");
+        (S::from_bytes(c0), S::from_bytes(c1))
     }
 
     #[inline(always)]
     fn hash_for_degarbling(label: &S, gate_id: GateId) -> S {
-        // Ultra-fast key generation for hotpath - identical to hash_for_garbling
-        let key = unsafe {
-            let gate_id_u64 = gate_id as u64;
-            let mut key_u64 = [0u64; 2];
-            // Fast domain separation using bit mixing
-            key_u64[0] = gate_id_u64 ^ 0x123456789ABCDEF0;
-            key_u64[1] = gate_id_u64.wrapping_mul(0xDEADBEEFCAFEBABE);
-            core::mem::transmute::<[u64; 2], [u8; 16]>(key_u64)
-        };
-
-        // Direct AES encryption without intermediate copies
-        let ciphertext = aes128_encrypt_block(key, label.to_bytes())
+        // Same tweak computation as in garbling
+        let gate_id_u64 = gate_id as u64;
+        let t0 = gate_id_u64 ^ 0x1234_5678_9ABC_DEF0u64;
+        let t1 = gate_id_u64.wrapping_mul(0xDEAD_BEEF_CAFE_BABEu64);
+        let c = aes128_encrypt_block_static_xor(label.to_bytes(), u64_to_mask(t0, t1))
             .expect("AES-NI should be available when target features are enabled");
-
-        S::from_bytes(ciphertext)
+        S::from_bytes(c)
     }
+}
+
+#[cfg(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    target_feature = "aes",
+    target_feature = "sse2"
+))]
+#[inline(always)]
+fn u64_to_mask(t0: u64, t1: u64) -> [u8; S_SIZE] {
+    // Build mask in the same lane order as _mm_set_epi64x(t1, t0)
+    let mut m = [0u8; S_SIZE];
+    m[..8].copy_from_slice(&t0.to_le_bytes());
+    m[8..].copy_from_slice(&t1.to_le_bytes());
+    m
 }
 
 #[cfg(not(all(
@@ -102,11 +104,15 @@ pub struct AesNiHasher;
     target_feature = "sse2"
 )))]
 impl GateHasher for AesNiHasher {
-    fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: GateId) -> (S, S) {
-        panic!()
+    fn hash_for_garbling(_selected_label: &S, _other_label: &S, _gate_id: GateId) -> (S, S) {
+        todo!(
+            "AesNiHasher requires AES-NI; build with feature 'aes-ni' and target features 'aes,sse2'"
+        )
     }
 
-    fn hash_for_degarbling(label: &S, gate_id: GateId) -> S {
-        panic!()
+    fn hash_for_degarbling(_label: &S, _gate_id: GateId) -> S {
+        todo!(
+            "AesNiHasher requires AES-NI; build with feature 'aes-ni' and target features 'aes,sse2'"
+        )
     }
 }

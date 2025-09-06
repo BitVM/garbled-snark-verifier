@@ -194,35 +194,71 @@ mod aes_ni_focused_tests {
         }
     }
 
-    #[cfg(not(all(
+    // No fallback mode test: AesNiHasher is unavailable without AES-NI and should not be used.
+
+    // Additional coverage to exercise AES-NI helpers considered "unused" by clippy
+    #[cfg(all(
         any(target_arch = "x86", target_arch = "x86_64"),
         target_feature = "aes",
         target_feature = "sse2"
-    )))]
+    ))]
     #[test]
-    fn test_aes_ni_fallback_mode() {
-        println!("🔧 AES-NI Fallback Mode Test:");
-        println!("  ℹ️  AES-NI or SSE2 not enabled at compile time");
-        println!("  ✅ Using Blake3 fallback implementation");
+    fn test_aes_ni_dual_lane_and_xor_variants() {
+        use super::super::aes_ni::{
+            Aes128, aes128_encrypt_block, aes128_encrypt_block_static,
+            aes128_encrypt_block_static_xor, aes128_encrypt2_blocks, aes128_encrypt2_blocks_static,
+            aes128_encrypt2_blocks_static_xor,
+        };
 
-        // Test that AesNiHasher falls back to Blake3
-        let delta = Delta::generate(&mut trng());
-        let mut rng = trng();
+        // Known key and blocks for deterministic assertions
+        let key = [0x11u8; 16];
+        let b0 = [0x22u8; 16];
+        let b1 = [0x33u8; 16];
+        let mask = [0xAAu8; 16];
 
-        let a_label0 = S::random(&mut rng);
-        let b_label0 = S::random(&mut rng);
-        let a = GarbledWire::new(a_label0, a_label0 ^ &delta);
-        let b = GarbledWire::new(b_label0, b_label0 ^ &delta);
+        // Aes128::new and dual-lane encrypt should work and match two single-block encrypts
+        let cipher = Aes128::new(key).expect("AES-NI required");
+        let c0_single = unsafe { cipher.encrypt_block(b0) };
+        let c1_single = unsafe { cipher.encrypt_block(b1) };
+        let (c0_dual, c1_dual) = unsafe { cipher.encrypt2_blocks(b0, b1) };
+        assert_eq!(c0_single, c0_dual);
+        assert_eq!(c1_single, c1_dual);
 
-        // This should work via Blake3 fallback
-        let (ct_aes, _) = garble::<AesNiHasher>(0, GateType::And, &a, &b, &delta);
-        let (ct_blake, _) = garble::<Blake3Hasher>(0, GateType::And, &a, &b, &delta);
+        // encrypt_block_xor is equivalent to encrypting (block XOR mask)
+        let bx = array_xor(b0, mask);
+        let cy_expected = unsafe { cipher.encrypt_block(bx) };
+        let cy_xor = unsafe { cipher.encrypt_block_xor(b0, mask) };
+        assert_eq!(cy_expected, cy_xor);
 
-        // They should be identical since AesNi falls back to Blake3
-        assert_eq!(
-            ct_aes, ct_blake,
-            "AesNiHasher should produce identical results to Blake3Hasher in fallback mode"
-        );
-        println!("  ✅ Fallback implementation working correctly");
+        // encrypt2_blocks_xor matches per-lane encrypt of (block XOR mask)
+        let b0x = array_xor(b0, mask);
+        let b1x = array_xor(b1, mask);
+        let (d0_expected, d1_expected) = (unsafe { cipher.encrypt_block(b0x) }, unsafe {
+            cipher.encrypt_block(b1x)
+        });
+        let (d0, d1) = unsafe { cipher.encrypt2_blocks_xor(b0, b1, mask) };
+        assert_eq!(d0_expected, d0);
+        assert_eq!(d1_expected, d1);
+
+        // Public helpers are exercised as well
+        let _ = aes128_encrypt_block(key, b0).expect("AES-NI required");
+        let _ = aes128_encrypt2_blocks(key, b0, b1).expect("AES-NI required");
+        let _ = aes128_encrypt_block_static(b0).expect("AES-NI required");
+        let _ = aes128_encrypt2_blocks_static(b0, b1).expect("AES-NI required");
+        let _ = aes128_encrypt_block_static_xor(b0, mask).expect("AES-NI required");
+        let _ = aes128_encrypt2_blocks_static_xor(b0, b1, mask).expect("AES-NI required");
+    }
+
+    #[cfg(all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        target_feature = "aes",
+        target_feature = "sse2"
+    ))]
+    #[inline]
+    fn array_xor(mut a: [u8; 16], b: [u8; 16]) -> [u8; 16] {
+        for i in 0..16 {
+            a[i] ^= b[i];
+        }
+        a
     }
 }

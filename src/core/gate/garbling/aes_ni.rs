@@ -1,6 +1,7 @@
 #![allow(clippy::needless_return)]
 
-// AES-NI module - only available when AES and SSE2 target features are enabled at compile time
+// AES-NI implementation is available when the target provides the required
+// instruction set at compile-time.
 #[cfg(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     target_feature = "aes",
@@ -8,6 +9,7 @@
 ))]
 pub(crate) mod aes_ni_impl {
     use core::{arch::x86_64::*, mem::MaybeUninit};
+    use std::sync::OnceLock;
 
     /// AES-128 round keys (11 x 128-bit)
     pub struct Aes128 {
@@ -80,6 +82,73 @@ pub(crate) mod aes_ni_impl {
                 (out0, out1)
             }
         }
+
+        /// Encrypt a single block with an extra 128-bit XOR mask (tweak) applied before the first round.
+        /// This folds the tweak into the initial AddRoundKey for fewer instructions overall.
+        #[inline]
+        #[target_feature(enable = "aes,sse2")]
+        pub unsafe fn encrypt_block_xor(&self, block: [u8; 16], xor_mask: [u8; 16]) -> [u8; 16] {
+            unsafe {
+                let mut state = _mm_loadu_si128(block.as_ptr() as *const __m128i);
+                let mask = _mm_loadu_si128(xor_mask.as_ptr() as *const __m128i);
+                let rk0 = _mm_xor_si128(self.round_keys[0], mask);
+                state = _mm_xor_si128(state, rk0);
+                for r in 1..10 {
+                    state = _mm_aesenc_si128(state, self.round_keys[r]);
+                }
+                state = _mm_aesenclast_si128(state, self.round_keys[10]);
+                let mut out = [0u8; 16];
+                _mm_storeu_si128(out.as_mut_ptr() as *mut __m128i, state);
+                out
+            }
+        }
+
+        /// Encrypt two blocks in parallel with an extra 128-bit XOR mask (tweak) applied.
+        /// The mask is folded into the initial AddRoundKey to minimize total XORs.
+        #[cfg(test)]
+        #[inline]
+        #[target_feature(enable = "aes,sse2")]
+        pub unsafe fn encrypt2_blocks_xor(
+            &self,
+            b0: [u8; 16],
+            b1: [u8; 16],
+            xor_mask: [u8; 16],
+        ) -> ([u8; 16], [u8; 16]) {
+            unsafe {
+                let mut s0 = _mm_loadu_si128(b0.as_ptr() as *const __m128i);
+                let mut s1 = _mm_loadu_si128(b1.as_ptr() as *const __m128i);
+                let mask = _mm_loadu_si128(xor_mask.as_ptr() as *const __m128i);
+                let rk0 = _mm_xor_si128(self.round_keys[0], mask);
+                s0 = _mm_xor_si128(s0, rk0);
+                s1 = _mm_xor_si128(s1, rk0);
+                for r in 1..10 {
+                    let rk = self.round_keys[r];
+                    s0 = _mm_aesenc_si128(s0, rk);
+                    s1 = _mm_aesenc_si128(s1, rk);
+                }
+                let rk_last = self.round_keys[10];
+                s0 = _mm_aesenclast_si128(s0, rk_last);
+                s1 = _mm_aesenclast_si128(s1, rk_last);
+                let mut out0 = [0u8; 16];
+                let mut out1 = [0u8; 16];
+                _mm_storeu_si128(out0.as_mut_ptr() as *mut __m128i, s0);
+                _mm_storeu_si128(out1.as_mut_ptr() as *mut __m128i, s1);
+                (out0, out1)
+            }
+        }
+    }
+
+    // Global, lazily-initialized AES-128 cipher for fast, repeated use
+    static AES128_STATIC: OnceLock<Aes128> = OnceLock::new();
+    const DEFAULT_STATIC_KEY: [u8; 16] = [0x42; 16];
+
+    #[inline(always)]
+    fn get_or_init_static_cipher() -> &'static Aes128 {
+        // Compiled only when target features include AES+SSE2; avoid runtime checks.
+        AES128_STATIC.get_or_init(|| {
+            Aes128::new(DEFAULT_STATIC_KEY)
+                .expect("AES-NI unavailable despite compile-time target features")
+        })
     }
 
     /// Expand AES-128 key into 11 round keys using AES-NI.
@@ -125,6 +194,7 @@ pub(crate) mod aes_ni_impl {
     }
 
     /// Safe wrapper: single block encryption with runtime AES-NI detection.
+    #[cfg(test)]
     pub fn aes128_encrypt_block(key: [u8; 16], block: [u8; 16]) -> Option<[u8; 16]> {
         let cipher = Aes128::new(key)?;
         // Safety: Aes128::new guarantees AES-NI availability
@@ -132,6 +202,7 @@ pub(crate) mod aes_ni_impl {
     }
 
     /// Safe wrapper: two blocks in parallel with runtime AES-NI detection.
+    #[cfg(test)]
     pub fn aes128_encrypt2_blocks(
         key: [u8; 16],
         b0: [u8; 16],
@@ -141,6 +212,54 @@ pub(crate) mod aes_ni_impl {
         Some(unsafe { cipher.encrypt2_blocks(b0, b1) })
     }
 
+    /// Encrypt a single 16-byte block using a static, shared AES-128 key.
+    /// Avoids per-call key schedule for maximum throughput.
+    #[inline(always)]
+    pub fn aes128_encrypt_block_static(block: [u8; 16]) -> Option<[u8; 16]> {
+        let cipher = get_or_init_static_cipher();
+        // Safety: cipher constructed only when AES-NI is available
+        Some(unsafe { cipher.encrypt_block(block) })
+    }
+
+    /// Encrypt two 16-byte blocks using a static, shared AES-128 key.
+    /// Avoids per-call key schedule and exploits instruction-level parallelism.
+    #[inline(always)]
+    #[cfg(test)]
+    pub fn aes128_encrypt2_blocks_static(
+        b0: [u8; 16],
+        b1: [u8; 16],
+    ) -> Option<([u8; 16], [u8; 16])> {
+        let cipher = get_or_init_static_cipher();
+        // Safety: cipher constructed only when AES-NI is available
+        Some(unsafe { cipher.encrypt2_blocks(b0, b1) })
+    }
+
+    /// Encrypt a single block using the static key, applying a 128-bit XOR mask before the rounds.
+    #[inline(always)]
+    pub fn aes128_encrypt_block_static_xor(
+        block: [u8; 16],
+        xor_mask: [u8; 16],
+    ) -> Option<[u8; 16]> {
+        let cipher = get_or_init_static_cipher();
+        Some(unsafe { cipher.encrypt_block_xor(block, xor_mask) })
+    }
+
+    /// Encrypt two blocks using the static key, applying a 128-bit XOR mask before the rounds.
+    #[inline(always)]
+    pub fn aes128_encrypt2_blocks_static_xor(
+        mut b0: [u8; 16],
+        mut b1: [u8; 16],
+        xor_mask: [u8; 16],
+    ) -> Option<([u8; 16], [u8; 16])> {
+        for i in 0..16 {
+            b0[i] ^= xor_mask[i];
+            b1[i] ^= xor_mask[i];
+        }
+        let cipher = get_or_init_static_cipher();
+        Some(unsafe { cipher.encrypt2_blocks(b0, b1) })
+    }
+
+    /// u64 tweak variants: removed (use byte-mask helpers instead)
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -183,51 +302,23 @@ pub(crate) mod aes_ni_impl {
 ))]
 pub use aes_ni_impl::*;
 
+// Fallback: stubs to keep compilation working when AES-NI is not available at
+// compile-time (or on non-x86 targets) or the feature is disabled.
 #[cfg(not(all(
     any(target_arch = "x86", target_arch = "x86_64"),
     target_feature = "aes",
     target_feature = "sse2"
 )))]
 pub mod aes_ni_unavailable {
-    // Non-x86 platforms: stub module to keep compilation happy
-    pub fn aes128_encrypt_block(_key: [u8; 16], _block: [u8; 16]) -> Option<[u8; 16]> {
+    // Minimal stub API: only what non-AES builds reference.
+    pub fn aes128_encrypt_block_static(_block: [u8; 16]) -> Option<[u8; 16]> {
         None
-    }
-
-    pub fn aes128_encrypt2_blocks(
-        _key: [u8; 16],
-        _b0: [u8; 16],
-        _b1: [u8; 16],
-    ) -> Option<([u8; 16], [u8; 16])> {
-        None
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn aes128_encrypt8_blocks(
-        _key: [u8; 16],
-        _blocks: (
-            [u8; 16],
-            [u8; 16],
-            [u8; 16],
-            [u8; 16],
-            [u8; 16],
-            [u8; 16],
-            [u8; 16],
-            [u8; 16],
-        ),
-    ) -> Option<(
-        [u8; 16],
-        [u8; 16],
-        [u8; 16],
-        [u8; 16],
-        [u8; 16],
-        [u8; 16],
-        [u8; 16],
-        [u8; 16],
-    )> {
-        panic!("AES-NI hardware support required for 8-block parallel encryption")
     }
 }
 
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(not(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    target_feature = "aes",
+    target_feature = "sse2"
+)))]
 pub use aes_ni_unavailable::*;
