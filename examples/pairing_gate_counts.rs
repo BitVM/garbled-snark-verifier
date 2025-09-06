@@ -88,6 +88,11 @@ where
 }
 
 fn main() {
+    if !garbled_snark_verifier::hardware_aes_available() {
+        eprintln!(
+            "Warning: AES hardware acceleration not detected; using software AES (not constant-time)."
+        );
+    }
     // Configuration: enable/disable specific tests
     const ENABLE_FQ_MUL_MONTGOMERY: bool = true;
     const ENABLE_FQ2_MUL_CONSTANT_BY_FQ_MONTGOMERY: bool = true;

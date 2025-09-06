@@ -79,6 +79,11 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for MuxInputs {
 }
 
 fn main() {
+    if !garbled_snark_verifier::hardware_aes_available() {
+        eprintln!(
+            "Warning: AES hardware acceleration not detected; using software AES (not constant-time)."
+        );
+    }
     // Keep logs quiet by default so IO doesn’t pollute the flamegraph
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .try_init();

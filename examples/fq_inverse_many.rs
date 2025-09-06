@@ -52,6 +52,11 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
 }
 
 fn main() {
+    if !garbled_snark_verifier::hardware_aes_available() {
+        eprintln!(
+            "Warning: AES hardware acceleration not detected; using software AES (not constant-time)."
+        );
+    }
     // default count
     let n: usize = env::args()
         .nth(1)

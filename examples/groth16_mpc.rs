@@ -153,6 +153,11 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Inputs {
 }
 
 fn main() {
+    if !garbled_snark_verifier::hardware_aes_available() {
+        eprintln!(
+            "Warning: AES hardware acceleration not detected; using software AES (not constant-time)."
+        );
+    }
     // Initialize logging (default to info if RUST_LOG not set)
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init();

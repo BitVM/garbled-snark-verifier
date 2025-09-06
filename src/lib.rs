@@ -2,6 +2,7 @@ pub mod ciphertext_hasher;
 pub mod circuit;
 mod core;
 pub mod gadgets;
+mod hw;
 mod math;
 pub mod storage;
 
@@ -31,6 +32,7 @@ pub use gadgets::{
     groth16::{Groth16ExecInput, Groth16ExecInputWires},
     groth16_verify, groth16_verify_compressed,
 };
+pub use hw::{hardware_aes_available, warn_if_software_aes};
 pub use math::*;
 
 pub use crate::circuit::streaming::modes::GarbleMode;
