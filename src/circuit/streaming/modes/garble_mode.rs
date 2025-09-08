@@ -116,6 +116,7 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
         self.false_wire.clone()
     }
 
+    /// Allocate a wire with its initial remaining-use counter (`credits`).
     fn allocate_wire(&mut self, credits: Credits) -> WireId {
         self.storage.allocate(None, credits)
     }
@@ -172,6 +173,7 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
         }
     }
 
+    /// Bump remaining-use counters for `wires` by `credits`.
     fn add_credits(&mut self, wires: &[WireId], credits: NonZero<Credits>) {
         for wire_id in wires {
             self.storage.add_credits(*wire_id, credits.get()).unwrap();

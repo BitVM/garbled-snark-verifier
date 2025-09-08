@@ -15,7 +15,7 @@ use crate::{
 const ROOT_KEY: ComponentKey = [0u8; 8];
 
 /// Generic streaming context that holds mode-specific evaluation logic
-/// along with shared infrastructure (storage, templates, component stack)
+/// along with shared infrastructure (storage, templates, component stack).
 #[derive(Debug)]
 pub struct StreamingContext<M: CircuitMode> {
     pub mode: M,
@@ -24,8 +24,8 @@ pub struct StreamingContext<M: CircuitMode> {
     pub gate_count: GateCount,
 }
 
-/// Two-phase streaming execution: metadata collection and actual execution
-/// This generic enum replaces the Execute-specific enum pattern
+/// Two-phase streaming execution: metadata collection (fanout totals) and execution
+/// (consuming remaining-use credits). This generic enum replaces the Execute-specific pattern.
 #[derive(Debug)]
 pub enum StreamingMode<M: CircuitMode> {
     MetadataPass(ComponentMetaBuilder),
@@ -85,7 +85,7 @@ impl<M: CircuitMode> StreamingMode<M> {
         if let StreamingMode::MetadataPass(meta) = self {
             let meta = meta.build(meta_output_wires);
 
-            // Here `1` needed for request this values to `StreamingResult`
+            // Seed with 1 to make each input externally readable once (result extraction).
             let mut input_credits = vec![1; meta.get_input_len()];
 
             let mut instance =
@@ -94,7 +94,7 @@ impl<M: CircuitMode> StreamingMode<M> {
                     input_credits[rev_index] += credits.get();
                 });
 
-            // Extend the credit stack by adding the ability to allocate input through these credits
+            // Extend the credit stack with input remaining-use counters.
             instance.credits_stack.extend_from_slice(&input_credits);
 
             let mut ctx = StreamingMode::ExecutionPass(StreamingContext {
@@ -179,7 +179,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
             StreamingMode::ExecutionPass(ctx) => {
                 debug!("with_named_child: enter name={key:?} arity={arity}");
 
-                // Extract what we need and push to stack
+                // Extract per-output remaining-use counters and push to stack
                 let pre_alloc_output_credits = {
                     let last = ctx.stack.last_mut().unwrap();
 
@@ -188,14 +188,14 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                         .collect::<Vec<_>>()
                 };
 
-                trace!("Start component {key:?} meta take");
+                trace!("Start component {key:?} meta instantiation");
 
                 let StreamingContext {
                     mode, templates, ..
                 } = ctx;
 
                 let template = templates.get_or_insert_with(key, || {
-                    // Calculate the actual number of wires needed from the real input structure
+                    // Calculate arity from the real input structure
                     let expected_wire_count = input_wires.len();
 
                     trace!(
@@ -227,7 +227,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                         }
                     });
 
-                // Unpin inputs: consume one credit per input position.
+                // Unpin inputs: consume one remaining-use credit per input position.
                 for input_wire_id in input_wires {
                     match input_wire_id {
                         WireId::UNREACHABLE => (),
@@ -256,6 +256,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
 }
 
 impl<M: CircuitMode> StreamingContext<M> {
+    /// Pop `len` remaining-use counters from the current stack frame.
     pub fn pop_credits(&mut self, len: usize) -> Vec<Credits> {
         let stack = self.stack.last_mut().unwrap();
 
@@ -264,12 +265,13 @@ impl<M: CircuitMode> StreamingContext<M> {
             .collect::<Vec<_>>()
     }
 
+    /// Allocate a new wire with its initial remaining-use counter.
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
         let meta = self.stack.last_mut().unwrap();
 
         if let Some(credit) = meta.next_credit() {
             let wire_id = self.mode.allocate_wire(credit);
-            trace!("issue wire {wire_id:?} with {credit} credit");
+            trace!("issue wire {wire_id:?} with {credit} remaining-use credits");
             (wire_id, credit)
         } else {
             unreachable!("No credits available")

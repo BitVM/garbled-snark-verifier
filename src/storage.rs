@@ -1,3 +1,13 @@
+//! Storage for wire values keyed by `WireId` with a simple lifetime counter.
+//!
+//! Terminology
+//! - Fanout (total): total number of downstream reads/uses a wire will have.
+//! - Credits (remaining): the remaining read budget for a stored value; decremented on each read
+//!   until it reaches 1, at which point the next read returns ownership and removes the entry.
+//!
+//! In this crate, component metadata computes fanout (a total), while runtime structures track
+//! credits (the remaining counter). This module implements the latter.
+
 use std::{fmt::Debug, marker::PhantomData, num::NonZero, ops::Deref};
 
 use log::{error, trace};
@@ -11,8 +21,12 @@ pub enum Error {
     OverflowCredits,
 }
 
-// Reduce memory footprint of credits stacks and storage entries.
-// Typical fan-out counts are small; u16 is generally sufficient.
+/// Remaining-use counter for stored values.
+///
+/// Notes
+/// - The metadata pass computes per-wire fanout (a total expected use count).
+/// - At runtime we track the remaining uses as "credits" and decrement on each read.
+/// - Typical fanout counts are small; `u16` is sufficient here.
 pub type Credits = u16;
 
 #[derive(Debug, Clone)]
@@ -99,6 +113,9 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         index.checked_sub(self.index_offset).unwrap()
     }
 
+    /// Allocate a new entry with an initial remaining-use budget (`credits`).
+    ///
+    /// If `credits == 0`, returns a sentinel key and does not allocate.
     pub fn allocate(&mut self, data: T, credits: Credits) -> K {
         if let Some(credits) = NonZero::<Credits>::new(credits) {
             let before = self.data.capacity();
@@ -115,6 +132,8 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         }
     }
 
+    /// Increase remaining-use budget for an existing entry.
+    /// Errors with `OverflowCredits` if the counter would exceed `u16::MAX`.
     pub fn add_credits(&mut self, key: K, credits: Credits) -> Result<(), Error> {
         let index = self.to_index(key);
 
@@ -131,8 +150,11 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         Ok(())
     }
 
-    /// Return value with `key`
-    /// If value inside have one credit - value will be removed from storage
+    /// Borrow the value under `key`, decrementing the remaining-use counter.
+    ///
+    /// Behavior
+    /// - If the counter is 1, the final read returns ownership and removes the entry.
+    /// - If the counter is >1, returns a borrowed reference and decrements by 1.
     pub fn get<'s>(&'s mut self, key: K) -> Result<Data<'s, T>, Error> {
         let index = self.to_index(key);
 
@@ -156,8 +178,10 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
         }
     }
 
-    /// Modify value under the `key`
-    /// If value inside have one credit - value will be removed from storage
+    /// Modify the value under `key` in place.
+    ///
+    /// This does not change credits; callers are expected to manage remaining-use accounting
+    /// via `get`/`add_credits`.
     pub fn set(&mut self, key: K, func: impl FnOnce(&mut T)) -> Result<(), Error> {
         let index = self.to_index(key);
 

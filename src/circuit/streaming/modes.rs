@@ -17,6 +17,12 @@ pub use garble_mode::{GarbleMode, GarbleModeBlake3, OptionalGarbledWire};
 mod evaluate_mode;
 pub use evaluate_mode::{EvaluateMode, EvaluateModeBlake3, OptionalEvaluatedWire};
 
+/// Execution backends for the streaming circuit.
+///
+/// Credits vs fanout
+/// - Fanout is computed during the metadata pass as the total number of downstream reads of a wire.
+/// - At runtime, backends receive and manage "credits" — the remaining read budget — to allocate
+///   storage and reclaim it precisely when the final read occurs.
 pub trait CircuitMode: Sized + fmt::Debug {
     type WireValue: Clone;
 

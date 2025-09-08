@@ -1,22 +1,28 @@
 //! ComponentMeta: collect wire metadata without computation using isolated mock wire IDs.
 //!
 //! Purpose
-//! - This mode (an implementation of `CircuitMode` and `CircuitContext`) does not execute valve logic and does not stores values on the wires. It only calculates the "credits" of wire usage for subsequent resource scheduling and/or reconciliation with the actual run.
+//! - This pass does not execute gates nor store values. It computes per-wire fanout totals
+//!   (expressed as initial "credits" to be consumed at runtime).
 //! - Uses isolated mock wire IDs internally to eliminate dependency on global wire context.
 //!
-//! Isolated Credits Model (reads-only)
+//! Terminology
+//! - Fanout (total): total number of downstream reads/uses for a wire within a component.
+//! - Credits (remaining): the runtime counter representing remaining reads; initialized from fanout.
+//!
+//! Isolated fanout model (reads-only)
 //! - Input wires use predictable mock IDs: [WireId::MIN, WireId::MIN + input_count)
 //! - Internal wires use mock IDs: [WireId::MIN + input_count, cursor)
-//! - Input credits are tracked by position (0, 1, 2, ...) in `credits_by_input_position`
-//! - Internal credits are tracked in `credits_stack` indexed by issue order
-//! - Credit is added only when the wire is "read": when it is used as a fan-in input (`wire_a`, `wire_b`) or when the wire is passed to a child component via `with_named_child`.
-//! - Writing the result to `wire_c` is not considered a read and does not increment credits.
+//! - Input fanout/credits are tracked by input position (0, 1, 2, ...) in `credits_by_input_position`.
+//! - Internal fanout/credits are tracked in `credits_stack` indexed by issue order.
+//! - A credit is added only when the wire is read: used as a gate input (`wire_a`, `wire_b`) or
+//!   passed to a child component via `with_named_child`.
+//! - Writing the result to `wire_c` is not a read and does not increment credits.
 //! - The `TRUE_WIRE`/`FALSE_WIRE` constants are ignored.
 //!
-//! Template/Instance Mapping
-//! - Templates store credits by position, making them independent of specific wire IDs
-//! - `to_instance()` maps positional credits to real wire IDs using input order
-//! - This enables much simpler caching since templates depend only on input count and structure
+//! Template/Instance mapping
+//! - Templates store credits by position, independent of specific wire IDs.
+//! - `to_instance()` maps positional credits to real wire IDs using input order.
+//! - This enables simpler caching: templates depend only on arity and structure.
 
 use std::num::NonZero;
 
@@ -37,7 +43,8 @@ use crate::{
 
 #[derive(Debug)]
 pub struct ComponentMetaBuilder {
-    /// During real execution, we take from here (stack-like) lifetime (credits) for real wires.
+    /// During real execution, we take from here (stack-like) remaining-use counters (credits)
+    /// for real wires, initialized from fanout totals.
     pub credits_stack: Vec<Credits>,
 
     input_len: usize,
@@ -155,7 +162,8 @@ enum OutputWireType {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentMetaTemplate {
-    /// During real execution, we take from here (stack-like) lifetime (credits) for real wires.
+    /// During real execution, we take from here (stack-like) remaining-use counters (credits)
+    /// for real wires.
     pub credits_stack: Vec<Credits>,
 
     /// Input credits stored by position (0, 1, 2, ...) in input order.

@@ -34,7 +34,11 @@ A streaming garbled-circuit implementation of a Groth16 verifier over BN254. It 
 - **WireId / Wires:** Logical circuit wires carried through streaming contexts; gadgets implement `WiresObject` to map rich types to wire vectors.
 - **S / Delta:** Garbled labels and global offset for Free‑XOR; AES‑NI or BLAKE3 is used as the PRF/RO for half‑gates.
 - **Modes:** `Execute` (booleans, for testing), `Garble` (produce ciphertexts + constants), `Evaluate` (consume ciphertexts + constants).
-- **Components:** Functions annotated with `#[component]` become cached, nested circuit components; a component‑keyed template pool and a metadata pass compute per‑wire “credits” (fanout‑based lifetimes) for tight memory reuse.
+- **Components:** Functions annotated with `#[component]` become cached, nested circuit components; a component‑keyed template pool and a metadata pass compute per‑wire fanout totals and derive per‑wire "credits" (remaining‑use counters) for tight memory reuse.
+
+**Terminology**
+- **Fanout (total):** Total number of downstream reads/uses a wire will have within a component.
+- **Credits (remaining):** The runtime counter that starts at the fanout total and is decremented on each read; when it reaches 1, the next read returns ownership and frees storage.
 
 **Project Structure**
 - `src/core`: fundamental types and logic (`S`, `Delta`, `WireId`, `Gate`, `GateType`).
@@ -177,6 +181,6 @@ cargo test --release
 - Run `cargo fmt`, `cargo clippy`, and the full test suite before sending changes.
 
 ## Reflection
-- The two‑pass streaming design (metadata “credits” + execution) materially reduces peak memory at scale and keeps the evaluator in lock‑step with the garbler via a simple ciphertext channel.
+- The two‑pass streaming design (metadata fanout → runtime credits) materially reduces peak memory at scale and keeps the evaluator in lock‑step with the garbler via a simple ciphertext channel.
 - Treating high‑level types (Fq, Fq2, Fq12, G1, G2) as first‑class “wire objects” makes complex gadgets compositional and testable, at the cost of careful attention to Montgomery domain boundaries.
 - Component templates and an LRU pool are effective for repetitive shapes (e.g., MSM windows), and will keep paying dividends as examples grow in size.
