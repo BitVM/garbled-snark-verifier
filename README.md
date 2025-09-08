@@ -19,16 +19,16 @@ A streaming garbled-circuit implementation of a Groth16 verifier over BN254. It 
 
 **Background**
 - **What:** Encode a SNARK verifier (Groth16 on BN254) as a boolean circuit and run it as a garbled circuit. The verifier’s elliptic‑curve and pairing arithmetic is expressed with reusable gadgets (Fq/Fr/Fq2/Fq6/Fq12, G1/G2, Miller loop, final exponentiation).
-- **Why:** Garbled verifiers enable privacy‑preserving and fairness‑friendly verification in 2‑party/MPC settings, or to offload verification from constrained environments while preserving secrecy of inputs. Streaming construction allows circuits with billions of gates to be handled with modest RAM.
+- **Why (scope):** This is an experimental/benchmarking implementation to study a streaming garbled‑circuit approach on a complex, real‑world circuit. It is intended for research, education, and performance exploration rather than production deployment.
 - **How:**
   - Use Free‑XOR and half‑gates (Zahur–Rosulek–Evans) to make XOR family gates free and reduce AND to two ciphertexts.
   - Keep field arithmetic in Montgomery form to minimize reductions and wire width churn; convert only at the edges when needed.
   - Run a two‑phase streaming pipeline: first collect a compact “shape” of wire lifetimes (credits), then execute once with precise allocation and immediate reclamation. Garbling and evaluation synchronize via a streaming channel of ciphertexts.
 
-**When To Use**
-- You need a 2PC/MPC‑friendly Groth16 verifier with bounded memory.
-- You want a reusable library of BN254 gadgets to assemble other pairing‑based checks.
-- You prefer deterministic, testable components that mirror arkworks semantics.
+**Intended Use**
+- Explore/benchmark streaming garbling on a non‑trivial circuit (Groth16 verifier).
+- Reuse BN254 gadgets for experiments or educational purposes.
+- Work with deterministic, testable building blocks that mirror arkworks semantics.
 
 **Core Concepts**
 - **WireId / Wires:** Logical circuit wires carried through streaming contexts; gadgets implement `WiresObject` to map rich types to wire vectors.
@@ -112,15 +112,13 @@ Does:
 
 ### Garble + Evaluate (Pipeline)
 ```bash
-RUST_LOG=info cargo run --example groth16_g2e --release
-```
-- Demonstrates a synchronized garble→evaluate pipeline over a channel; both sides stream the same circuit shape.
-
-### Garble Only
-```bash
 RUST_LOG=info cargo run --example groth16_garble --release
 ```
-- Builds the garbled table and constants for the verifier circuit and streams ciphertexts to a consumer.
+- Runs a complete two‑phase demo in one binary:
+  - Pass 1: Garbles the verifier and streams ciphertexts to a hasher thread (reports garbling throughput and a ciphertext hash).
+  - Pass 2: Spawns a garbler thread and an evaluator thread and streams ciphertexts over a channel to evaluate the same circuit shape.
+- Prints a commit from the garbler with output label hashes and the ciphertext hash, and the evaluator verifies both the result label and ciphertext hash match.
+- Tip: tweak the example’s `k` (constraint count) and `CAPACITY` (channel buffer) constants in `examples/groth16_garble.rs` to scale workload and tune throughput.
 
 ### Focused Micro‑benchmarks
 - `fq_inverse_many` – stress streaming overhead in Fq inverse gadgets.
@@ -168,9 +166,10 @@ cargo test --release
 ```
 
 ## Security Notes
-- Uses Free‑XOR and half‑gates; AES‑NI or BLAKE3 acts as the PRF/RO for garbling. Review cryptographic assumptions before production use.
+- Uses Free‑XOR and half‑gates; AES‑NI or BLAKE3 acts as the PRF/RO for garbling. Review cryptographic assumptions before any serious use.
 - Arithmetic is in Montgomery form; take care when intermixing with non‑Montgomery values.
 - Library code avoids panics where practicable; tests use fixed seeds for determinism.
+- Not audited; experimental code. Do not treat as a drop‑in production 2PC/MPC verifier.
 
 ## Contributing
 - Start with `src/gadgets/groth16.rs` and BN254 submodules for verifier logic.
