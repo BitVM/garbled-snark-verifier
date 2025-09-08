@@ -302,7 +302,7 @@ pub(crate) mod aes_ni_impl {
 ))]
 pub use aes_ni_impl::*;
 
-// Fallback: stubs to keep compilation working when AES-NI is not available at
+// Fallback: software AES via RustCrypto when AES-NI is not available at
 // compile-time (or on non-x86 targets) or the feature is disabled.
 #[cfg(not(all(
     any(target_arch = "x86", target_arch = "x86_64"),
@@ -310,9 +310,73 @@ pub use aes_ni_impl::*;
     target_feature = "sse2"
 )))]
 pub mod aes_ni_unavailable {
-    // Minimal stub API: only what non-AES builds reference.
-    pub fn aes128_encrypt_block_static(_block: [u8; 16]) -> Option<[u8; 16]> {
-        None
+    use std::sync::OnceLock;
+
+    use aes::{
+        Aes128,
+        cipher::{BlockEncrypt, BlockEncryptMut, KeyInit, generic_array::GenericArray},
+    };
+
+    // Keep parity with the AES-NI path's default key.
+    const DEFAULT_STATIC_KEY: [u8; 16] = [0x42; 16];
+
+    static AES128_STATIC: OnceLock<Aes128> = OnceLock::new();
+
+    #[inline(always)]
+    fn get_or_init_static_cipher() -> &'static Aes128 {
+        AES128_STATIC.get_or_init(|| Aes128::new_from_slice(&DEFAULT_STATIC_KEY).expect("key size"))
+    }
+
+    /// Encrypt a single 16-byte block using a static, shared AES-128 key.
+    #[inline(always)]
+    pub fn aes128_encrypt_block_static(block: [u8; 16]) -> Option<[u8; 16]> {
+        let cipher = get_or_init_static_cipher();
+        let mut b = GenericArray::clone_from_slice(&block);
+        cipher.encrypt_block(&mut b);
+        let mut out = [0u8; 16];
+        out.copy_from_slice(&b);
+        Some(out)
+    }
+
+    /// Encrypt a single block using the static key, applying a 128-bit XOR mask before encryption.
+    #[inline(always)]
+    pub fn aes128_encrypt_block_static_xor(
+        block: [u8; 16],
+        xor_mask: [u8; 16],
+    ) -> Option<[u8; 16]> {
+        let cipher = get_or_init_static_cipher();
+        let mut inb = block;
+        for i in 0..16 {
+            inb[i] ^= xor_mask[i];
+        }
+        let mut b = GenericArray::clone_from_slice(&inb);
+        cipher.encrypt_block(&mut b);
+        let mut out = [0u8; 16];
+        out.copy_from_slice(&b);
+        Some(out)
+    }
+
+    /// Encrypt two blocks using the static key, applying a 128-bit XOR mask before encryption.
+    #[inline(always)]
+    pub fn aes128_encrypt2_blocks_static_xor(
+        mut b0: [u8; 16],
+        mut b1: [u8; 16],
+        xor_mask: [u8; 16],
+    ) -> Option<([u8; 16], [u8; 16])> {
+        for i in 0..16 {
+            b0[i] ^= xor_mask[i];
+            b1[i] ^= xor_mask[i];
+        }
+        let cipher = get_or_init_static_cipher();
+        let mut g0 = GenericArray::clone_from_slice(&b0);
+        let mut g1 = GenericArray::clone_from_slice(&b1);
+        let mut blocks = [g0, g1];
+        cipher.encrypt_blocks(&mut blocks);
+        let mut out0 = [0u8; 16];
+        let mut out1 = [0u8; 16];
+        out0.copy_from_slice(&blocks[0]);
+        out1.copy_from_slice(&blocks[1]);
+        Some((out0, out1))
     }
 }
 

@@ -16,14 +16,15 @@ use ark_ff::{AdditiveGroup, Field, PrimeField};
 use itertools::Itertools;
 use num_bigint::BigUint;
 
-use crate::circuit::{
-    CircuitInput,
-    streaming::{CircuitMode, EncodeInput, WiresObject},
-};
-use crate::*;
-
 // Re-import gadgets Groth16 exec input types here for consistent namespace access
 pub use crate::gadgets::groth16::{Groth16ExecInput, Groth16ExecInputWires};
+use crate::{
+    circuit::{
+        CircuitInput,
+        streaming::{CircuitMode, EncodeInput, WiresObject},
+    },
+    *,
+};
 
 pub struct Groth16ProofInputs {
     pub public: Vec<ark_bn254::Fr>,
