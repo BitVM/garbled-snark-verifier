@@ -617,6 +617,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rayon",
+ "serde_json",
  "sha2",
  "slab",
  "slotmap",
