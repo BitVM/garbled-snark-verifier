@@ -1,23 +1,24 @@
 # Circuit Component Macro
 
-A procedural attribute macro for simplifying circuit component functions in the garbled circuit verifier.
+Attribute macros for ergonomic circuit composition in the garbled SNARK verifier.
 
 ## Overview
 
-The `#[component]` macro transforms regular Rust functions into circuit component gadgets, automatically handling wire management and component creation. It provides a clean, functional interface for building complex circuits from simple building blocks.
+The `#[component]` and `#[bn_component]` macros transform regular Rust functions into reusable circuit gadgets. They take care of wiring inputs, deriving stable component keys, and creating nested component frames, so you can write straight-line Rust over a `CircuitContext`.
 
 ## Features
 
-- **Automatic Wire Management**: Converts function parameters to input wire lists automatically
-- **Type Safety**: Preserves original function signatures and return types
-- **Tuple Support**: Handles up to 16 input parameters with support for nested tuples
-- **Context Transformation**: Automatically renames the context parameter for cleaner code
-- **Compile-time Validation**: Provides clear error messages for invalid signatures
+- Automatic input wiring via `WiresObject` for parameters and returns
+- Preserves original function signature and return type
+- Pass-by-reference and slice parameters supported (auto-cloned for wiring)
+- Up to 16 input parameters (excluding the context and any ignored ones)
+- Stable component key derivation with optional off-circuit params
+- Clear compile-time errors for invalid signatures
 
 ## Basic Usage
 
 ```rust
-use garbled_snark_verifier::{component, circuit::playground::CircuitContext, Gate, WireId};
+use garbled_snark_verifier::{component, CircuitContext, Gate, WireId};
 
 #[component]
 fn and_gate(ctx: &mut impl CircuitContext, a: WireId, b: WireId) -> WireId {
@@ -33,41 +34,44 @@ fn or_gate(ctx: &mut impl CircuitContext, a: WireId, b: WireId) -> WireId {
     c
 }
 
-// Use the components
 fn build_circuit(root: &mut impl CircuitContext) {
     let a = root.issue_wire();
     let b = root.issue_wire();
     let c = root.issue_wire();
-    
+
     let ab = and_gate(root, a, b);
-    let result = or_gate(root, ab, c);
+    let _result = or_gate(root, ab, c);
 }
 ```
 
 ## Advanced Examples
 
-### Multiple Input Types
+### Multiple Parameter Types
 
-The macro supports various input parameter types through the `IntoWireList` trait:
+Parameters and return types can be any type implementing `WiresObject`:
 
 ```rust
+use garbled_snark_verifier::{component, CircuitContext, WireId};
+
 #[component]
-fn complex_gate(
+fn complex(
     ctx: &mut impl CircuitContext,
     single: WireId,
     tuple: (WireId, WireId),
-    vector: Vec<WireId>
-) -> WireId {
-    // All parameters are automatically converted to wire lists
-    let output = ctx.issue_wire();
-    // ... implementation
-    output
+    vector: Vec<WireId>,
+    slice_ref: &[WireId],      // refs are allowed
+) -> (WireId, Vec<WireId>) {
+    let out0 = ctx.issue_wire();
+    let out1 = vector;         // any WiresObject
+    (out0, out1)
 }
 ```
 
+References are cloned into owned wire objects for the child component; inside the body they are re-bound to references when needed (slices become `&[WireId]`).
+
 ### Nested Components
 
-Components can call other components seamlessly:
+Components compose naturally:
 
 ```rust
 #[component]
@@ -88,109 +92,117 @@ fn full_adder(ctx: &mut impl CircuitContext, a: WireId, b: WireId, cin: WireId) 
 
 ### Maximum Arity
 
-The macro supports up to 16 input parameters (excluding the context parameter):
+Up to 16 input parameters are supported (excluding the context and any ignored ones):
 
 ```rust
 #[component]
-fn big_and_gate(
+fn big_and(
     ctx: &mut impl CircuitContext,
     a1: WireId, a2: WireId, a3: WireId, a4: WireId,
     a5: WireId, a6: WireId, a7: WireId, a8: WireId,
     a9: WireId, a10: WireId, a11: WireId, a12: WireId,
-    a13: WireId, a14: WireId, a15: WireId, a16: WireId
+    a13: WireId, a14: WireId, a15: WireId, a16: WireId,
 ) -> WireId {
-    // Implementation with up to 16 inputs
     let result = ctx.issue_wire();
     // ... combine all inputs
     result
 }
 ```
 
+## Attribute Options
+
+- `#[component(offcircuit_args = "a,b")]`
+  - Excludes named parameters from the input wiring list and uses them only to derive the component key. Useful for mode-independent parameters like window sizes or constants.
+- `#[bn_component(arity = "EXPR", offcircuit_args = "...")]`
+  - Same as `component`, but lets you specify a runtime arity expression `EXPR` (parsed from a string and evaluated in the wrapper). Ideal for types like big integers where the number of wires depends on inputs.
+
+Examples:
+
+```rust
+use circuit_component_macro::bn_component;
+
+#[bn_component(arity = "a.len() + 1")]
+fn add_generic(ctx: &mut impl CircuitContext, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+    // ...
+}
+
+#[bn_component(arity = "power", offcircuit_args = "power")]
+fn mul_by_const_pow2(
+    ctx: &mut impl CircuitContext,
+    a: &BigIntWires,
+    c: &BigUint,
+    power: usize,
+) -> BigIntWires {
+    // ...
+}
+```
+
 ## Requirements
 
-1. **First Parameter**: Must be `&mut impl CircuitContext` (or similar mutable reference to a type implementing `CircuitContext`)
-2. **Input Parameters**: All subsequent parameters must implement `IntoWireList`
-3. **Return Type**: Can be any type that implements `IntoWireList` (e.g., `WireId`, `(WireId, WireId)`, `Vec<WireId>`)
-4. **Maximum Arity**: No more than 16 input parameters (17 including context)
+1. First parameter must be `&mut impl CircuitContext` (or any mutable reference to a type implementing `CircuitContext`).
+2. All subsequent parameters must implement `WiresObject` (e.g., `WireId`, tuples, `Vec<WireId>`, BN254 wire types, etc.).
+3. The return type must implement `WiresObject`.
+4. No more than 16 input parameters (excluding the context and any `offcircuit_args`).
+5. Parameters must be simple identifiers (no patterns).
 
 ## Implementation Details
 
-### Code Generation
+The wrapper it generates roughly does the following:
 
-The macro generates a wrapper function that:
+1. Collects the non-ignored parameters into a `WiresObject` (cloning references as needed).
+2. Derives a stable component key via `generate_component_key` using the module path, function name, arity, input length, and any `offcircuit_args`.
+3. Calls `ctx.with_named_child(key, inputs, |comp, inputs| { ... }, arity)`.
+4. Renames your context parameter to `comp` inside the body and returns your original return type.
 
-1. Collects all input parameters (except the first) into a `Vec<WireId>` using `IntoWireList::into_wire_list`
-2. Calls `context.with_child(input_wires, |comp, _inputs| { ... })` 
-3. Transforms the function body by renaming the context parameter to `comp`
-4. Returns the result with the original return type
-
-### Example Transformation
-
-This source code:
-
-```rust
-#[component]
-fn and_gate(ctx: &mut impl CircuitContext, a: WireId, b: WireId) -> WireId {
-    let c = ctx.issue_wire();
-    ctx.add_gate(Gate::and(a, b, c));
-    c
-}
-```
-
-Is transformed to approximately:
+Example (simplified):
 
 ```rust
 fn and_gate(ctx: &mut impl CircuitContext, a: WireId, b: WireId) -> WireId {
-    let input_wires = {
-        let mut input_wires = Vec::new();
-        input_wires.extend(IntoWireList::into_wire_list(a));
-        input_wires.extend(IntoWireList::into_wire_list(b));
-        input_wires
-    };
-    
-    ctx.with_child(input_wires, |comp, _inputs| {
-        let c = comp.issue_wire();
-        comp.add_gate(Gate::and(a, b, c));
-        c
-    })
+    let input_wires = (a, b);
+    ctx.with_named_child(
+        crate::circuit::streaming::generate_component_key(
+            concat!(module_path!(), "::", "and_gate"),
+            [] as [(&str, &[u8]); 0],
+            1, // arity inferred for fixed-size returns
+            crate::circuit::streaming::WiresObject::to_wires_vec(&input_wires).len(),
+        ),
+        input_wires,
+        |comp, inputs| {
+            let (a, b) = inputs;
+            let c = comp.issue_wire();
+            comp.add_gate(Gate::and(a, b, c));
+            c
+        },
+        1,
+    )
 }
 ```
 
-## Error Messages
+## Errors and Limitations
 
-The macro provides clear compile-time error messages for common mistakes:
-
-- **No context parameter**: "Component function must have at least one parameter (&mut impl CircuitContext)"
-- **Self parameter**: "Component functions cannot have 'self' parameter" 
-- **Too many parameters**: "Component functions cannot have more than 16 input parameters (excluding context)"
-- **Invalid first parameter**: "First parameter must be a simple identifier"
-
-## Limitations
-
-1. **Arity Limit**: Maximum 16 input parameters (excluding context)
-2. **Context Parameter**: Must be the first parameter and a mutable reference
-3. **Parameter Names**: All parameters must be simple identifiers (no patterns)
-4. **Context Renaming**: The first parameter is always renamed to `comp` in the function body
+- No context parameter: "Component function must have at least one parameter (&mut impl CircuitContext)".
+- `self` not allowed: "Component functions cannot have 'self' parameter".
+- Too many parameters: "...cannot have more than 16 input parameters (excluding context and ignored)".
+- First parameter must be a simple identifier.
 
 ## Integration
 
-The macro is automatically available when using the main crate:
+- `#[component]` is re-exported by the main crate:
 
 ```rust
 use garbled_snark_verifier::component;
 ```
 
-Or can be used directly from the macro crate:
+- `#[bn_component]` is available from this crate:
 
 ```rust
-use circuit_component_macro::component;
+use circuit_component_macro::bn_component;
 ```
 
 ## Testing
 
-The macro includes comprehensive compile-time tests using trybuild to ensure:
+The crate includes trybuild tests to ensure:
 
-- Valid signatures compile successfully
-- Invalid signatures produce appropriate error messages
-- Generated code is syntactically correct
-- Integration with the type system works properly
+- Valid signatures compile successfully.
+- Invalid signatures produce clear errors.
+- Generated code is syntactically correct and integrates with `CircuitContext`.
