@@ -1,15 +1,13 @@
 use std::{cmp::min, collections::HashMap, iter::zip};
 
-use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
+use ark_ff::Zero;
 use circuit_component_macro::component;
-use num_bigint::BigUint;
-use rand::Rng;
 
 use crate::{
     CircuitContext, WireId,
     circuit::streaming::{FromWires, WiresObject},
     gadgets::{
-        bigint::{self, BigIntWires, Error},
+        bigint::Error,
         bn254::{fp254impl::Fp254Impl, fq::Fq, fq2::Fq2, fr::Fr},
     },
 };
@@ -530,21 +528,14 @@ impl G2Projective {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::OnceCell, collections::HashMap};
-
     use ark_ec::{CurveGroup, VariableBaseMSM};
-    use ark_ff::BigInt;
-    use rand::SeedableRng;
+    use ark_ff::UniformRand;
+    use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
     use crate::{
-        CircuitContext,
-        circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute, ExecuteMode},
-        },
-        gadgets::bigint::BigUint as BigUintOutput,
+        circuit::streaming::{CircuitBuilder, CircuitInput, EncodeInput, modes::CircuitMode},
         test_utils::trng,
     };
 
@@ -642,31 +633,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    pub struct G2Output {
-        pub point: ark_bn254::G2Projective,
-    }
-
-    impl CircuitOutput<ExecuteMode> for G2Output {
-        type WireRepr = G2Projective;
-
-        fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
-            // Decode Fq2 components
-            let x_c0 = BigUintOutput::decode(wires.x.c0().0.clone(), cache);
-            let x_c1 = BigUintOutput::decode(wires.x.c1().0.clone(), cache);
-            let y_c0 = BigUintOutput::decode(wires.y.c0().0.clone(), cache);
-            let y_c1 = BigUintOutput::decode(wires.y.c1().0.clone(), cache);
-            let z_c0 = BigUintOutput::decode(wires.z.c0().0.clone(), cache);
-            let z_c1 = BigUintOutput::decode(wires.z.c1().0.clone(), cache);
-
-            let point = ark_bn254::G2Projective {
-                x: ark_bn254::Fq2::new(ark_bn254::Fq::from(x_c0), ark_bn254::Fq::from(x_c1)),
-                y: ark_bn254::Fq2::new(ark_bn254::Fq::from(y_c0), ark_bn254::Fq::from(y_c1)),
-                z: ark_bn254::Fq2::new(ark_bn254::Fq::from(z_c0), ark_bn254::Fq::from(z_c1)),
-            };
-            G2Output { point }
         }
     }
 

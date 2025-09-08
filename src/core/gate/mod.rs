@@ -9,15 +9,14 @@ pub type DefaultHasher = Blake3Hasher;
 
 pub type GateId = usize;
 
-#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {
     #[error("Error while get wire {wire}: {err:?}")]
-    GetWire { wire: &'static str, err: WireError },
+    Get { wire: &'static str, err: WireError },
     #[error("Error while init wire {wire}: {err:?}")]
-    InitWire { wire: &'static str, err: WireError },
+    Init { wire: &'static str, err: WireError },
     #[error("Error while get_or_init wire {wire}: {err:?}")]
-    GetOrInitWire { wire: &'static str, err: WireError },
+    GetOrInit { wire: &'static str, err: WireError },
 }
 pub type GateError = Error;
 

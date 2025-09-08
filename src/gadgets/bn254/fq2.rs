@@ -7,16 +7,15 @@
 //! Fq2 is constructed as Fq[u]/(u² + 1) and is used as an intermediate field
 //! in the tower construction leading to Fq12 for pairing operations.
 
-use ark_ff::{Field, Fp2Config, PrimeField, UniformRand};
+use ark_ff::{Field, Fp2Config, PrimeField};
 use circuit_component_macro::component;
-use num_traits::Zero;
 use rand::Rng;
 
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::WiresObject,
     gadgets::{
-        bigint::{self, BigIntWires, select},
+        bigint::{BigIntWires, select},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
     },
 };
@@ -451,17 +450,19 @@ impl Fq2 {
 mod tests {
     use std::array;
 
-    use ark_ff::{AdditiveGroup, Fp6Config};
+    use ark_ff::{AdditiveGroup, Fp6Config, PrimeField};
     use test_log::test;
 
     use super::*;
     use crate::{
-        CircuitContext,
         circuit::streaming::{
             CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute, ExecuteMode},
+            modes::{CircuitMode, ExecuteMode},
         },
-        gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+        gadgets::{
+            bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+            bn254::fp254impl::Fp254Impl,
+        },
         test_utils::trng,
     };
 

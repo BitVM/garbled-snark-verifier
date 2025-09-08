@@ -1,18 +1,12 @@
 use std::{cmp::min, collections::HashMap, iter};
 
-use ark_ff::{AdditiveGroup, Field, UniformRand, Zero};
+use ark_ff::Zero;
 use circuit_component_macro::component;
-use digest::typenum::bit;
-use num_bigint::BigUint;
-use rand::Rng;
 
 use crate::{
     CircuitContext, WireId,
     circuit::streaming::{FromWires, WiresObject},
-    gadgets::{
-        bigint::{self, BigIntWires, Error},
-        bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
-    },
+    gadgets::bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
 };
 
 #[derive(Clone, Debug)]
@@ -408,21 +402,14 @@ impl G1Projective {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::OnceCell, collections::HashMap};
-
     use ark_ec::{CurveGroup, VariableBaseMSM};
-    use ark_ff::BigInt;
-    use rand::SeedableRng;
+    use ark_ff::UniformRand;
+    use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
     use crate::{
-        CircuitContext,
-        circuit::streaming::{
-            CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute, ExecuteMode},
-        },
-        gadgets::bigint::BigUint as BigUintOutput,
+        circuit::streaming::{CircuitBuilder, CircuitInput, EncodeInput, modes::CircuitMode},
         test_utils::trng,
     };
 
@@ -477,65 +464,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    pub struct ScalarInput<const N: usize> {
-        pub scalars: [ark_bn254::Fr; N],
-    }
-
-    pub struct ScalarInputWire<const N: usize> {
-        pub scalars: [Fr; N],
-    }
-
-    impl<const N: usize> CircuitInput for ScalarInput<N> {
-        type WireRepr = ScalarInputWire<N>;
-
-        fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-            ScalarInputWire {
-                scalars: std::array::from_fn(|_| Fr::new(&mut issue)),
-            }
-        }
-
-        fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
-            let mut wires = Vec::new();
-            for scalar in &repr.scalars {
-                wires.extend(scalar.iter().cloned());
-            }
-            wires
-        }
-    }
-
-    impl<const N: usize, M: CircuitMode<WireValue = bool>> EncodeInput<M> for ScalarInput<N> {
-        fn encode(&self, repr: &Self::WireRepr, cache: &mut M) {
-            for (scalar_wire, scalar_val) in repr.scalars.iter().zip(self.scalars.iter()) {
-                let scalar_fn = Fr::get_wire_bits_fn(scalar_wire, scalar_val).unwrap();
-                for &wire_id in scalar_wire.iter() {
-                    if let Some(bit) = scalar_fn(wire_id) {
-                        cache.feed_wire(wire_id, bit);
-                    }
-                }
-            }
-        }
-    }
-
-    pub struct G1Output {
-        pub point: ark_bn254::G1Projective,
-    }
-
-    impl CircuitOutput<ExecuteMode> for G1Output {
-        type WireRepr = G1Projective;
-
-        fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
-            let x = BigUintOutput::decode(wires.x.0, cache);
-            let y = BigUintOutput::decode(wires.y.0, cache);
-            let z = BigUintOutput::decode(wires.z.0, cache);
-            let point = ark_bn254::G1Projective {
-                x: ark_bn254::Fq::from(x),
-                y: ark_bn254::Fq::from(y),
-                z: ark_bn254::Fq::from(z),
-            };
-            G1Output { point }
         }
     }
 

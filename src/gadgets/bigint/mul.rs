@@ -211,8 +211,6 @@ pub fn mul_by_constant<C: CircuitContext>(
     a: &BigIntWires,
     c: &BigUint,
 ) -> BigIntWires {
-    const PER_CHUNK: usize = 8;
-
     let len = a.len();
 
     // Running accumulator: 2*len bits, starts at zero.

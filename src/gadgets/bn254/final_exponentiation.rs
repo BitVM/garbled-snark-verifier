@@ -5,13 +5,12 @@
 //! the structure used in the main branch.
 
 use ark_ec::bn::BnConfig;
-use ark_ff::{BitIteratorBE, CyclotomicMultSubgroup, Field, PrimeField};
+use ark_ff::{BitIteratorBE, Field};
 use circuit_component_macro::component;
 
 use crate::{
     CircuitContext,
-    circuit::streaming::WiresObject,
-    gadgets::bn254::{fp254impl::Fp254Impl, fq::Fq, fq12::Fq12},
+    gadgets::bn254::{fq::Fq, fq12::Fq12},
 };
 
 pub fn conjugate_native(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
@@ -233,8 +232,8 @@ pub fn final_exponentiation_montgomery<C: CircuitContext>(circuit: &mut C, f: &F
 #[cfg(test)]
 mod tests {
     use ark_ec::pairing::Pairing;
-    use ark_ff::UniformRand;
-    use rand::{Rng, SeedableRng};
+    use ark_ff::{PrimeField, UniformRand};
+    use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
@@ -242,11 +241,14 @@ mod tests {
         WireId,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitMode, CircuitOutput, EncodeInput, StreamingResult,
-            modes::{Execute, ExecuteMode},
+            WiresObject, modes::ExecuteMode,
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
-            bn254::{fq::Fq as FqWire, fq6::Fq6 as Fq6Wires, fq12::Fq12 as Fq12Wires},
+            bn254::{
+                fp254impl::Fp254Impl, fq::Fq as FqWire, fq6::Fq6 as Fq6Wires,
+                fq12::Fq12 as Fq12Wires,
+            },
         },
     };
 

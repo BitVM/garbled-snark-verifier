@@ -1,19 +1,15 @@
 use std::str::FromStr;
 
 use ark_ff::{AdditiveGroup, Field, PrimeField};
-use circuit_component_macro::{bn_component, component};
+use circuit_component_macro::bn_component;
 use itertools::Itertools;
-use num_bigint::{BigInt, BigUint};
+use num_bigint::BigUint;
 use num_traits::{One, Zero};
 
 use super::super::bigint::{self, BigIntWires};
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::{
-        CircuitInput,
-        streaming::{FALSE_WIRE, FromWires, TRUE_WIRE, WiresObject},
-    },
-    gadgets::bigint::select,
+    circuit::streaming::{FALSE_WIRE, FromWires, TRUE_WIRE, WiresObject},
     math::montgomery::calculate_montgomery_constants,
 };
 

@@ -1,20 +1,12 @@
-use ark_ff::{AdditiveGroup, Field, Fp6Config, Fp12Config, PrimeField, UniformRand};
+use ark_ff::{Field, Fp12Config};
 use circuit_component_macro::component;
-use num_traits::Zero;
 use rand::Rng;
 
 use super::fq6::Fq6Components;
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::{FromWires, WiresObject},
-    gadgets::{
-        bigint::{self, BigIntWires, select},
-        bn254::{
-            fq::Fq,
-            fq2::{Fq2, Pair},
-            fq6::Fq6,
-        },
-    },
+    gadgets::bn254::{fq::Fq, fq2::Fq2, fq6::Fq6},
 };
 
 pub type Fq12Element<T> = (Fq6Components<T>, Fq6Components<T>);
@@ -457,18 +449,17 @@ impl Fq12 {
 
 #[cfg(test)]
 mod tests {
-    use std::{array, collections::HashMap, str::FromStr};
+    use std::{array, str::FromStr};
 
-    use ark_ff::CyclotomicMultSubgroup;
+    use ark_ff::{CyclotomicMultSubgroup, PrimeField};
     use num_bigint::BigUint;
     use test_log::test;
 
     use super::*;
     use crate::{
-        CircuitContext,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute, ExecuteMode},
+            modes::{CircuitMode, ExecuteMode},
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},

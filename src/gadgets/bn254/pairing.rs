@@ -20,9 +20,7 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, Fp254Impl,
-    circuit::streaming::{
-        FALSE_WIRE, FromWires, OffCircuitParam, TRUE_WIRE, WiresArity, WiresObject,
-    },
+    circuit::streaming::{FromWires, OffCircuitParam, WiresArity, WiresObject},
     gadgets::bn254::{
         final_exponentiation::final_exponentiation, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
         g1::G1Projective, g2::G2Projective,
@@ -204,6 +202,7 @@ fn g2_normalize_to_affine<C: CircuitContext>(circuit: &mut C, q: &G2Projective) 
 
 /// Apply Frobenius map to an affine G2 point: x' = (x^p) * c_x[i], y' = (y^p) * c_y[i], z = 1.
 /// Precondition: q.z encodes Montgomery ONE (affine form).
+#[allow(dead_code)]
 fn g2_frobenius_map_affine<C: CircuitContext>(
     circuit: &mut C,
     q: &G2Projective,
@@ -264,6 +263,7 @@ fn g2_frobenius_map_affine<C: CircuitContext>(
 /// c0 * Y + c1 * X + c2 = 0 over Fq2, matching arkworks' BN254 prepared
 /// ordering (ell_0, ell_vw, ell_vv). Later evaluation multiplies c0 by P.y
 /// and c1 by P.x and uses a sparse Fq12 mul-by-034.
+#[allow(dead_code)]
 fn g2_line_coeffs_double<C: CircuitContext>(
     circuit: &mut C,
     r: &G2Projective,
@@ -300,6 +300,7 @@ fn g2_line_coeffs_double<C: CircuitContext>(
 ///
 /// Returns (R_next_affine, (c0, c1, c2)) in the same representation order
 /// as `g2_line_coeffs_double`.
+#[allow(dead_code)]
 fn g2_line_coeffs_add<C: CircuitContext>(
     circuit: &mut C,
     r: &G2Projective,
@@ -1011,7 +1012,6 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast<C: CircuitContext>(
 mod tests {
     use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
     use ark_ff::{Field, PrimeField, UniformRand};
-    use itertools::concat;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
 
@@ -1020,7 +1020,7 @@ mod tests {
         Gate, WireId,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, TRUE_WIRE, WiresObject,
-            modes::{CircuitMode, Execute, ExecuteMode},
+            modes::{CircuitMode, ExecuteMode},
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -1151,6 +1151,8 @@ mod tests {
 
         assert_eq!(result.output_wires.value, expected_m);
     }
+
+    #[test]
     fn test_g2_normalize_to_affine_matches_host() {
         // Generate random projective G2 point and expected affine (z=1) in Montgomery
         let mut rng = ChaCha20Rng::seed_from_u64(0xA11FE2);
@@ -1456,7 +1458,6 @@ mod tests {
             // Streaming execute: encode affine projective (z=1) and apply gadget
             struct Input {
                 p: ark_bn254::G2Projective,
-                i: usize,
             }
             struct Wires {
                 p: G2Projective,
@@ -1512,7 +1513,7 @@ mod tests {
                 }
             }
 
-            let input = Input { p: r_aff_proj, i };
+            let input = Input { p: r_aff_proj };
             let result =
                 CircuitBuilder::streaming_execute::<_, _, OutXY>(input, 20_000, |ctx, wires| {
                     g2_frobenius_map_affine(ctx, &wires.p, i)
@@ -1717,8 +1718,7 @@ mod tests {
             f: Fq12,
         }
 
-        #[allow(clippy::upper_case_acronyms)]
-        struct FEO {
+        struct FinalExpOutput {
             value: ark_bn254::Fq12,
         }
         impl CircuitInput for FEInput {
@@ -1739,7 +1739,7 @@ mod tests {
                 encode_fq6_to_wires(&f_m.c1, &repr.f.0[1], cache);
             }
         }
-        impl CircuitOutput<ExecuteMode> for FEO {
+        impl CircuitOutput<ExecuteMode> for FinalExpOutput {
             type WireRepr = Fq12;
             fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
                 // Reuse local decoder helpers
@@ -1788,9 +1788,11 @@ mod tests {
         }
 
         let input = FEInput { f: f_ml };
-        let result = CircuitBuilder::streaming_execute::<_, _, FEO>(input, 10_000, |ctx, input| {
-            final_exponentiation(ctx, &input.f)
-        });
+        let result = CircuitBuilder::streaming_execute::<_, _, FinalExpOutput>(
+            input,
+            10_000,
+            |ctx, input| final_exponentiation(ctx, &input.f),
+        );
 
         assert_eq!(result.output_wires.value, expected_m);
     }
@@ -2517,8 +2519,6 @@ mod tests {
 
     #[test]
     fn test_multi_miller_loop_groth16_evaluate_montgomery_fast_matches_ark_many() {
-        use ark_ec::pairing::Pairing;
-
         // Helper to build expected pre-final-exponentiation value using arkworks' Miller loop
         fn expected_f(
             p1: ark_bn254::G1Projective,

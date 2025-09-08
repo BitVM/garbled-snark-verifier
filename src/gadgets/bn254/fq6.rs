@@ -1,15 +1,11 @@
-use ark_ff::{AdditiveGroup, Field, Fp6Config, PrimeField, UniformRand};
-use num_traits::Zero;
+use ark_ff::{AdditiveGroup, Fp6Config};
 use rand::Rng;
 
 use super::fq2::Pair;
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::streaming::{FromWires, WiresObject},
-    gadgets::{
-        bigint::{self},
-        bn254::fq2::Fq2,
-    },
+    gadgets::bn254::fq2::Fq2,
 };
 
 pub type Fq6Components<T> = [Pair<T>; 3];
@@ -529,15 +525,14 @@ impl Fq6 {
 
 #[cfg(test)]
 mod tests {
-    use ark_ff::{AdditiveGroup, Field, Fp12Config};
+    use ark_ff::{AdditiveGroup, Field, Fp12Config, PrimeField};
     use test_log::test;
 
     use super::*;
     use crate::{
-        CircuitContext,
         circuit::streaming::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
-            modes::{CircuitMode, Execute, ExecuteMode},
+            modes::{CircuitMode, ExecuteMode},
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},

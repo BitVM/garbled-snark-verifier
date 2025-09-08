@@ -1,6 +1,3 @@
-#![allow(unused_imports)]
-#![allow(dead_code)]
-
 //! BN254 elliptic curve field arithmetic implementations
 //!
 //! This module provides circuit-based implementations of field operations

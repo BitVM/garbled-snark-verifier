@@ -28,7 +28,6 @@ fn fq12_one_const() -> Fq12 {
 struct Inputs {
     g1: ark_bn254::G1Projective,
     g2: ark_bn254::G2Projective,
-    #[allow(dead_code)]
     g2_aff: ark_bn254::G2Affine,
 }
 

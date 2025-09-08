@@ -61,7 +61,6 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
     }
 }
 
-#[allow(dead_code)]
 enum G2EMsg {
     Commit {
         /// Hash of the label that proof is wrong

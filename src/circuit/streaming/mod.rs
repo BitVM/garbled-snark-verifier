@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::{array, fmt::Debug};
 
 use crossbeam::channel;
@@ -61,11 +59,6 @@ macro_rules! component_key {
     };
 }
 
-pub mod components;
-
-mod cache;
-pub use cache::WireStack;
-
 pub mod modes;
 pub use modes::{
     CircuitMode, EvaluateMode, EvaluateModeBlake3, ExecuteMode, GarbleMode, GarbleModeBlake3,
@@ -77,6 +70,7 @@ mod streaming_mode;
 pub use streaming_mode::{StreamingContext, StreamingMode};
 
 pub struct CircuitBuilder<M: CircuitMode> {
+    #[allow(dead_code)]
     mode: M,
 }
 
@@ -329,12 +323,6 @@ impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
             .collect()
     }
 }
-
-#[cfg(test)]
-mod test_macro;
-
-#[cfg(test)]
-mod arity_tests;
 
 #[cfg(test)]
 mod garble_integration_test;

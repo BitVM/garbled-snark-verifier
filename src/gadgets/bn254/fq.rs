@@ -1,12 +1,9 @@
 use std::{
-    iter,
     ops::{Deref, DerefMut},
     str::FromStr,
 };
 
-use ark_ff::{Field, PrimeField, UniformRand};
-use bitvec::vec::BitVec;
-use circuit_component_macro::component;
+use ark_ff::{Field, PrimeField};
 use num_bigint::BigUint;
 use rand::Rng;
 
@@ -304,25 +301,23 @@ impl Fq {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use std::{array, collections::HashMap};
+    use std::{array, iter};
 
     use ark_ff::AdditiveGroup;
-    use itertools::Itertools;
     use log::trace;
     use rand::Rng;
     use test_log::test;
 
     use super::*;
     use crate::{
-        CircuitContext,
         circuit::{
             CircuitBuilder, CircuitInput,
-            streaming::{
-                CircuitMode, CircuitOutput, EncodeInput,
-                modes::{Execute, ExecuteMode},
-            },
+            streaming::{CircuitMode, CircuitOutput, EncodeInput, modes::ExecuteMode},
         },
-        gadgets::bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+        gadgets::{
+            bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
+            bn254::fp254impl::Fp254Impl,
+        },
         test_utils::trng,
     };
 

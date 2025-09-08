@@ -89,7 +89,7 @@ mod failure_tests {
 
         assert_eq!(
             circuit.garble(&mut trng()).err(),
-            Some(CircuitError::Gate(GateError::InitWire {
+            Some(CircuitError::Gate(GateError::Init {
                 wire: "c",
                 err: crate::WireError::InvalidWireIndex(intermediate_wire)
             }))

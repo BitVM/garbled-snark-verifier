@@ -45,7 +45,6 @@ pub fn generate_bn_wrapper(
     let mut transformed_body = original_fn.block.clone();
     let mut renamer = ContextRenamer {
         old_name: context_param_name.clone(),
-        new_name: quote! { comp },
     };
     renamer.visit_block_mut(&mut transformed_body);
 
@@ -297,8 +296,6 @@ fn extract_param_name(pat_type: &syn::PatType) -> Result<Ident> {
 
 struct ContextRenamer {
     old_name: Ident,
-    #[allow(dead_code)]
-    new_name: TokenStream,
 }
 
 impl VisitMut for ContextRenamer {
