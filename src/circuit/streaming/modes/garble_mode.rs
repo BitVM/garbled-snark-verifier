@@ -128,7 +128,7 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
     fn evaluate_gate(&mut self, gate: &Gate, a: GarbledWire, b: GarbledWire) -> GarbledWire {
         let gate_id = self.next_gate_index();
 
-        maybe_log_progress("processed", gate_id);
+        maybe_log_progress("garbled", gate_id);
 
         let GarbleResult {
             result: c,

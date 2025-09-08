@@ -127,6 +127,14 @@ RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3
 - Prints a commit from the garbler with output label hashes and the ciphertext hash, and the evaluator verifies both the result label and ciphertext hash match.
 - Tip: tweak the example’s `k` (constraint count) and `CAPACITY` (channel buffer) constants in `examples/groth16_garble.rs` to scale workload and tune throughput.
 
+### Live Gate Monitor
+Two processes: (1) run example and log stderr, (2) run monitor.
+
+- Process #1 (garble + log): `RUST_LOG=info cargo run --example groth16_garble --release 2> garble.log`
+  - BLAKE3: `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3 2> garble.log`
+- Process #2 (monitor): `python3 .scripts/gates_monitor.py garble.log`
+- Parses `garbled:` (preferred) and also `executed:` for execute mode. Tweak log frequency via `src/core/progress.rs::GATE_LOG_STEP`.
+
 #### Hasher selection
 - The garbling/evaluation PRF for half‑gates can be selected via `--hasher`:
   - `aes` (default): AES‑based PRF (uses AES‑NI when available; warns and uses software fallback otherwise).

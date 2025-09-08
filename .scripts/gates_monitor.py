@@ -6,18 +6,11 @@ Usage:
     python gates_monitor.py /path/to/logfile
 
 Behavior:
-- Watches the file for new lines (tail -f style).
-- Parses two kinds of progress lines (others are ignored):
-    1) "[...Z ...] ... processed: <NUM>[m|b]"   e.g., "processed: 590.0m", "processed: 1.2b"
-    2) "[...Z ...] ... Process gate <INT>"      e.g., "Process gate 100000000"
-- Uses the timestamps from the log lines; ignores non-increasing counters.
-- Prints, on every new progress point:
-    * latest processed (gates)
-    * elapsed time since first sample
-    * overall average speed (M gates/s and ns/gate)
-    * window (last WINDOW_SEC seconds) speed
-    * average time per 1B gates at current overall speed
-    * ETA to TARGET_GATES (default 11e9) if TARGET_GATES > current
+- Follows the file (tail -f style) and parses progress lines:
+    1) "[...Z ...] ... garbled: <NUM>[m|b]" (preferred) or legacy "processed:" / "executed:"
+    2) "[...Z ...] ... Process gate <INT>"
+- Prints latest count, elapsed, overall + window rate, ns/gate, and ETA.
+
 Environment (optional):
     WINDOW_SEC   - sliding window length in seconds (default: 30)
     TARGET_GATES - integer target gates for ETA   (default: 11000000000)
@@ -32,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Optional, Tuple, List
 
 PROCESSED_RE = re.compile(
-    r'^\[(?P<ts>[^\]]+)\].*?(?:processed|executed):\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
+    r'^\[(?P<ts>[^\]]+)\].*?(?:garbled|processed|executed):\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
 )
 PROCESS_GATE_RE = re.compile(
     r'^\[(?P<ts>[^\]]+)\].*?Process gate\s+(?P<count>\d+)\s*$'
