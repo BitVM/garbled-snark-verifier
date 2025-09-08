@@ -2,6 +2,8 @@
 // then garbles the verification circuit using the new streaming garble mode.
 // Run with: `RUST_LOG=info cargo run --example groth16_garble --release`
 
+use std::time::Instant;
+
 use ark_ec::AffineRepr;
 use ark_ff::UniformRand;
 use ark_groth16::Groth16;
@@ -18,6 +20,7 @@ use garbled_snark_verifier::{
     },
     groth16_proof::{GarbledInputs, Groth16EvaluatorInputs, groth16_proof_verify},
 };
+use log::info;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
@@ -126,6 +129,9 @@ fn main() {
 
     println!("Starting garbling of Groth16 verification circuit...");
 
+    // Measure first garbling pass performance
+    let garble_start = Instant::now();
+
     let mut garbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
         CircuitBuilder::streaming_garbling(
             inputs.clone(),
@@ -134,6 +140,20 @@ fn main() {
             ciphertext_acc_hash_sender,
             |ctx, wires| groth16_proof_verify(ctx, wires, &vk),
         );
+
+    let garble_elapsed = garble_start.elapsed();
+    let garble_total = garbling_result.gate_count.total_gate_count();
+    let garble_secs = garble_elapsed.as_secs_f64();
+    if garble_secs > 0.0 {
+        info!(
+            "garbling#1: {:.2} gates/s ({} gates in {:.3}s)",
+            garble_total as f64 / garble_secs,
+            garble_total,
+            garble_secs
+        );
+    } else {
+        info!("garbling#1: {} gates (elapsed < 1ms)", garble_total);
+    }
 
     let GarbledWire { label0, label1 } = garbling_result.output_wires.remove(0);
 
@@ -187,7 +207,9 @@ fn main() {
     let garbler = std::thread::spawn(move || {
         evaluator_sender.send(msg).unwrap();
 
-        let _regarbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
+        // Measure second garbling pass performance (sending to evaluator)
+        let regarble_start = Instant::now();
+        let regarbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(
                 inputs,
                 CAPACITY,
@@ -195,6 +217,19 @@ fn main() {
                 ciphertext_to_evaluator_sender,
                 |ctx, wires| groth16_proof_verify(ctx, wires, &vk_garbler),
             );
+        let regarble_elapsed = regarble_start.elapsed();
+        let regarble_total = regarbling_result.gate_count.total_gate_count();
+        let regarble_secs = regarble_elapsed.as_secs_f64();
+        if regarble_secs > 0.0 {
+            info!(
+                "garbling#2: {:.2} gates/s ({} gates in {:.3}s)",
+                regarble_total as f64 / regarble_secs,
+                regarble_total,
+                regarble_secs
+            );
+        } else {
+            info!("garbling#2: {} gates (elapsed < 1ms)", regarble_total);
+        }
     });
 
     let evaluator = std::thread::spawn(move || {
@@ -220,6 +255,8 @@ fn main() {
             hasher.finalize()
         });
 
+        // Measure evaluation performance
+        let eval_start = Instant::now();
         let mut evaluator_result: StreamingResult<
             EvaluateMode<AesNiHasher>,
             _,
@@ -232,6 +269,19 @@ fn main() {
             proxy_receiver,
             |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
         );
+        let eval_elapsed = eval_start.elapsed();
+        let eval_total = evaluator_result.gate_count.total_gate_count();
+        let eval_secs = eval_elapsed.as_secs_f64();
+        if eval_secs > 0.0 {
+            info!(
+                "evaluation: {:.2} gates/s ({} gates in {:.3}s)",
+                eval_total as f64 / eval_secs,
+                eval_total,
+                eval_secs
+            );
+        } else {
+            info!("evaluation: {} gates (elapsed < 1ms)", eval_total);
+        }
 
         let EvaluatedWire {
             active_label: possible_secret,
