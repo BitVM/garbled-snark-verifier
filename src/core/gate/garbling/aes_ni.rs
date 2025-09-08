@@ -262,6 +262,11 @@ pub(crate) mod aes_ni_impl {
     /// u64 tweak variants: removed (use byte-mask helpers instead)
     #[cfg(test)]
     mod tests {
+        use aes::{
+            Aes128 as Aes128Sw,
+            cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray},
+        };
+
         use super::*;
 
         #[test]
@@ -292,6 +297,62 @@ pub(crate) mod aes_ni_impl {
             assert_eq!(c0, expected);
             assert_eq!(c1, expected);
         }
+
+        #[test]
+        fn static_key_matches_software_impl_single_and_mask() {
+            if !is_x86_feature_detected!("aes") {
+                eprintln!("AES-NI not detected on this machine; skipping test.");
+                return;
+            }
+            let sw = Aes128Sw::new_from_slice(&DEFAULT_STATIC_KEY).unwrap();
+
+            let pt = [0x33u8; 16];
+            let mut g = GenericArray::clone_from_slice(&pt);
+            sw.encrypt_block(&mut g);
+            let sw_ct = <[u8; 16]>::try_from(g.as_slice()).unwrap();
+            let ni_ct = aes128_encrypt_block_static(pt).unwrap();
+            assert_eq!(ni_ct, sw_ct);
+
+            let mask = [0xC3u8; 16];
+            let mut mp = pt;
+            for i in 0..16 {
+                mp[i] ^= mask[i];
+            }
+            let mut gm = GenericArray::clone_from_slice(&mp);
+            sw.encrypt_block(&mut gm);
+            let sw_ct_x = <[u8; 16]>::try_from(gm.as_slice()).unwrap();
+            let ni_ct_x = aes128_encrypt_block_static_xor(pt, mask).unwrap();
+            assert_eq!(ni_ct_x, sw_ct_x);
+        }
+
+        #[test]
+        fn static_key_matches_software_impl_two_blocks_with_mask() {
+            if !is_x86_feature_detected!("aes") {
+                eprintln!("AES-NI not detected on this machine; skipping test.");
+                return;
+            }
+            let sw = Aes128Sw::new_from_slice(&DEFAULT_STATIC_KEY).unwrap();
+            let b0 = [0x42u8; 16];
+            let b1 = [0x24u8; 16];
+            let mask = [0x0Fu8; 16];
+
+            let mut mb0 = b0;
+            let mut mb1 = b1;
+            for i in 0..16 {
+                mb0[i] ^= mask[i];
+                mb1[i] ^= mask[i];
+            }
+            let mut g0 = GenericArray::clone_from_slice(&mb0);
+            let mut g1 = GenericArray::clone_from_slice(&mb1);
+            sw.encrypt_block(&mut g0);
+            sw.encrypt_block(&mut g1);
+            let c0_sw = <[u8; 16]>::try_from(g0.as_slice()).unwrap();
+            let c1_sw = <[u8; 16]>::try_from(g1.as_slice()).unwrap();
+
+            let (c0_ni, c1_ni) = aes128_encrypt2_blocks_static_xor(b0, b1, mask).unwrap();
+            assert_eq!(c0_ni, c0_sw);
+            assert_eq!(c1_ni, c1_sw);
+        }
     }
 }
 
@@ -314,7 +375,7 @@ pub mod aes_ni_unavailable {
 
     use aes::{
         Aes128,
-        cipher::{BlockEncrypt, BlockEncryptMut, KeyInit, generic_array::GenericArray},
+        cipher::{BlockEncrypt, KeyInit, generic_array::GenericArray},
     };
 
     // Keep parity with the AES-NI path's default key.
@@ -368,8 +429,8 @@ pub mod aes_ni_unavailable {
             b1[i] ^= xor_mask[i];
         }
         let cipher = get_or_init_static_cipher();
-        let mut g0 = GenericArray::clone_from_slice(&b0);
-        let mut g1 = GenericArray::clone_from_slice(&b1);
+        let g0 = GenericArray::clone_from_slice(&b0);
+        let g1 = GenericArray::clone_from_slice(&b1);
         let mut blocks = [g0, g1];
         cipher.encrypt_blocks(&mut blocks);
         let mut out0 = [0u8; 16];
@@ -377,6 +438,59 @@ pub mod aes_ni_unavailable {
         out0.copy_from_slice(&blocks[0]);
         out1.copy_from_slice(&blocks[1]);
         Some((out0, out1))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn fallback_matches_direct_aes_single_and_mask() {
+            let sw = Aes128::new_from_slice(&DEFAULT_STATIC_KEY).unwrap();
+
+            let pt = [0x00u8; 16];
+            let mut b = GenericArray::clone_from_slice(&pt);
+            sw.encrypt_block(&mut b);
+            let ct_sw = <[u8; 16]>::try_from(b.as_slice()).unwrap();
+            let ct_fb = aes128_encrypt_block_static(pt).unwrap();
+            assert_eq!(ct_fb, ct_sw);
+
+            let mask = [0xA5u8; 16];
+            let mut masked = pt;
+            for i in 0..16 {
+                masked[i] ^= mask[i];
+            }
+            let mut bm = GenericArray::clone_from_slice(&masked);
+            sw.encrypt_block(&mut bm);
+            let ct_sw_xor = <[u8; 16]>::try_from(bm.as_slice()).unwrap();
+            let ct_fb_xor = aes128_encrypt_block_static_xor(pt, mask).unwrap();
+            assert_eq!(ct_fb_xor, ct_sw_xor);
+        }
+
+        #[test]
+        fn fallback_matches_direct_aes_two_blocks_with_mask() {
+            let sw = Aes128::new_from_slice(&DEFAULT_STATIC_KEY).unwrap();
+            let b0 = [0x11u8; 16];
+            let b1 = [0x22u8; 16];
+            let mask = [0x5Au8; 16];
+
+            let mut mb0 = b0;
+            let mut mb1 = b1;
+            for i in 0..16 {
+                mb0[i] ^= mask[i];
+                mb1[i] ^= mask[i];
+            }
+            let mut g0 = GenericArray::clone_from_slice(&mb0);
+            let mut g1 = GenericArray::clone_from_slice(&mb1);
+            sw.encrypt_block(&mut g0);
+            sw.encrypt_block(&mut g1);
+            let c0_sw = <[u8; 16]>::try_from(g0.as_slice()).unwrap();
+            let c1_sw = <[u8; 16]>::try_from(g1.as_slice()).unwrap();
+
+            let (c0_fb, c1_fb) = aes128_encrypt2_blocks_static_xor(b0, b1, mask).unwrap();
+            assert_eq!(c0_fb, c0_sw);
+            assert_eq!(c1_fb, c1_sw);
+        }
     }
 }
 

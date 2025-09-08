@@ -18,7 +18,7 @@ impl CiphertextHashAcc {
         // Use the static pre-expanded AES key to avoid per-call key schedule cost.
         self.running_hash = S::from_bytes(
             aes128_encrypt_block_static((self.running_hash ^ &ciphertext).to_bytes())
-                .expect("AES-NI should be available"),
+                .expect("AES backend should be available (HW or software)"),
         );
     }
 

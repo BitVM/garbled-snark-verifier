@@ -1,10 +1,7 @@
-use super::super::GateId;
-#[cfg(all(
-    any(target_arch = "x86", target_arch = "x86_64"),
-    target_feature = "aes",
-    target_feature = "sse2"
-))]
-use super::aes_ni::{aes128_encrypt_block_static_xor, aes128_encrypt2_blocks_static_xor};
+use super::{
+    super::GateId,
+    aes_ni::{aes128_encrypt_block_static_xor, aes128_encrypt2_blocks_static_xor},
+};
 use crate::{S, core::s::S_SIZE};
 
 pub trait GateHasher: Clone + Send + Sync {
@@ -34,19 +31,9 @@ impl GateHasher for Blake3Hasher {
     }
 }
 
-#[cfg(all(
-    any(target_arch = "x86", target_arch = "x86_64"),
-    target_feature = "aes",
-    target_feature = "sse2"
-))]
 #[derive(Clone, Debug, Default)]
 pub struct AesNiHasher;
 
-#[cfg(all(
-    any(target_arch = "x86", target_arch = "x86_64"),
-    target_feature = "aes",
-    target_feature = "sse2"
-))]
 impl GateHasher for AesNiHasher {
     #[inline(always)]
     fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: GateId) -> (S, S) {
@@ -60,7 +47,7 @@ impl GateHasher for AesNiHasher {
             other_label.to_bytes(),
             u64_to_mask(t0, t1),
         )
-        .expect("AES-NI should be available when target features are enabled");
+        .expect("AES backend should be available (HW or software)");
         (S::from_bytes(c0), S::from_bytes(c1))
     }
 
@@ -71,16 +58,11 @@ impl GateHasher for AesNiHasher {
         let t0 = gate_id_u64 ^ 0x1234_5678_9ABC_DEF0u64;
         let t1 = gate_id_u64.wrapping_mul(0xDEAD_BEEF_CAFE_BABEu64);
         let c = aes128_encrypt_block_static_xor(label.to_bytes(), u64_to_mask(t0, t1))
-            .expect("AES-NI should be available when target features are enabled");
+            .expect("AES backend should be available (HW or software)");
         S::from_bytes(c)
     }
 }
 
-#[cfg(all(
-    any(target_arch = "x86", target_arch = "x86_64"),
-    target_feature = "aes",
-    target_feature = "sse2"
-))]
 #[inline(always)]
 fn u64_to_mask(t0: u64, t1: u64) -> [u8; S_SIZE] {
     // Build mask in the same lane order as _mm_set_epi64x(t1, t0)
@@ -88,31 +70,4 @@ fn u64_to_mask(t0: u64, t1: u64) -> [u8; S_SIZE] {
     m[..8].copy_from_slice(&t0.to_le_bytes());
     m[8..].copy_from_slice(&t1.to_le_bytes());
     m
-}
-
-#[cfg(not(all(
-    any(target_arch = "x86", target_arch = "x86_64"),
-    target_feature = "aes",
-    target_feature = "sse2"
-)))]
-#[derive(Clone, Debug, Default)]
-pub struct AesNiHasher;
-
-#[cfg(not(all(
-    any(target_arch = "x86", target_arch = "x86_64"),
-    target_feature = "aes",
-    target_feature = "sse2"
-)))]
-impl GateHasher for AesNiHasher {
-    fn hash_for_garbling(_selected_label: &S, _other_label: &S, _gate_id: GateId) -> (S, S) {
-        todo!(
-            "AesNiHasher requires AES-NI; build with feature 'aes-ni' and target features 'aes,sse2'"
-        )
-    }
-
-    fn hash_for_degarbling(_label: &S, _gate_id: GateId) -> S {
-        todo!(
-            "AesNiHasher requires AES-NI; build with feature 'aes-ni' and target features 'aes,sse2'"
-        )
-    }
 }
