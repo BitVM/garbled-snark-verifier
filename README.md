@@ -11,7 +11,7 @@ Gate counts are automatically measured for k=6 (64 constraints) on every push to
 ⚡ Performance (local laptop with AES/SSE enabled)
 - ⏱️ Throughput: ~17,000,000 gates/s (≈ 68 ns/gate)
 - 🔐 Modes: garbling and evaluation each ≈ 11 minutes for the measured workload; evaluation matches garbling throughput because garbling is SIMD‑accelerated (AES‑NI/AVX2 half‑gates).
-- 💾 Memory: < 100 MB peak RSS
+- 💾 Memory: < 200 MB peak RSS
 - 🧪 Build flags: x86_64 with AES/SSE/AVX2/PCLMULQDQ enabled; see `.cargo/config.toml`
 
 
