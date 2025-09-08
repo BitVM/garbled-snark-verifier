@@ -1,0 +1,14 @@
+error: Component functions cannot have 'self' parameter
+  --> tests/fail/self_parameter.rs:39:18
+   |
+39 |     fn with_self(&self, a: WireId) -> WireId {
+   |                  ^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::FromWires`
+  --> tests/fail/self_parameter.rs:27:42
+   |
+27 |         pub mod into_wire_list { pub use super::FromWires; }
+   |                                          ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+

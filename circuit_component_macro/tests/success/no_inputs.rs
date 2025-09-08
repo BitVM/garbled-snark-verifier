@@ -32,13 +32,21 @@ mod circuit {
 #[derive(Clone, Copy)]
 struct WireId(usize);
 
-struct MyContext;
+trait CircuitContext {
+    fn issue_wire(&mut self) -> WireId;
+    fn with_named_child<I: crate::circuit::streaming::WiresObject, O: crate::circuit::streaming::into_wire_list::FromWires>(
+        &mut self,
+        _key: [u8; 8],
+        _inputs: I,
+        f: impl Fn(&mut Self, &I) -> O,
+        _arity: usize,
+    ) -> O { f(self, &_inputs) }
+}
 
-impl MyContext {
-    #[component]
-    fn with_self(&self, a: WireId) -> WireId {
-        a
-    }
+#[component]
+fn no_input_gate(ctx: &mut impl CircuitContext) -> WireId {
+    ctx.issue_wire()
 }
 
 fn main() {}
+

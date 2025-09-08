@@ -1,0 +1,11 @@
+error: Component functions cannot have more than 16 input parameters (excluding context and ignored)
+  --> tests/fail/too_many_inputs.rs:48:5
+   |
+48 | /     ctx: &mut impl CircuitContext,
+49 | |     a1: WireId, a2: WireId, a3: WireId, a4: WireId,
+50 | |     a5: WireId, a6: WireId, a7: WireId, a8: WireId,
+51 | |     a9: WireId, a10: WireId, a11: WireId, a12: WireId,
+52 | |     a13: WireId, a14: WireId, a15: WireId, a16: WireId,
+53 | |     a17: WireId  // This should cause a compile error
+   | |_______________^
+
