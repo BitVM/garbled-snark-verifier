@@ -19,7 +19,6 @@ A streaming garbled-circuit implementation of a Groth16 verifier over BN254. It 
 
 **Background**
 - **What:** Encode a SNARK verifier (Groth16 on BN254) as a boolean circuit and run it as a garbled circuit. The verifier’s elliptic‑curve and pairing arithmetic is expressed with reusable gadgets (Fq/Fr/Fq2/Fq6/Fq12, G1/G2, Miller loop, final exponentiation).
-- **Why (scope):** This is an experimental/benchmarking implementation to study a streaming garbled‑circuit approach on a complex, real‑world circuit. It is intended for research, education, and performance exploration rather than production deployment.
 - **How:**
   - Use Free‑XOR and half‑gates (Zahur–Rosulek–Evans) to make XOR family gates free and reduce AND to two ciphertexts.
   - Keep field arithmetic in Montgomery form to minimize reductions and wire width churn; convert only at the edges when needed.
@@ -169,18 +168,6 @@ RUST_BACKTRACE=1 cargo test test_groth16_verify -- --nocapture
 cargo test --release
 ```
 
-## Security Notes
-- Uses Free‑XOR and half‑gates; AES‑NI or BLAKE3 acts as the PRF/RO for garbling. Review cryptographic assumptions before any serious use.
-- Arithmetic is in Montgomery form; take care when intermixing with non‑Montgomery values.
-- Library code avoids panics where practicable; tests use fixed seeds for determinism.
-- Not audited; experimental code. Do not treat as a drop‑in production 2PC/MPC verifier.
-
 ## Contributing
-- Start with `src/gadgets/groth16.rs` and BN254 submodules for verifier logic.
-- Compare intermediate values to arkworks for debugging field/curve operations.
-- Run `cargo fmt`, `cargo clippy`, and the full test suite before sending changes.
 
-## Reflection
-- The two‑pass streaming design (metadata fanout → runtime credits) materially reduces peak memory at scale and keeps the evaluator in lock‑step with the garbler via a simple ciphertext channel.
-- Treating high‑level types (Fq, Fq2, Fq12, G1, G2) as first‑class “wire objects” makes complex gadgets compositional and testable, at the cost of careful attention to Montgomery domain boundaries.
-- Component templates and an LRU pool are effective for repetitive shapes (e.g., MSM windows), and will keep paying dividends as examples grow in size.
+Contributions are welcome. If you find a bug, have an idea, or want to improve performance or documentation, please open an issue or submit a pull request. For larger changes, start a discussion in an issue first so we can align on the approach. Thank you for helping improve the project.
