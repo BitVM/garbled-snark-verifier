@@ -115,13 +115,23 @@ Does:
 
 ### Garble + Evaluate (Pipeline)
 ```bash
+# Default (AES hasher; warns if HW AES is unavailable)
 RUST_LOG=info cargo run --example groth16_garble --release
+
+# Use BLAKE3 hasher instead of AES
+RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3
 ```
 - Runs a complete two‑phase demo in one binary:
   - Pass 1: Garbles the verifier and streams ciphertexts to a hasher thread (reports garbling throughput and a ciphertext hash).
   - Pass 2: Spawns a garbler thread and an evaluator thread and streams ciphertexts over a channel to evaluate the same circuit shape.
 - Prints a commit from the garbler with output label hashes and the ciphertext hash, and the evaluator verifies both the result label and ciphertext hash match.
 - Tip: tweak the example’s `k` (constraint count) and `CAPACITY` (channel buffer) constants in `examples/groth16_garble.rs` to scale workload and tune throughput.
+
+#### Hasher selection
+- The garbling/evaluation PRF for half‑gates can be selected via `--hasher`:
+  - `aes` (default): AES‑based PRF (uses AES‑NI when available; warns and uses software fallback otherwise).
+  - `blake3`: BLAKE3‑based PRF.
+- Example: `cargo run --example groth16_garble --release -- --hasher blake3`.
 
 ### Focused Micro‑benchmarks
 - `fq_inverse_many` – stress streaming overhead in Fq inverse gadgets.

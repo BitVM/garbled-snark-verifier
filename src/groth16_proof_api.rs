@@ -112,11 +112,13 @@ impl CircuitInput for GarbledInputs {
     }
 }
 
-impl EncodeInput<crate::circuit::streaming::modes::GarbleMode<AesNiHasher>> for GarbledInputs {
+impl<H: crate::core::gate::garbling::GateHasher>
+    EncodeInput<crate::circuit::streaming::modes::GarbleMode<H>> for GarbledInputs
+{
     fn encode(
         &self,
         repr: &Groth16ProofWires,
-        cache: &mut crate::circuit::streaming::modes::GarbleMode<AesNiHasher>,
+        cache: &mut crate::circuit::streaming::modes::GarbleMode<H>,
     ) {
         // Encode public scalars
         for w in &repr.public {

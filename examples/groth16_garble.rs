@@ -1,8 +1,10 @@
 // An example that creates a Groth16 proof (BN254),
 // then garbles the verification circuit using the new streaming garble mode.
-// Run with: `RUST_LOG=info cargo run --example groth16_garble --release`
+// Run with:
+//   Default (AES): `RUST_LOG=info cargo run --example groth16_garble --release`
+//   Blake3:        `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3`
 
-use std::time::Instant;
+use std::{env, time::Instant};
 
 use ark_ec::AffineRepr;
 use ark_ff::UniformRand;
@@ -13,7 +15,7 @@ use ark_relations::{
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
-    AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbledWire,
+    AesNiHasher, Blake3Hasher, CiphertextHashAcc, EvaluatedWire, GarbledWire, GateHasher,
     circuit::streaming::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
@@ -80,14 +82,7 @@ fn hash(inp: &impl AsRef<[u8]>) -> [u8; 32] {
 
 const CAPACITY: usize = 150_000;
 
-fn main() {
-    // Initialize logging (default to info if RUST_LOG not set)
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .try_init();
-
-    // Warn if hardware AES is not available or not used by this build
-    garbled_snark_verifier::warn_if_software_aes();
-
+fn run_with_hasher<H: GateHasher + 'static>() {
     let garbling_seed: u64 = rand::thread_rng().r#gen();
 
     println!("Setting up Groth16 proof...");
@@ -128,7 +123,7 @@ fn main() {
     // Measure first garbling pass performance
     let garble_start = Instant::now();
 
-    let mut garbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
+    let mut garbling_result: StreamingResult<GarbleMode<H>, _, Vec<GarbledWire>> =
         CircuitBuilder::streaming_garbling(
             inputs.clone(),
             CAPACITY,
@@ -205,7 +200,7 @@ fn main() {
 
         // Measure second garbling pass performance (sending to evaluator)
         let regarble_start = Instant::now();
-        let regarbling_result: StreamingResult<GarbleMode<AesNiHasher>, _, Vec<GarbledWire>> =
+        let regarbling_result: StreamingResult<GarbleMode<H>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(
                 inputs,
                 CAPACITY,
@@ -253,18 +248,15 @@ fn main() {
 
         // Measure evaluation performance
         let eval_start = Instant::now();
-        let mut evaluator_result: StreamingResult<
-            EvaluateMode<AesNiHasher>,
-            _,
-            Vec<EvaluatedWire>,
-        > = CircuitBuilder::streaming_evaluation(
-            input_labels,
-            CAPACITY,
-            true_wire,
-            false_wire,
-            proxy_receiver,
-            |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
-        );
+        let mut evaluator_result: StreamingResult<EvaluateMode<H>, _, Vec<EvaluatedWire>> =
+            CircuitBuilder::streaming_evaluation(
+                input_labels,
+                CAPACITY,
+                true_wire,
+                false_wire,
+                proxy_receiver,
+                |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
+            );
         let eval_elapsed = eval_start.elapsed();
         let eval_total = evaluator_result.gate_count.total_gate_count();
         let eval_secs = eval_elapsed.as_secs_f64();
@@ -307,4 +299,46 @@ fn main() {
 
     garbler.join().unwrap();
     evaluator.join().unwrap();
+}
+
+fn main() {
+    // Initialize logging (default to info if RUST_LOG not set)
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .try_init();
+
+    // Simple parser for `--hasher <name>` or `--hasher=<name>`; defaults to AES
+    let mut hasher_choice: Option<String> = None;
+    let mut args = env::args().skip(1); // skip binary name
+    while let Some(arg) = args.next() {
+        if let Some(value) = arg.strip_prefix("--hasher=") {
+            hasher_choice = Some(value.to_lowercase());
+            break;
+        } else if arg == "--hasher" {
+            if let Some(value) = args.next() {
+                hasher_choice = Some(value.to_lowercase());
+            }
+            break;
+        }
+    }
+
+    match hasher_choice.as_deref() {
+        Some("blake3") => {
+            info!("Using Blake3 hasher");
+            run_with_hasher::<Blake3Hasher>();
+        }
+        Some("aes") | None => {
+            // Warn if hardware AES is not available or not used by this build
+            garbled_snark_verifier::warn_if_software_aes();
+            info!("Using AES-NI hasher (or software fallback)");
+            run_with_hasher::<AesNiHasher>();
+        }
+        Some(other) => {
+            eprintln!(
+                "Unknown hasher '{}'. Supported: aes, blake3. Defaulting to aes.",
+                other
+            );
+            garbled_snark_verifier::warn_if_software_aes();
+            run_with_hasher::<AesNiHasher>();
+        }
+    }
 }
