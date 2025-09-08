@@ -8,6 +8,12 @@ Gate counts are automatically measured for k=6 (64 constraints) on every push to
 ![Non-Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/nonfree.json)
 ![Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/free.json)
 
+⚡ Performance (local laptop with AES/SSE enabled)
+- ⏱️ Throughput: ~17,000,000 gates/s (≈ 68 ns/gate)
+- 🔐 Modes: garbling and evaluation each ≈ 11 minutes for the measured workload; evaluation matches garbling throughput because garbling is SIMD‑accelerated (AES‑NI/AVX2 half‑gates).
+- 💾 Memory: < 100 MB peak RSS
+- 🧪 Build flags: x86_64 with AES/SSE/AVX2/PCLMULQDQ enabled; see `.cargo/config.toml`
+
 
 A streaming garbled-circuit implementation of a Groth16 verifier over BN254. It targets large, real‑world verifier circuits while keeping memory bounded via a two‑pass streaming architecture. The crate supports three execution modes: direct boolean execution, garbling, and evaluation (2PC/MPC‑style).
 
