@@ -178,3 +178,6 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
         }
     }
 }
+
+#[cfg(test)]
+mod garble_test;

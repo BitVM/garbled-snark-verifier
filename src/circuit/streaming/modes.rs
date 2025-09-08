@@ -2,20 +2,17 @@ use std::{fmt, num::NonZero};
 
 use crate::{Gate, WireId, storage::Credits};
 
-mod streaming_mode;
-pub use streaming_mode::Execute;
-
 mod execute_mode;
 pub use execute_mode::{ExecuteMode, OptionalBoolean};
+// Back-compat alias used widely in tests/gadgets
+pub type Execute = crate::circuit::streaming::StreamingMode<ExecuteMode>;
 
-mod garble;
-pub use garble::Garble;
+// Collapse thin wrappers; tests live in mode files.
 
 mod garble_mode;
 pub use garble_mode::{GarbleMode, GarbleModeBlake3, OptionalGarbledWire};
 
-mod evaluate;
-pub use evaluate::Evaluate;
+// Collapse thin wrappers; tests live in mode files.
 
 mod evaluate_mode;
 pub use evaluate_mode::{EvaluateMode, EvaluateModeBlake3, OptionalEvaluatedWire};

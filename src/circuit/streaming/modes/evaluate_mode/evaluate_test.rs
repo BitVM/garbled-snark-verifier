@@ -4,11 +4,11 @@ use crossbeam::channel;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 
-use super::EvaluateMode;
 use crate::{
     Delta, EvaluatedWire, GarbledWire, Gate, GateType, S, WireId,
     circuit::streaming::{
-        CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, TRUE_WIRE,
+        CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, EvaluateMode,
+        TRUE_WIRE,
     },
     core::gate::garbling::Blake3Hasher,
 };

@@ -12,6 +12,7 @@ use crate::{
     core::gate_type::GateCount,
     storage::Credits,
 };
+const ROOT_KEY: ComponentKey = [0u8; 8];
 
 /// Generic streaming context that holds mode-specific evaluation logic
 /// along with shared infrastructure (storage, templates, component stack)
@@ -71,6 +72,48 @@ impl<M: CircuitMode> StreamingMode<M> {
         match self {
             StreamingMode::MetadataPass(_meta) => None,
             StreamingMode::ExecutionPass(ctx) => Some(&mut ctx.mode),
+        }
+    }
+
+    // Build execution context from collected metadata and encode inputs.
+    pub fn to_root_ctx<I: crate::circuit::streaming::EncodeInput<M>>(
+        self,
+        mode: M,
+        input: &I,
+        meta_output_wires: &[WireId],
+    ) -> (Self, I::WireRepr) {
+        if let StreamingMode::MetadataPass(meta) = self {
+            let meta = meta.build(meta_output_wires);
+
+            // Here `1` needed for request this values to `StreamingResult`
+            let mut input_credits = vec![1; meta.get_input_len()];
+
+            let mut instance =
+                meta.to_instance(&vec![1; meta_output_wires.len()], |index, credits| {
+                    let rev_index = meta.get_input_len() - 1 - index;
+                    input_credits[rev_index] += credits.get();
+                });
+
+            // Extend the credit stack by adding the ability to allocate input through these credits
+            instance.credits_stack.extend_from_slice(&input_credits);
+
+            let mut ctx = StreamingMode::ExecutionPass(StreamingContext {
+                mode,
+                stack: vec![instance],
+                templates: {
+                    let mut pool = ComponentTemplatePool::new();
+                    pool.insert(ROOT_KEY, meta);
+                    pool
+                },
+                gate_count: GateCount::default(),
+            });
+
+            let input_repr = input.allocate(|| ctx.issue_wire());
+            input.encode(&input_repr, ctx.get_mut_mode().unwrap());
+
+            (ctx, input_repr)
+        } else {
+            panic!()
         }
     }
 }
@@ -213,6 +256,14 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
 }
 
 impl<M: CircuitMode> StreamingContext<M> {
+    pub fn pop_credits(&mut self, len: usize) -> Vec<Credits> {
+        let stack = self.stack.last_mut().unwrap();
+
+        iter::repeat_with(|| stack.next_credit().unwrap())
+            .take(len)
+            .collect::<Vec<_>>()
+    }
+
     pub fn issue_wire_with_credit(&mut self) -> (WireId, Credits) {
         let meta = self.stack.last_mut().unwrap();
 

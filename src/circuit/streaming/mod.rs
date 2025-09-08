@@ -7,12 +7,7 @@ use log::info;
 
 use crate::{
     S, WireId,
-    circuit::streaming::{
-        component_meta::ComponentMetaBuilder,
-        modes::{
-            EvaluateMode, EvaluateModeBlake3, Execute, ExecuteMode, GarbleMode, GarbleModeBlake3,
-        },
-    },
+    circuit::streaming::component_meta::ComponentMetaBuilder,
     core::{gate::garbling::GateHasher, gate_type::GateCount},
 };
 
@@ -72,7 +67,9 @@ mod cache;
 pub use cache::WireStack;
 
 pub mod modes;
-pub use modes::{CircuitMode, Evaluate, Garble};
+pub use modes::{
+    CircuitMode, EvaluateMode, EvaluateModeBlake3, ExecuteMode, GarbleMode, GarbleModeBlake3,
+};
 
 pub mod component_meta;
 
@@ -105,7 +102,7 @@ impl CircuitBuilder<ExecuteMode> {
         I: CircuitInput + EncodeInput<ExecuteMode>,
         O: CircuitOutput<ExecuteMode>,
         O::WireRepr: Debug,
-        F: Fn(&mut Execute, &I::WireRepr) -> O::WireRepr,
+        F: Fn(&mut StreamingMode<ExecuteMode>, &I::WireRepr) -> O::WireRepr,
     {
         CircuitBuilder::run_streaming(inputs, ExecuteMode::with_capacity(live_wires_capacity), f)
     }

@@ -149,3 +149,6 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
         }
     }
 }
+
+#[cfg(test)]
+mod evaluate_test;
