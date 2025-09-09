@@ -267,6 +267,39 @@ mod tests {
     use super::*;
     use crate::circuit::streaming::CircuitBuilder;
 
+    // Helper to reduce duplication across bitflip tests for A, B, and C
+    fn run_false_bitflip_test(mut seed: u64, mutate: impl FnOnce(&mut Groth16ExecInput)) {
+        let k = 6;
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let circuit = DummyCircuit::<ark_bn254::Fr> {
+            a: Some(ark_bn254::Fr::rand(&mut rng)),
+            b: Some(ark_bn254::Fr::rand(&mut rng)),
+            num_variables: 10,
+            num_constraints: 1 << k,
+        };
+        let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
+        let c_val = circuit.a.unwrap() * circuit.b.unwrap();
+        let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
+
+        let mut inputs = Groth16ExecInput {
+            public: vec![c_val],
+            a: proof.a.into_group(),
+            b: proof.b.into_group(),
+            c: proof.c.into_group(),
+        };
+
+        // Apply caller-provided mutation to corrupt a component
+        mutate(&mut inputs);
+
+        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
+                vec![ok]
+            });
+
+        assert!(!out.output_wires[0]);
+    }
+
     #[derive(Copy, Clone)]
     struct DummyCircuit<F: ark_ff::PrimeField> {
         pub a: Option<F>,
@@ -332,35 +365,24 @@ mod tests {
 
     #[test]
     fn test_groth16_verify_false_bitflip_a() {
-        let k = 6;
-        let mut rng = ChaCha20Rng::seed_from_u64(54321);
-        let circuit = DummyCircuit::<ark_bn254::Fr> {
-            a: Some(ark_bn254::Fr::rand(&mut rng)),
-            b: Some(ark_bn254::Fr::rand(&mut rng)),
-            num_variables: 10,
-            num_constraints: 1 << k,
-        };
-        let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
-        let c_val = circuit.a.unwrap() * circuit.b.unwrap();
-        let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
+        run_false_bitflip_test(54321, |inputs| {
+            inputs.a.x += ark_bn254::Fq::ONE;
+        });
+    }
 
-        let mut a_bad = proof.a.into_group();
-        a_bad.x += ark_bn254::Fq::ONE;
+    #[test]
+    fn test_groth16_verify_false_bitflip_b() {
+        run_false_bitflip_test(98765, |inputs| {
+            // Flip one limb by adding ONE to c0 of x
+            inputs.b.x.c0 += ark_bn254::Fq::ONE;
+        });
+    }
 
-        let inputs = Groth16ExecInput {
-            public: vec![c_val],
-            a: a_bad,
-            b: proof.b.into_group(),
-            c: proof.c.into_group(),
-        };
-
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
-                vec![ok]
-            });
-
-        assert!(!out.output_wires[0]);
+    #[test]
+    fn test_groth16_verify_false_bitflip_c() {
+        run_false_bitflip_test(19283, |inputs| {
+            inputs.c.x += ark_bn254::Fq::ONE;
+        });
     }
 
     #[test]
