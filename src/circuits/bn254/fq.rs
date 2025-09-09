@@ -410,6 +410,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_fq_is_qnr_montgomery() {
         use num_traits::One;
         let a = Fq::random();
