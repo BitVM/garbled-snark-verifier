@@ -147,7 +147,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
                 concat!(module_path!(), "::", #fn_name_str),
                 [] as [(&str, &[u8]); 0],
                 #arity_expr,
-                crate::circuit::streaming::WiresObject::to_wires_vec(&#input_wires_object).len()
+                crate::circuit::streaming::WiresObject::to_wires_vec(&__input_wires).len()
             )
         }
     } else {
@@ -164,24 +164,24 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
                 use crate::circuit::streaming::OffCircuitParam;
 
                 // Collect parameter bytes
-                let mut params = Vec::new();
+                let mut __params = Vec::new();
                 #(
-                    params.push((
+                    __params.push((
                         stringify!(#ignored_param_names),
                         #ignored_param_names.to_key_bytes()
                     ));
                 )*
 
                 // Convert to the format expected by generate_component_key
-                let params_refs: Vec<(&str, &[u8])> = params.iter()
+                let __params_refs: Vec<(&str, &[u8])> = __params.iter()
                     .map(|(name, bytes)| (*name, bytes.as_slice()))
                     .collect();
 
                 crate::circuit::streaming::generate_component_key(
                     concat!(module_path!(), "::", #fn_name_str),
-                    params_refs,
+                    __params_refs,
                     #arity_expr,
-                    crate::circuit::streaming::WiresObject::to_wires_vec(&#input_wires_object).len()
+                    crate::circuit::streaming::WiresObject::to_wires_vec(&__input_wires).len()
                 )
             }
         }
@@ -215,17 +215,17 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
                 }
             }) {
                 quote! {
-                    let #single_param = inputs.clone();
+                    let #single_param = __inputs.clone();
                     let #single_param = #single_param.as_slice();
                 }
             } else {
                 quote! {
-                    let #single_param = inputs.clone();
+                    let #single_param = __inputs.clone();
                     let #single_param = &#single_param;
                 }
             }
         } else {
-            quote! { let #single_param = inputs.clone(); }
+            quote! { let #single_param = __inputs.clone(); }
         }
     } else {
         // For multiple parameters, unpack tuple and create reference bindings as needed
@@ -262,7 +262,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
             .collect();
 
         quote! {
-            let (#(#tuple_destructure,)*) = inputs.clone();
+            let (#(#tuple_destructure,)*) = __inputs.clone();
             #(#ref_bindings)*
         }
     };
@@ -273,9 +273,9 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
             #context_param_name: #context_param_type,
             #(#ordered_param_idents: #ordered_param_types),*
         ) #return_type #where_clause {
-            let input_wires_object = #input_wires_object;
+            let __input_wires = #input_wires_object;
 
-            #context_param_name.with_named_child((#key_generation), input_wires_object, |comp, inputs| {
+            #context_param_name.with_named_child((#key_generation), __input_wires, |mut __comp, __inputs| {
                 // Unpack inputs into individual variables
                 #unpack_inputs
                 #transformed_body
@@ -306,7 +306,7 @@ impl VisitMut for ContextRenamer {
             // Replace the identifier with the new name
             // This is a bit tricky because we need to replace an Ident with a TokenStream
             // We'll use a placeholder approach
-            *ident = syn::parse_quote! { comp };
+            *ident = syn::parse_quote! { __comp };
         }
     }
 }

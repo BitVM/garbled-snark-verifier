@@ -10,7 +10,7 @@ use rand::Rng;
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::WiresObject,
+    circuit::streaming::{FromWires, WiresObject},
     gadgets::{
         self,
         bigint::{self, Error},
@@ -45,7 +45,7 @@ impl WiresObject for Fq {
     }
 }
 
-impl crate::circuit::streaming::FromWires for Fq {
+impl FromWires for Fq {
     fn from_wires(wires: &[WireId]) -> Option<Self> {
         Some(Self(crate::gadgets::bigint::BigIntWires::from_bits(
             wires.iter().copied(),

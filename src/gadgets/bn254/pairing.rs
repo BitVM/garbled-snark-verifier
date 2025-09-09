@@ -2517,6 +2517,8 @@ mod tests {
         assert_eq!(result.output_wires.value, expected_m);
     }
 
+    // Too slow (~13 minutes) for default test runs; enable when benchmarking.
+    #[ignore]
     #[test]
     fn test_multi_miller_loop_groth16_evaluate_montgomery_fast_matches_ark_many() {
         // Helper to build expected pre-final-exponentiation value using arkworks' Miller loop

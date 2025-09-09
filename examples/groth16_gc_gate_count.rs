@@ -14,7 +14,8 @@ use garbled_snark_verifier as gsv;
 use gsv::{
     Groth16ExecInput,
     circuit::streaming::{CircuitBuilder, StreamingResult},
-    groth16_verify,
+    gadgets::groth16::Groth16ExecInputCompressed,
+    groth16_verify, groth16_verify_compressed,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -65,12 +66,19 @@ impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
 }
 
 fn main() {
-    let json_output = env::args().any(|a| a == "--json");
+    let args: Vec<String> = env::args().collect();
+    let json_output = args.iter().any(|a| a == "--json");
+    let use_compressed = args.iter().any(|a| a == "--compressed");
     if !json_output {
         println!(
-            "Running Groth16 gate-count example: k={}, constraints={}",
+            "Running Groth16 gate-count example: k={}, constraints={}, mode={}",
             K,
-            1 << K
+            1 << K,
+            if use_compressed {
+                "compressed"
+            } else {
+                "uncompressed"
+            }
         );
     }
 
@@ -89,23 +97,43 @@ fn main() {
     let c_val = circuit.a.unwrap() * circuit.b.unwrap();
     let proof = ark_groth16::Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
-    // Prepare input wires and run streaming execute to count gates
-    let inputs = Groth16ExecInput {
+    // Construct input once, then choose uncompressed vs compressed execution
+    let input = Groth16ExecInput {
         public: vec![c_val],
         a: proof.a.into_group(),
         b: proof.b.into_group(),
         c: proof.c.into_group(),
     };
 
-    let result: StreamingResult<_, _, Vec<bool>> =
-        CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, wires| {
-            let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
-            vec![ok]
-        });
+    let (verified, gate_count) = if use_compressed {
+        // Compressed path includes decompression gadgets; allocate more gates
+        let result: StreamingResult<_, _, Vec<bool>> = CircuitBuilder::streaming_execute(
+            Groth16ExecInputCompressed(input),
+            80_000,
+            |ctx, wires| {
+                let ok = groth16_verify_compressed(
+                    ctx,
+                    &wires.public,
+                    &wires.a,
+                    &wires.b,
+                    &wires.c,
+                    &vk,
+                );
+                vec![ok]
+            },
+        );
+        (result.output_wires[0], result.gate_count)
+    } else {
+        let result: StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(input, 40_000, |ctx, wires| {
+                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
+                vec![ok]
+            });
+        (result.output_wires[0], result.gate_count)
+    };
 
-    let verified = result.output_wires[0];
-    let total_gates = result.gate_count.total_gate_count();
-    let nonfree_gates = result.gate_count.nonfree_gate_count();
+    let total_gates = gate_count.total_gate_count();
+    let nonfree_gates = gate_count.nonfree_gate_count();
     let free_gates = total_gates.saturating_sub(nonfree_gates);
 
     if json_output {
@@ -118,9 +146,10 @@ fn main() {
                 "free_formatted": format_number(free_gates),
                 "total": total_gates,
                 "total_formatted": format_number(total_gates),
-                "breakdown": result.gate_count.0
+                "breakdown": gate_count.0
             },
-            "verification_result": verified
+            "verification_result": verified,
+            "compressed": use_compressed
         });
         println!("{}", serde_json::to_string_pretty(&output).expect("json"));
     } else {
@@ -129,5 +158,13 @@ fn main() {
         println!("free:     {}", free_gates);
         println!("total:    {}", total_gates);
         println!("verified: {}", verified);
+        println!(
+            "mode:     {}",
+            if use_compressed {
+                "compressed"
+            } else {
+                "uncompressed"
+            }
+        );
     }
 }

@@ -12,6 +12,7 @@
 //! Wire count formula: `public.len * Fr::N_BITS + 8 * Fq::N_BITS`.
 //! The constructors/encoders assume this exact layout.
 
+use ark_ec::CurveGroup;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
 use itertools::Itertools;
 use num_bigint::BigUint;
@@ -23,6 +24,7 @@ use crate::{
         CircuitInput,
         streaming::{CircuitMode, EncodeInput, WiresObject},
     },
+    gadgets::groth16::{CompressedG1Wires, CompressedG2Wires},
     *,
 };
 
@@ -403,5 +405,119 @@ pub fn groth16_proof_verify<C: CircuitContext>(
 
     let is_ok = groth16_verify(ctx, &wires.public, &a, &b, &c, vk);
 
+    vec![is_ok]
+}
+
+// Compressed API (Montgomery x for each point + y_flag)
+
+pub struct Groth16ProofCompressedInputs {
+    pub public: Vec<ark_bn254::Fr>,
+    pub a: ark_bn254::G1Projective,
+    pub b: ark_bn254::G2Projective,
+    pub c: ark_bn254::G1Projective,
+}
+
+pub struct Groth16ProofCompressedWires {
+    pub public: Vec<FrWire>,
+    pub a: CompressedG1Wires,
+    pub b: CompressedG2Wires,
+    pub c: CompressedG1Wires,
+}
+
+impl CircuitInput for Groth16ProofCompressedInputs {
+    type WireRepr = Groth16ProofCompressedWires;
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+        Groth16ProofCompressedWires {
+            public: self
+                .public
+                .iter()
+                .map(|_| FrWire::new(&mut issue))
+                .collect(),
+            a: CompressedG1Wires::new(&mut issue),
+            b: CompressedG2Wires::new(&mut issue),
+            c: CompressedG1Wires::new(issue),
+        }
+    }
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        let mut ids = Vec::new();
+        for s in &repr.public {
+            ids.extend(s.to_wires_vec());
+        }
+        ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.b.to_wires_vec());
+        ids.extend(repr.c.to_wires_vec());
+        ids
+    }
+}
+
+impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ProofCompressedInputs {
+    fn encode(&self, repr: &Groth16ProofCompressedWires, cache: &mut M) {
+        // Encode public scalars
+        for (w, v) in repr.public.iter().zip(self.public.iter()) {
+            let fr_fn = FrWire::get_wire_bits_fn(w, v).unwrap();
+            for &wire in w.iter() {
+                if let Some(bit) = fr_fn(wire) {
+                    cache.feed_wire(wire, bit);
+                }
+            }
+        }
+
+        // Use standard affine values to compute flags; feed Montgomery x
+        let a_aff_std = self.a.into_affine();
+        let b_aff_std = self.b.into_affine();
+        let c_aff_std = self.c.into_affine();
+
+        let a_flag = (a_aff_std.y.square())
+            .sqrt()
+            .expect("y^2 must be QR")
+            .eq(&a_aff_std.y);
+        let b_flag = (b_aff_std.y.square())
+            .sqrt()
+            .expect("y^2 must be QR in Fq2")
+            .eq(&b_aff_std.y);
+        let c_flag = (c_aff_std.y.square())
+            .sqrt()
+            .expect("y^2 must be QR")
+            .eq(&c_aff_std.y);
+
+        let a_x_m = FqWire::as_montgomery(a_aff_std.x);
+        let b_x_m = Fq2Wire::as_montgomery(b_aff_std.x);
+        let c_x_m = FqWire::as_montgomery(c_aff_std.x);
+
+        // Feed A.x Montgomery bits + flag
+        let a_x_fn = FqWire::get_wire_bits_fn(&repr.a.x_m, &a_x_m).unwrap();
+        for &wire_id in repr.a.x_m.iter() {
+            if let Some(bit) = a_x_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+        cache.feed_wire(repr.a.y_flag, a_flag);
+
+        // Feed B.x Montgomery bits + flag
+        let b_x_fn = Fq2Wire::get_wire_bits_fn(&repr.b.p, &b_x_m).unwrap();
+        for &wire_id in repr.b.p.iter() {
+            if let Some(bit) = b_x_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+        cache.feed_wire(repr.b.y_flag, b_flag);
+
+        // Feed C.x Montgomery bits + flag
+        let c_x_fn = FqWire::get_wire_bits_fn(&repr.c.x_m, &c_x_m).unwrap();
+        for &wire_id in repr.c.x_m.iter() {
+            if let Some(bit) = c_x_fn(wire_id) {
+                cache.feed_wire(wire_id, bit);
+            }
+        }
+        cache.feed_wire(repr.c.y_flag, c_flag);
+    }
+}
+
+pub fn groth16_proof_verify_compressed<C: CircuitContext>(
+    ctx: &mut C,
+    wires: &Groth16ProofCompressedWires,
+    vk: &ark_groth16::VerifyingKey<ark_bn254::Bn254>,
+) -> Vec<WireId> {
+    let is_ok = groth16_verify_compressed(ctx, &wires.public, &wires.a, &wires.b, &wires.c, vk);
     vec![is_ok]
 }
