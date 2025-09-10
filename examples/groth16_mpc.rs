@@ -2,18 +2,12 @@
 // then verifies it via the streaming MPC-style executor with logs enabled.
 // Run with: `RUST_LOG=info cargo run --example groth16_mpc --release`
 
-use ark_ec::AffineRepr;
-use ark_ff::UniformRand;
-use ark_groth16::Groth16;
-use ark_relations::{
-    lc,
-    r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
-};
-use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
-use garbled_snark_verifier::{self as gsv, WireId, circuit::streaming::StreamingResult};
-use gsv::{
-    FrWire, G1Wire, G2Wire,
-    circuit::streaming::{CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, WiresObject},
+use garbled_snark_verifier::{
+    FrWire, G1Wire, G2Wire, WireId,
+    ark::{self, AffineRepr, CircuitSpecificSetupSNARK, SNARK, UniformRand},
+    circuit::streaming::{
+        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
+    },
     groth16_verify,
 };
 use rand::SeedableRng;
@@ -21,44 +15,48 @@ use rand_chacha::ChaCha20Rng;
 
 // Simple multiplicative circuit used to produce a valid Groth16 proof.
 #[derive(Copy, Clone)]
-struct DummyCircuit<F: ark_ff::PrimeField> {
+struct DummyCircuit<F: ark::PrimeField> {
     pub a: Option<F>,
     pub b: Option<F>,
     pub num_variables: usize,
     pub num_constraints: usize,
 }
 
-impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
+impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
+    fn generate_constraints(
+        self,
+        cs: ark::ConstraintSystemRef<F>,
+    ) -> Result<(), ark::SynthesisError> {
+        let a = cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
+        let b = cs.new_witness_variable(|| self.b.ok_or(ark::SynthesisError::AssignmentMissing))?;
         let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
+            let a = self.a.ok_or(ark::SynthesisError::AssignmentMissing)?;
+            let b = self.b.ok_or(ark::SynthesisError::AssignmentMissing)?;
             Ok(a * b)
         })?;
 
         // pad witnesses
         for _ in 0..(self.num_variables - 3) {
-            let _ = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
+            let _ =
+                cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
         }
 
         // repeat the same multiplicative constraint
         for _ in 0..self.num_constraints - 1 {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
+            cs.enforce_constraint(ark::lc!() + a, ark::lc!() + b, ark::lc!() + c)?;
         }
 
         // final no-op constraint keeps ark-relations happy
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
+        cs.enforce_constraint(ark::lc!(), ark::lc!(), ark::lc!())?;
         Ok(())
     }
 }
 
 struct Inputs {
-    public: Vec<ark_bn254::Fr>,
-    a: ark_bn254::G1Projective,
-    b: ark_bn254::G2Projective,
-    c: ark_bn254::G1Projective,
+    public: Vec<ark::Fr>,
+    a: ark::G1Projective,
+    b: ark::G2Projective,
+    c: ark::G1Projective,
 }
 
 struct InputWires {
@@ -82,7 +80,7 @@ impl CircuitInput for Inputs {
             c: G1Wire::new(&mut issue),
         }
     }
-    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<gsv::WireId> {
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
         let mut ids = Vec::new();
         for s in &repr.public {
             ids.extend(s.to_wires_vec());
@@ -165,15 +163,15 @@ fn main() {
     // 1) Build and prove a tiny multiplicative circuit
     let k = 6; // 2^k constraints
     let mut rng = ChaCha20Rng::seed_from_u64(12345);
-    let circuit = DummyCircuit::<ark_bn254::Fr> {
-        a: Some(ark_bn254::Fr::rand(&mut rng)),
-        b: Some(ark_bn254::Fr::rand(&mut rng)),
+    let circuit = DummyCircuit::<ark::Fr> {
+        a: Some(ark::Fr::rand(&mut rng)),
+        b: Some(ark::Fr::rand(&mut rng)),
         num_variables: 10,
         num_constraints: 1 << k,
     };
-    let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).expect("setup");
+    let (pk, vk) = ark::Groth16::<ark::Bn254>::setup(circuit, &mut rng).expect("setup");
     let c_val = circuit.a.unwrap() * circuit.b.unwrap();
-    let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
+    let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
     // 2) Prepare inputs for the streaming gadget execution
     let inputs = Inputs {

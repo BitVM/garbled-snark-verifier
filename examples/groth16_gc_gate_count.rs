@@ -3,13 +3,9 @@
 
 use std::env;
 
-use ark_ff::UniformRand;
-use ark_relations::{
-    lc,
-    r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
-};
-use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
+    ark,
+    ark::{CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::streaming::{CircuitBuilder, StreamingResult},
     garbled_groth16,
 };
@@ -33,30 +29,34 @@ fn format_number(n: u64) -> String {
 const K: usize = 6; // match main branch default
 
 #[derive(Copy, Clone)]
-struct DummyCircuit<F: ark_ff::PrimeField> {
+struct DummyCircuit<F: ark::PrimeField> {
     pub a: Option<F>,
     pub b: Option<F>,
     pub num_variables: usize,
     pub num_constraints: usize,
 }
 
-impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
+impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
+    fn generate_constraints(
+        self,
+        cs: ark::ConstraintSystemRef<F>,
+    ) -> Result<(), ark::SynthesisError> {
+        let a = cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
+        let b = cs.new_witness_variable(|| self.b.ok_or(ark::SynthesisError::AssignmentMissing))?;
         let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
+            let a = self.a.ok_or(ark::SynthesisError::AssignmentMissing)?;
+            let b = self.b.ok_or(ark::SynthesisError::AssignmentMissing)?;
             Ok(a * b)
         })?;
 
         for _ in 0..(self.num_variables - 3) {
-            let _ = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
+            let _ =
+                cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
         }
         for _ in 0..self.num_constraints - 1 {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
+            cs.enforce_constraint(ark::lc!() + a, ark::lc!() + b, ark::lc!() + c)?;
         }
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
+        cs.enforce_constraint(ark::lc!(), ark::lc!(), ark::lc!())?;
         Ok(())
     }
 }
@@ -82,16 +82,16 @@ fn main() {
     let mut rng = ChaCha20Rng::seed_from_u64(12345);
 
     // Build a tiny multiplicative circuit and produce a valid Groth16 proof
-    let circuit = DummyCircuit::<ark_bn254::Fr> {
-        a: Some(ark_bn254::Fr::rand(&mut rng)),
-        b: Some(ark_bn254::Fr::rand(&mut rng)),
+    let circuit = DummyCircuit::<ark::Fr> {
+        a: Some(ark::Fr::rand(&mut rng)),
+        b: Some(ark::Fr::rand(&mut rng)),
         num_variables: 10,
         num_constraints: 1 << K,
     };
 
-    let (pk, vk) = ark_groth16::Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
+    let (pk, vk) = ark::Groth16::<ark::Bn254>::setup(circuit, &mut rng).unwrap();
     let c_val = circuit.a.unwrap() * circuit.b.unwrap();
-    let proof = ark_groth16::Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
+    let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
     // Construct input once, then choose uncompressed vs compressed execution
     let proof_input = garbled_groth16::Proof::new(proof, vec![c_val]);

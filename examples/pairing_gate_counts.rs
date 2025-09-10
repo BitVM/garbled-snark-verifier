@@ -4,11 +4,10 @@
 
 use std::{io::Write, thread};
 
-use ark_ec::{CurveGroup, PrimeGroup, short_weierstrass::SWCurveConfig};
-use ark_ff::fields::Field;
+use ark::{CurveGroup, Field, PrimeGroup, SWCurveConfig};
 use garbled_snark_verifier as gsv;
 use garbled_snark_verifier::{
-    WireId,
+    WireId, ark,
     circuit::streaming::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
         modes::Execute,
@@ -21,14 +20,14 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
 fn fq12_one_const() -> Fq12 {
-    Fq12::new_constant(ark_bn254::Fq12::ONE)
+    Fq12::new_constant(ark::Fq12::ONE)
 }
 
 #[derive(Clone)]
 struct Inputs {
-    g1: ark_bn254::G1Projective,
-    g2: ark_bn254::G2Projective,
-    g2_aff: ark_bn254::G2Affine,
+    g1: ark::G1Projective,
+    g2: ark::G2Projective,
+    g2_aff: ark::G2Affine,
 }
 
 #[derive(Clone)]
@@ -111,13 +110,13 @@ fn main() {
 
     // Deterministic inputs - use affine points with z=1 for fair comparison
     let _rng = ChaCha20Rng::seed_from_u64(42);
-    let g1_proj = ark_bn254::G1Projective::generator() * ark_bn254::Fr::from(5u64);
-    let g2_proj = ark_bn254::G2Projective::generator() * ark_bn254::Fr::from(7u64);
+    let g1_proj = ark::G1Projective::generator() * ark::Fr::from(5u64);
+    let g2_proj = ark::G2Projective::generator() * ark::Fr::from(7u64);
     // Convert to affine then back to projective with z=1
     let g1_aff = g1_proj.into_affine();
     let g2_aff = g2_proj.into_affine();
-    let g1 = ark_bn254::G1Projective::from(g1_aff);
-    let g2 = ark_bn254::G2Projective::from(g2_aff);
+    let g1 = ark::G1Projective::from(g1_aff);
+    let g2 = ark::G2Projective::from(g2_aff);
     let inputs = Inputs { g1, g2, g2_aff };
 
     // Print CSV header once
@@ -127,8 +126,8 @@ fn main() {
     // Only compute Fq::mul_montgomery gate count if enabled
     if ENABLE_FQ_MUL_MONTGOMERY {
         run_and_print("fq_mul_montgomery", inputs.clone(), move |ctx, _w| {
-            let a = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::from(u32::MAX))).unwrap();
-            let b = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::from(u64::MAX))).unwrap();
+            let a = Fq::new_constant(&Fq::as_montgomery(ark::Fq::from(u32::MAX))).unwrap();
+            let b = Fq::new_constant(&Fq::as_montgomery(ark::Fq::from(u64::MAX))).unwrap();
             let c = Fq::mul_montgomery(ctx, &a, &b);
             c.to_wires_vec()
         });
@@ -162,7 +161,7 @@ fn main() {
             let inputs = inputs.clone();
             move || {
                 run_and_print("fq_mul_by_constant_montgomery", inputs, move |ctx, w| {
-                    let c_m = Fq::as_montgomery(ark_bn254::Fq::from(123u64));
+                    let c_m = Fq::as_montgomery(ark::Fq::from(123u64));
                     let _out = Fq::mul_by_constant_montgomery(ctx, &w.g1.x, &c_m);
                     vec![]
                 });
@@ -306,8 +305,7 @@ fn main() {
                     let y2 = Fq::add(
                         ctx,
                         &x3,
-                        &Fq::new_constant(&Fq::as_montgomery(ark_bn254::g1::Config::COEFF_B))
-                            .unwrap(),
+                        &Fq::new_constant(&Fq::as_montgomery(ark::g1::Config::COEFF_B)).unwrap(),
                     );
                     let y = Fq::sqrt_montgomery(ctx, &y2);
                     let neg_y = Fq::neg(ctx, &y);
@@ -334,7 +332,7 @@ fn main() {
                     let x = &w.g2.x;
                     let x2 = Fq2::square_montgomery(ctx, x);
                     let x3 = Fq2::mul_montgomery(ctx, &x2, x);
-                    let b = Fq2::as_montgomery(ark_bn254::g2::Config::COEFF_B);
+                    let b = Fq2::as_montgomery(ark::g2::Config::COEFF_B);
                     let y2 = Fq2::add_constant(ctx, &x3, &b);
                     let y = Fq2::sqrt_general_montgomery(ctx, &y2);
                     let neg_y = Fq2::neg(ctx, y.clone());

@@ -6,15 +6,9 @@
 
 use std::{env, thread, time::Instant};
 
-use ark_ff::UniformRand;
-use ark_groth16::Groth16;
-use ark_relations::{
-    lc,
-    r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
-};
-use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 use garbled_snark_verifier::{
     AesNiHasher, Blake3Hasher, CiphertextHashAcc, EvaluatedWire, GarbledWire, GateHasher,
+    ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::streaming::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
@@ -27,35 +21,39 @@ use rand_chacha::ChaCha20Rng;
 
 // Simple multiplicative circuit used to produce a valid Groth16 proof.
 #[derive(Copy, Clone)]
-struct DummyCircuit<F: ark_ff::PrimeField> {
+struct DummyCircuit<F: ark::PrimeField> {
     pub a: Option<F>,
     pub b: Option<F>,
     pub num_variables: usize,
     pub num_constraints: usize,
 }
 
-impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
+impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
+    fn generate_constraints(
+        self,
+        cs: ark::ConstraintSystemRef<F>,
+    ) -> Result<(), ark::SynthesisError> {
+        let a = cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
+        let b = cs.new_witness_variable(|| self.b.ok_or(ark::SynthesisError::AssignmentMissing))?;
         let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
+            let a = self.a.ok_or(ark::SynthesisError::AssignmentMissing)?;
+            let b = self.b.ok_or(ark::SynthesisError::AssignmentMissing)?;
             Ok(a * b)
         })?;
 
         // pad witnesses
         for _ in 0..(self.num_variables - 3) {
-            let _ = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
+            let _ =
+                cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
         }
 
         // repeat the same multiplicative constraint
         for _ in 0..self.num_constraints - 1 {
-            cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
+            cs.enforce_constraint(ark::lc!() + a, ark::lc!() + b, ark::lc!() + c)?;
         }
 
         // final no-op constraint keeps ark-relations happy
-        cs.enforce_constraint(lc!(), lc!(), lc!())?;
+        cs.enforce_constraint(ark::lc!(), ark::lc!(), ark::lc!())?;
         Ok(())
     }
 }
@@ -86,13 +84,13 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     // 1) Build and prove a tiny multiplicative circuit
     let k = 6; // 2^k constraints
     let mut rng = ChaCha20Rng::seed_from_u64(12345);
-    let circuit = DummyCircuit::<ark_bn254::Fr> {
-        a: Some(ark_bn254::Fr::rand(&mut rng)),
-        b: Some(ark_bn254::Fr::rand(&mut rng)),
+    let circuit = DummyCircuit::<ark::Fr> {
+        a: Some(ark::Fr::rand(&mut rng)),
+        b: Some(ark::Fr::rand(&mut rng)),
         num_variables: 10,
         num_constraints: 1 << k,
     };
-    let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).expect("setup");
+    let (pk, vk) = ark::Groth16::<ark::Bn254>::setup(circuit, &mut rng).expect("setup");
 
     info!("Proof generated successfully");
 
@@ -140,7 +138,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     //
     // For PegOut, we try to prove the incorrectness of the claimer's
     // action. If we succeed, then we will send the correct proof and receive the secret label.
-    let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
+    let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
     // NOTE If you want to break the proof, the easiest thing to do is just replace this value with whatever you want.
     let public_param = circuit.a.unwrap() * circuit.b.unwrap();
