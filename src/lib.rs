@@ -16,7 +16,7 @@ pub use core::{
     },
     gate_type::GateType,
     s::S,
-    wire::{EvaluatedWire, GarbledWire, GarbledWires, WireError, WireId},
+    wire::{EvaluatedWire, GarbledWire, WireError, WireId},
 };
 
 pub use ciphertext_hasher::CiphertextHashAcc;

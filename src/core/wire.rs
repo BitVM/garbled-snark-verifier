@@ -96,75 +96,7 @@ impl Default for GarbledWire {
     }
 }
 
-mod garbled_wires {
-    use std::collections::{HashMap, hash_map::Entry};
-
-    use super::{GarbledWire, WireError, WireId};
-
-    #[derive(Debug)]
-    pub struct GarbledWires {
-        wires: HashMap<WireId, GarbledWire>,
-    }
-
-    impl GarbledWires {
-        pub fn new(_num_wires: usize) -> Self {
-            Self {
-                wires: HashMap::new(),
-            }
-        }
-
-        pub fn get(&self, wire_id: WireId) -> Result<&GarbledWire, WireError> {
-            self.wires
-                .get(&wire_id)
-                .ok_or(WireError::InvalidWireIndex(wire_id))
-        }
-
-        pub fn init(
-            &mut self,
-            wire_id: WireId,
-            wire: GarbledWire,
-        ) -> Result<&GarbledWire, WireError> {
-            //if wire_id.0 > self.num_wires {
-            //    return Err(WireError::InvalidWireIndex(wire_id));
-            //}
-            match self.wires.entry(wire_id) {
-                Entry::Occupied(_) => Err(WireError::InvalidWireIndex(wire_id)),
-                Entry::Vacant(vac) => Ok(vac.insert(wire)),
-            }
-        }
-
-        pub fn toggle_wire_not_mark(&mut self, wire_id: WireId) -> Result<(), WireError> {
-            self.wires
-                .get_mut(&wire_id)
-                .ok_or(WireError::InvalidWireIndex(wire_id))?
-                .toggle_not();
-
-            Ok(())
-        }
-
-        pub fn get_or_init<'s>(
-            &'s mut self,
-            wire_id: WireId,
-            init: &mut impl FnMut() -> GarbledWire,
-        ) -> Result<&'s GarbledWire, WireError> {
-            let containt = self.wires.contains_key(&wire_id);
-
-            match containt {
-                true => self.get(wire_id),
-                false => {
-                    self.init(wire_id, init())?;
-                    self.get(wire_id)
-                }
-            }
-        }
-
-        pub fn size(&self) -> usize {
-            // TODO Double check
-            self.wires.len()
-        }
-    }
-}
-pub use garbled_wires::GarbledWires;
+// Legacy GarbledWires container removed in favor of direct GarbledWire usage.
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvaluatedWire {
