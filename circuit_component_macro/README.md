@@ -122,7 +122,7 @@ Examples:
 use circuit_component_macro::bn_component;
 
 #[bn_component(arity = "a.len() + 1")]
-fn add_generic(ctx: &mut impl CircuitContext, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
+fn add(ctx: &mut impl CircuitContext, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     // ...
 }
 

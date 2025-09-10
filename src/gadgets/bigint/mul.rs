@@ -4,7 +4,7 @@ use log::{debug, trace};
 use super::{BigIntWires, BigUint, add};
 use crate::{CircuitContext, Gate, GateType, WireId, circuit::streaming::FALSE_WIRE};
 
-/// Pre-computed Karatsuba vs Generic algorithm decisions
+/// Pre-computed Karatsuba vs Naive algorithm decisions
 const fn is_use_karatsuba(len: usize) -> bool {
     match len {
         21 => false,
@@ -17,7 +17,7 @@ fn extend_with_zero<C: CircuitContext>(_circuit: &mut C, bits: &mut Vec<WireId>)
 }
 
 #[bn_component(arity = "a.len() * 2")]
-pub fn mul_generic<C: CircuitContext>(
+pub fn mul_naive<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
     b: &BigIntWires,
@@ -38,7 +38,7 @@ pub fn mul_generic<C: CircuitContext>(
             addition_wires_1.push(wire);
         }
 
-        let addition_result = add::add_generic(
+        let addition_result = add::add(
             circuit,
             &BigIntWires {
                 bits: addition_wires_0,
@@ -64,7 +64,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
     let len = a.len();
 
     if len < 5 {
-        return mul_generic(circuit, a, b);
+        return mul_naive(circuit, a, b);
     }
 
     let mut result_bits = vec![FALSE_WIRE; len * 2];
@@ -85,7 +85,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
     let sq_0 = if is_use_karatsuba(len_0) {
         mul_karatsuba(circuit, &a_0, &b_0)
     } else {
-        mul_generic(circuit, &a_0, &b_0)
+        mul_naive(circuit, &a_0, &b_0)
     };
 
     trace!(
@@ -102,7 +102,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
     let sq_1 = if is_use_karatsuba(len_1) {
         mul_karatsuba(circuit, &a_1, &b_1)
     } else {
-        mul_generic(circuit, &a_1, &b_1)
+        mul_naive(circuit, &a_1, &b_1)
     };
 
     trace!(
@@ -121,10 +121,10 @@ pub fn mul_karatsuba<C: CircuitContext>(
         extend_with_zero(circuit, &mut extended_sq_0);
     }
 
-    let sum_a = add::add_generic(circuit, &BigIntWires { bits: extended_a_0 }, &a_1);
-    let sum_b = add::add_generic(circuit, &BigIntWires { bits: extended_b_0 }, &b_1);
+    let sum_a = add::add(circuit, &BigIntWires { bits: extended_a_0 }, &a_1);
+    let sum_b = add::add(circuit, &BigIntWires { bits: extended_b_0 }, &b_1);
 
-    let mut sq_sum = add::add_generic(
+    let mut sq_sum = add::add(
         circuit,
         &BigIntWires {
             bits: extended_sq_0,
@@ -138,10 +138,10 @@ pub fn mul_karatsuba<C: CircuitContext>(
     let sum_mul = if is_use_karatsuba(sum_a.len()) {
         mul_karatsuba(circuit, &sum_a, &sum_b)
     } else {
-        mul_generic(circuit, &sum_a, &sum_b)
+        mul_naive(circuit, &sum_a, &sum_b)
     };
 
-    let cross_term_full = add::sub_generic_without_borrow(circuit, &sum_mul, &sq_sum);
+    let cross_term_full = add::sub_without_borrow(circuit, &sum_mul, &sq_sum);
     let cross_term = BigIntWires {
         bits: cross_term_full.bits[..(len + 1)].to_vec(),
     };
@@ -162,7 +162,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
         bits: result_bits[len_0..(len_0 + len + 1)].to_vec(),
     };
     trace!("  segment for cross_term addition: {:?}", &segment.bits);
-    let new_segment = add::add_generic(circuit, &segment, &cross_term);
+    let new_segment = add::add(circuit, &segment, &cross_term);
     trace!("  new_segment after addition: {:?}", &new_segment.bits);
     result_bits[len_0..(len_0 + len + 2)].copy_from_slice(&new_segment.bits);
     trace!(
@@ -174,7 +174,7 @@ pub fn mul_karatsuba<C: CircuitContext>(
         bits: result_bits[(2 * len_0)..].to_vec(),
     };
     trace!("  segment2 for sq_1 addition: {:?}", &segment2.bits);
-    let new_segment2 = add::add_generic(circuit, &segment2, &sq_1);
+    let new_segment2 = add::add(circuit, &segment2, &sq_1);
     trace!("  new_segment2 after addition: {:?}", &new_segment2.bits);
     result_bits[(2 * len_0)..].copy_from_slice(&new_segment2.bits[..(2 * len_1)]);
     trace!("  Final result_bits: {:?}", &result_bits);
@@ -188,7 +188,7 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
 
     if len < 5 {
         debug!("mul: <5 case");
-        return mul_generic(circuit, a, b);
+        return mul_naive(circuit, a, b);
     }
 
     assert!(
@@ -200,8 +200,8 @@ pub fn mul<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires)
         debug!("use karatsuba (pre-computed)");
         mul_karatsuba(circuit, a, b)
     } else {
-        debug!("use generic (pre-computed)");
-        mul_generic(circuit, a, b)
+        debug!("use naive (pre-computed)");
+        mul_naive(circuit, a, b)
     }
 }
 
@@ -224,7 +224,7 @@ pub fn mul_by_constant<C: CircuitContext>(
         .for_each(|i| {
             let addition_wires = acc[i..(i + len)].to_vec();
 
-            let new_bits = add::add_generic(
+            let new_bits = add::add(
                 circuit,
                 a,
                 &BigIntWires {
@@ -307,7 +307,7 @@ pub fn mul_by_constant_modulo_power_two<C: CircuitContext>(
                         bits: res[i..(i + number_of_bits)].to_vec(),
                     };
 
-                    let new_bits = add::add_generic(ctx, &a_slice, &addition_wires);
+                    let new_bits = add::add(ctx, &a_slice, &addition_wires);
 
                     // Write back; carry may spill one extra bit if it still lies under `power`.
                     if i + number_of_bits < power {
@@ -548,61 +548,61 @@ mod tests {
 
     // Basic multiplication tests
     #[test]
-    fn test_mul_generic_basic() {
-        test_mul_operation(100, 5, 3, 15, mul_generic);
+    fn test_mul_naive_basic() {
+        test_mul_operation(100, 5, 3, 15, mul_naive);
     }
 
     #[test]
-    fn test_mul_generic_larger() {
-        test_mul_operation(NUM_BITS, 15, 17, 255, mul_generic);
+    fn test_mul_naive_larger() {
+        test_mul_operation(NUM_BITS, 15, 17, 255, mul_naive);
     }
 
     #[test]
-    fn test_mul_generic_zero() {
-        test_mul_operation(NUM_BITS, 0, 42, 0, mul_generic);
-        test_mul_operation(NUM_BITS, 42, 0, 0, mul_generic);
+    fn test_mul_naive_zero() {
+        test_mul_operation(NUM_BITS, 0, 42, 0, mul_naive);
+        test_mul_operation(NUM_BITS, 42, 0, 0, mul_naive);
     }
 
     #[test]
-    fn test_mul_generic_one() {
-        test_mul_operation(NUM_BITS, 1, 42, 42, mul_generic);
-        test_mul_operation(NUM_BITS, 42, 1, 42, mul_generic);
+    fn test_mul_naive_one() {
+        test_mul_operation(NUM_BITS, 1, 42, 42, mul_naive);
+        test_mul_operation(NUM_BITS, 42, 1, 42, mul_naive);
     }
 
     #[test]
-    fn test_mul_generic_max_values() {
+    fn test_mul_naive_max_values() {
         // Test with maximum values for given bit size
         let max_val = (1u64 << NUM_BITS) - 1; // 255 for 8 bits
         test_mul_operation(NUM_BITS, max_val, 1, max_val as u128, |c, a, b| {
-            mul_generic(c, a, b)
+            mul_naive(c, a, b)
         });
         test_mul_operation(
             NUM_BITS,
             max_val,
             max_val,
             (max_val as u128) * (max_val as u128),
-            mul_generic,
+            mul_naive,
         );
     }
 
     #[test]
-    fn test_mul_generic_powers_of_two() {
-        test_mul_operation(NUM_BITS, 2, 2, 4, mul_generic);
-        test_mul_operation(NUM_BITS, 4, 4, 16, mul_generic);
-        test_mul_operation(NUM_BITS, 8, 8, 64, mul_generic);
-        test_mul_operation(NUM_BITS, 16, 16, 256, mul_generic);
+    fn test_mul_naive_powers_of_two() {
+        test_mul_operation(NUM_BITS, 2, 2, 4, mul_naive);
+        test_mul_operation(NUM_BITS, 4, 4, 16, mul_naive);
+        test_mul_operation(NUM_BITS, 8, 8, 64, mul_naive);
+        test_mul_operation(NUM_BITS, 16, 16, 256, mul_naive);
     }
 
     #[test]
-    fn test_mul_generic_commutative() {
+    fn test_mul_naive_commutative() {
         // Test that a * b == b * a
         let test_cases = [(5, 7), (13, 19), (1, 255), (17, 23)];
         for (a, b) in test_cases {
             test_mul_operation(NUM_BITS, a, b, (a as u128) * (b as u128), |c, x, y| {
-                mul_generic(c, x, y)
+                mul_naive(c, x, y)
             });
             test_mul_operation(NUM_BITS, b, a, (a as u128) * (b as u128), |c, x, y| {
-                mul_generic(c, x, y)
+                mul_naive(c, x, y)
             });
         }
     }
@@ -675,7 +675,7 @@ mod tests {
         }
     }
 
-    // Test that generic and karatsuba produce same results
+    // Test that naive and karatsuba produce same results
     #[test]
     fn test_mul_algorithms_equivalence() {
         let test_cases = [
@@ -696,7 +696,7 @@ mod tests {
         for (a, b) in test_cases {
             // Test with same inputs
             let expected = (a as u128) * (b as u128);
-            test_mul_operation(NUM_BITS, a, b, expected, mul_generic);
+            test_mul_operation(NUM_BITS, a, b, expected, mul_naive);
             test_mul_operation(NUM_BITS, a, b, expected, mul_karatsuba);
         }
     }
@@ -894,32 +894,32 @@ mod tests {
 
     // Test with different bit sizes
     #[test]
-    fn test_mul_generic_different_bit_sizes() {
+    fn test_mul_naive_different_bit_sizes() {
         const SMALL_BITS: usize = 4;
         const LARGE_BITS: usize = 16;
 
         // Test with 4-bit inputs
-        test_mul_operation(SMALL_BITS, 7, 5, 35, mul_generic);
-        test_mul_operation(SMALL_BITS, 15, 15, 225, mul_generic); // max 4-bit value
+        test_mul_operation(SMALL_BITS, 7, 5, 35, mul_naive);
+        test_mul_operation(SMALL_BITS, 15, 15, 225, mul_naive); // max 4-bit value
 
         // Test with 16-bit inputs (if supported)
-        test_mul_operation(LARGE_BITS, 255, 255, 65025, mul_generic);
+        test_mul_operation(LARGE_BITS, 255, 255, 65025, mul_naive);
         test_mul_operation(LARGE_BITS, 1000, 1000, 1000000, |c, a, b| {
-            mul_generic(c, a, b)
+            mul_naive(c, a, b)
         });
     }
 
     // Random property-based tests
     #[test]
-    fn test_mul_generic_random_properties() {
+    fn test_mul_naive_random_properties() {
         // Test multiplicative identity: a * 1 = a
         for a in [0, 1, 7, 15, 42, 100, 255] {
-            test_mul_operation(NUM_BITS, a, 1, a as u128, mul_generic);
+            test_mul_operation(NUM_BITS, a, 1, a as u128, mul_naive);
         }
 
         // Test zero property: a * 0 = 0
         for a in [1, 7, 15, 42, 100, 255] {
-            test_mul_operation(NUM_BITS, a, 0, 0, mul_generic);
+            test_mul_operation(NUM_BITS, a, 0, 0, mul_naive);
         }
 
         // Test distributive property: a * (b + c) = a * b + a * c (where results fit in range)
@@ -934,7 +934,7 @@ mod tests {
     }
 
     /// Verify that the policy in `mul` selects the minimal total gate count
-    /// compared to pure generic vs pure karatsuba implementations for lengths
+    /// compared to pure naive vs pure karatsuba implementations for lengths
     /// 1..=300. Length 0 is intentionally skipped because adders require at
     /// least 1 bit and would panic.
     #[test]
@@ -959,17 +959,17 @@ mod tests {
         }
 
         for len in 1..=300 {
-            let generic_gc = gate_count_for(len, super::mul_generic);
+            let naive_gc = gate_count_for(len, super::mul_naive);
             let karatsuba_gc = gate_count_for(len, super::mul_karatsuba);
             let selected_gc = gate_count_for(len, super::mul);
 
-            let best = generic_gc.min(karatsuba_gc);
+            let best = naive_gc.min(karatsuba_gc);
             assert!(
                 selected_gc == best,
-                "len={}: selected={} generic={} karatsuba={}",
+                "len={}: selected={} naive={} karatsuba={}",
                 len,
                 selected_gc,
-                generic_gc,
+                naive_gc,
                 karatsuba_gc
             );
         }
