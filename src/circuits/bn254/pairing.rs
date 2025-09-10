@@ -1461,4 +1461,197 @@ mod tests {
 
         assert_eq!(Fq12::from_montgomery_wires(f), expected_f);
     }
+
+    // The following companion tests intentionally panic with gate_count stats
+    // to aid documentation collection. They are ignored by default to avoid
+    // breaking CI; run with `cargo test -- --ignored` to collect stats.
+
+    fn panic_with_gc(tag: &str, gc: GateCount) -> ! {
+        panic!(
+            "[{}] gate_count raw={:?} nonfree={} not={} total={}",
+            tag,
+            gc.0,
+            gc.nonfree_gate_count(),
+            gc.not_count(),
+            gc.total_gate_count()
+        )
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_deserialized_compressed_g1_gatecount_panic() {
+        let p = G1Affine::random();
+        let y_flag = new_wirex();
+        let sy = (p.y.square()).sqrt().unwrap();
+        y_flag.borrow_mut().set(sy == p.y);
+        let wires = Fq::wires_set_montgomery(p.x);
+        let (_res, gc) = deserialize_compressed_g1_circuit_evaluate(wires, y_flag.clone());
+        panic_with_gc("deserialize_compressed_g1", gc);
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_deserialized_compressed_g2_gatecount_panic() {
+        let p = G2Affine::random();
+        let y_flag = new_wirex();
+        let sy = (p.y.square()).sqrt().unwrap();
+        y_flag.borrow_mut().set(sy == p.y);
+        let wires = Fq2::wires_set_montgomery(p.x);
+        let (_wires, gc) = deserialize_compressed_g2_circuit_evaluate(wires.clone(), y_flag);
+        panic_with_gc("deserialize_compressed_g2", gc);
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_double_in_place_montgomery_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let r = ark_bn254::G2Projective::rand(&mut prng);
+        let circuit = double_in_place_circuit_montgomery(G2Projective::wires_set_montgomery(r));
+        let gc = circuit.gate_counts();
+        panic_with_gc("double_in_place", gc);
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_add_in_place_montgomery_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let r = ark_bn254::G2Projective::rand(&mut prng);
+        let q = ark_bn254::G2Affine::rand(&mut prng);
+        let circuit = add_in_place_circuit_montgomery(
+            G2Projective::wires_set_montgomery(r),
+            G2Affine::wires_set_montgomery(q),
+        );
+        let gc = circuit.gate_counts();
+        panic_with_gc("add_in_place", gc);
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_mul_by_char_montgomery_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let q = ark_bn254::G2Affine::rand(&mut prng);
+        let circuit = mul_by_char_circuit_montgomery(G2Affine::wires_set_montgomery(q));
+        let gc = circuit.gate_counts();
+        panic_with_gc("mul_by_char", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_ell_coeffs_evaluate_montgomery_fast_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let q = ark_bn254::G2Affine::rand(&mut prng);
+        let (_coeffs, gc) = ell_coeffs_evaluate_montgomery_fast(G2Affine::wires_set_montgomery(q));
+        panic_with_gc("ell_coeffs", gc);
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_ell_montgomery_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let f = ark_bn254::Fq12::rand(&mut prng);
+        let coeffs = (
+            ark_bn254::Fq2::rand(&mut prng),
+            ark_bn254::Fq2::rand(&mut prng),
+            ark_bn254::Fq2::rand(&mut prng),
+        );
+        let p = ark_bn254::G1Affine::rand(&mut prng);
+        let circuit = ell_circuit_montgomery(
+            Fq12::wires_set_montgomery(f),
+            (
+                Fq2::wires_set_montgomery(coeffs.0),
+                Fq2::wires_set_montgomery(coeffs.1),
+                Fq2::wires_set_montgomery(coeffs.2),
+            ),
+            G1Affine::wires_set_montgomery(p),
+        );
+        let gc = circuit.gate_counts();
+        panic_with_gc("ell", gc);
+    }
+
+    #[test]
+    #[ignore]
+    #[serial]
+    fn test_ell_by_constant_montgomery_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let f = ark_bn254::Fq12::rand(&mut prng);
+        let coeffs = (
+            ark_bn254::Fq2::rand(&mut prng),
+            ark_bn254::Fq2::rand(&mut prng),
+            ark_bn254::Fq2::rand(&mut prng),
+        );
+        let p = ark_bn254::G1Affine::rand(&mut prng);
+        let circuit = ell_by_constant_circuit_montgomery(
+            Fq12::wires_set_montgomery(f),
+            (
+                Fq2::as_montgomery(coeffs.0),
+                Fq2::as_montgomery(coeffs.1),
+                Fq2::as_montgomery(coeffs.2),
+            ),
+            G1Affine::wires_set_montgomery(p),
+        );
+        let gc = circuit.gate_counts();
+        panic_with_gc("ell_by_constant", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_miller_loop_evaluate_montgomery_fast_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let p = ark_bn254::G1Affine::rand(&mut prng);
+        let q = ark_bn254::G2Affine::rand(&mut prng);
+        let (_f, gc) = miller_loop_evaluate_montgomery_fast(
+            G1Affine::wires_set_montgomery(p),
+            G2Affine::wires_set_montgomery(q),
+        );
+        panic_with_gc("miller_loop_fast", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_multi_miller_loop_evaluate_montgomery_fast_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let n = 3;
+        let ps = (0..n)
+            .map(|_| ark_bn254::G1Affine::rand(&mut prng))
+            .collect::<Vec<_>>();
+        let qs = (0..n)
+            .map(|_| ark_bn254::G2Affine::rand(&mut prng))
+            .collect::<Vec<_>>();
+        let (_f, gc) = multi_miller_loop_evaluate_montgomery_fast(
+            ps.iter()
+                .map(|p| G1Affine::wires_set_montgomery(*p))
+                .collect(),
+            qs.iter()
+                .map(|q| G2Affine::wires_set_montgomery(*q))
+                .collect(),
+        );
+        panic_with_gc("multi_miller_loop_fast", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_multi_miller_loop_groth16_evaluate_montgomery_fast_gatecount_panic() {
+        let mut prng = ChaCha20Rng::seed_from_u64(0);
+        let p1 = ark_bn254::G1Affine::rand(&mut prng);
+        let p2 = ark_bn254::G1Affine::rand(&mut prng);
+        let p3 = ark_bn254::G1Affine::rand(&mut prng);
+        let q1 = ark_bn254::G2Affine::rand(&mut prng);
+        let q2 = ark_bn254::G2Affine::rand(&mut prng);
+        let q3 = ark_bn254::G2Affine::rand(&mut prng);
+        let (_f, gc) = multi_miller_loop_groth16_evaluate_montgomery_fast(
+            G1Affine::wires_set_montgomery(p1),
+            G1Affine::wires_set_montgomery(p2),
+            G1Affine::wires_set_montgomery(p3),
+            q1,
+            q2,
+            G2Affine::wires_set_montgomery(q3),
+        );
+        panic_with_gc("multi_miller_loop_groth16_fast", gc);
+    }
 }

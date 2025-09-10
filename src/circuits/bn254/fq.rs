@@ -422,4 +422,150 @@ mod tests {
         let is_qnr = Fq::from_montgomery_wires(circuit.0);
         assert_eq!(is_qnr.is_one(), a.legendre().is_qnr());
     }
+
+    // Panic-with-stats companions for documentation collection. Ignored by default.
+
+    fn panic_with_gc(tag: &str, gc: GateCount) -> ! {
+        panic!(
+            "[{}] gate_count raw={:?} nonfree={} not={} total={}",
+            tag,
+            gc.0,
+            gc.nonfree_gate_count(),
+            gc.not_count(),
+            gc.total_gate_count()
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_add_gatecount_panic() {
+        let a = Fq::random();
+        let b = Fq::random();
+        let circuit = Fq::add(Fq::wires_set(a), Fq::wires_set(b));
+        panic_with_gc("fq_add", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_add_constant_gatecount_panic() {
+        let a = Fq::random();
+        let b = Fq::random();
+        let circuit = Fq::add_constant(Fq::wires_set(a), b);
+        panic_with_gc("fq_add_constant", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_neg_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::neg(Fq::wires_set(a));
+        panic_with_gc("fq_neg", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_sub_gatecount_panic() {
+        let a = Fq::random();
+        let b = Fq::random();
+        let circuit = Fq::sub(Fq::wires_set(a), Fq::wires_set(b));
+        panic_with_gc("fq_sub", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_double_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::double(Fq::wires_set(a));
+        panic_with_gc("fq_double", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_half_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::half(Fq::wires_set(a));
+        panic_with_gc("fq_half", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_triple_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::triple(Fq::wires_set(a));
+        panic_with_gc("fq_triple", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_mul_montgomery_gatecount_panic() {
+        let a = Fq::random();
+        let b = Fq::random();
+        let circuit = Fq::mul_montgomery(
+            Fq::wires_set(Fq::as_montgomery(a)),
+            Fq::wires_set(Fq::as_montgomery(b)),
+        );
+        panic_with_gc("fq_mul_montgomery", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_mul_by_constant_montgomery_gatecount_panic() {
+        let a = Fq::random();
+        let d = Fq::random();
+        let circuit =
+            Fq::mul_by_constant_montgomery(Fq::wires_set_montgomery(a), Fq::as_montgomery(d));
+        panic_with_gc("fq_mul_by_constant_montgomery", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_square_montgomery_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::square_montgomery(Fq::wires_set_montgomery(a));
+        panic_with_gc("fq_square_montgomery", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_inverse_montgomery_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::inverse_montgomery(Fq::wires_set_montgomery(a));
+        panic_with_gc("fq_inverse_montgomery", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_div6_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::div6(Fq::wires_set(a));
+        panic_with_gc("fq_div6", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_exp_by_constant_montgomery_evaluate_gatecount_panic() {
+        use std::str::FromStr;
+        // Representative exponent size: (p+1)/4 (~254 bits)
+        let exp = BigUint::from_str(Fq::MODULUS_ADD_1_DIV_4).unwrap();
+        let a = Fq::random();
+        let (_res, gc) = Fq::exp_by_constant_montgomery_evaluate(Fq::wires_set_montgomery(a), exp);
+        panic_with_gc("fq_exp_by_constant_montgomery_evaluate", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_sqrt_montgomery_gatecount_panic() {
+        let a = Fq::random();
+        let aa = a * a;
+        let circuit = Fq::sqrt_montgomery(Fq::wires_set_montgomery(aa));
+        panic_with_gc("fq_sqrt_montgomery", circuit.gate_counts());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_fq_is_qnr_montgomery_gatecount_panic() {
+        let a = Fq::random();
+        let circuit = Fq::is_qnr_montgomery(Fq::wires_set_montgomery(a));
+        panic_with_gc("fq_is_qnr_montgomery", circuit.gate_counts());
+    }
 }

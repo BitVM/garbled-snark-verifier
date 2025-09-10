@@ -642,4 +642,123 @@ mod tests {
         let expected = ark_bn254::G1Projective::msm(&bases_affine, &scalars).unwrap();
         assert_eq!(result, G1Projective::as_montgomery(expected));
     }
+
+    // Panic-with-stats companions for documentation collection. Ignored by default.
+
+    fn panic_with_gc(tag: &str, gc: GateCount) -> ! {
+        panic!(
+            "[{}] gate_count raw={:?} nonfree={} not={} total={}",
+            tag,
+            gc.0,
+            gc.nonfree_gate_count(),
+            gc.not_count(),
+            gc.total_gate_count()
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1_projective_to_affine_montgomery_gatecount_panic() {
+        let p_projective = G1Projective::random().double();
+        let circuit =
+            projective_to_affine_montgomery(G1Projective::wires_set_montgomery(p_projective));
+        let gc = circuit.gate_counts();
+        panic_with_gc("g1_projective_to_affine", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1p_add_montgomery_gatecount_panic() {
+        let a = G1Projective::random();
+        let b = G1Projective::random();
+        let circuit = G1Projective::add_montgomery(
+            G1Projective::wires_set_montgomery(a),
+            G1Projective::wires_set_montgomery(b),
+        );
+        let gc = circuit.gate_counts();
+        panic_with_gc("g1_add", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1p_add_evaluate_montgomery_gatecount_panic() {
+        let a = G1Projective::random();
+        let b = G1Projective::random();
+        let (_c_wires, gc) = G1Projective::add_evaluate_montgomery(
+            G1Projective::wires_set_montgomery(a),
+            G1Projective::wires_set_montgomery(b),
+        );
+        panic_with_gc("g1_add_eval", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1p_double_montgomery_gatecount_panic() {
+        let a = G1Projective::random();
+        let circuit = G1Projective::double_montgomery(G1Projective::wires_set_montgomery(a));
+        let gc = circuit.gate_counts();
+        panic_with_gc("g1_double", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1p_multiplexer_gatecount_panic() {
+        let w = 10;
+        let n = 2_usize.pow(w as u32);
+        let a: Vec<ark_bn254::G1Projective> = (0..n).map(|_| G1Projective::random()).collect();
+        let s: Wires = (0..w).map(|_| new_wirex()).collect();
+        let mut a_wires = Vec::new();
+        for e in a.iter() {
+            a_wires.push(G1Projective::wires_set(*e));
+        }
+        for wire in s.iter() {
+            wire.borrow_mut().set(false);
+        }
+        let circuit = G1Projective::multiplexer(a_wires, s.clone(), w);
+        let gc = circuit.gate_counts();
+        panic_with_gc("g1_multiplexer", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1p_multiplexer_evaluate_gatecount_panic() {
+        let w = 10;
+        let n = 2_usize.pow(w as u32);
+        let a: Vec<ark_bn254::G1Projective> = (0..n).map(|_| G1Projective::random()).collect();
+        let s: Wires = (0..w).map(|_| new_wirex()).collect();
+        let mut a_wires = Vec::new();
+        for e in a.iter() {
+            a_wires.push(G1Projective::wires_set(*e));
+        }
+        for wire in s.iter() {
+            wire.borrow_mut().set(false);
+        }
+        let (_result_wires, gc) = G1Projective::multiplexer_evaluate(a_wires, s.clone(), w);
+        panic_with_gc("g1_multiplexer_eval", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_g1p_scalar_mul_with_constant_base_evaluate_montgomery_gatecount_panic() {
+        let base = G1Projective::random();
+        let s = Fr::random();
+        let (_result_wires, gc) = G1Projective::scalar_mul_by_constant_base_evaluate_montgomery::<10>(
+            Fr::wires_set(s),
+            base,
+        );
+        panic_with_gc("g1_scalar_mul_const_base_eval", gc);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_msm_with_constant_bases_evaluate_montgomery_gatecount_panic() {
+        let n = 1;
+        let bases = (0..n).map(|_| G1Projective::random()).collect::<Vec<_>>();
+        let scalars = (0..n).map(|_| Fr::random()).collect::<Vec<_>>();
+        let (_result_wires, gc) = G1Projective::msm_with_constant_bases_evaluate_montgomery::<10>(
+            scalars.iter().map(|s| Fr::wires_set(*s)).collect(),
+            bases.clone(),
+        );
+        panic_with_gc("g1_msm_const_bases_eval", gc);
+    }
 }
