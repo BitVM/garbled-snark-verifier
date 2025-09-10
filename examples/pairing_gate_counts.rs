@@ -14,8 +14,10 @@ use garbled_snark_verifier::{
         modes::Execute,
     },
 };
-use gsv::gadgets::bn254::{
-    fq::Fq, fq2::Fq2, fq12::Fq12, g1::G1Projective, g2::G2Projective, pairing,
+use gsv::gadgets::{
+    bigint::BigIntWires,
+    bn254::{fq::Fq, fq2::Fq2, fq12::Fq12, fr::Fr, g1::G1Projective, g2::G2Projective, pairing},
+    groth16 as groth16_gadgets,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -109,6 +111,19 @@ fn main() {
     const ENABLE_MULTI_MILLER_LOOP: bool = true;
     const ENABLE_MULTI_MILLER_LOOP_EVALUATE_MONTGOMERY_FAST: bool = true;
 
+    // When true, suppress non-G1 logs and only run G1 gadgets section below
+    const ONLY_G1: bool = true;
+
+    // G1 gadget toggles
+    const ENABLE_G1_PROJECTIVE_TO_AFFINE: bool = true;
+    const ENABLE_G1_ADD: bool = true;
+    const ENABLE_G1_ADD_EVAL: bool = true;
+    const ENABLE_G1_DOUBLE: bool = true;
+    const ENABLE_G1_MULTIPLEXER: bool = true;
+    const ENABLE_G1_MULTIPLEXER_EVAL: bool = true;
+    const ENABLE_G1_SCALAR_MUL_CONST_BASE_EVAL: bool = true;
+    const ENABLE_G1_MSM_CONST_BASES_EVAL: bool = true;
+
     // Deterministic inputs - use affine points with z=1 for fair comparison
     let _rng = ChaCha20Rng::seed_from_u64(42);
     let g1_proj = ark_bn254::G1Projective::generator() * ark_bn254::Fr::from(5u64);
@@ -125,7 +140,7 @@ fn main() {
     let _ = std::io::stdout().flush();
 
     // Only compute Fq::mul_montgomery gate count if enabled
-    if ENABLE_FQ_MUL_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_FQ_MUL_MONTGOMERY {
         run_and_print("fq_mul_montgomery", inputs.clone(), move |ctx, _w| {
             let a = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::from(u32::MAX))).unwrap();
             let b = Fq::new_constant(&Fq::as_montgomery(ark_bn254::Fq::from(u64::MAX))).unwrap();
@@ -139,7 +154,7 @@ fn main() {
 
     // 1) double_in_place_montgomery
     // 0) fq2::mul_constant_by_fq_montgomery (only enabled target)
-    if ENABLE_FQ2_MUL_CONSTANT_BY_FQ_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_FQ2_MUL_CONSTANT_BY_FQ_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -157,7 +172,7 @@ fn main() {
         }));
     }
 
-    if ENABLE_FQ_MUL_CONSTANT_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_FQ_MUL_CONSTANT_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -171,7 +186,7 @@ fn main() {
     }
 
     // 1) double_in_place_montgomery
-    if ENABLE_DOUBLE_IN_PLACE_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_DOUBLE_IN_PLACE_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -185,7 +200,7 @@ fn main() {
     }
 
     // 2) add_in_place_montgomery
-    if ENABLE_ADD_IN_PLACE_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_ADD_IN_PLACE_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -198,7 +213,7 @@ fn main() {
     }
 
     // 3) mul_by_char_montgomery
-    if ENABLE_MUL_BY_CHAR_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_MUL_BY_CHAR_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -211,7 +226,7 @@ fn main() {
     }
 
     // 4) ell_montgomery: variable coeffs + eval at P
-    if ENABLE_ELL_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_ELL_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -228,7 +243,7 @@ fn main() {
     }
 
     // 5) ell_by_constant_montgomery (const Q coeffs)
-    if ENABLE_ELL_BY_CONSTANT_MONTGOMERY {
+    if !ONLY_G1 && ENABLE_ELL_BY_CONSTANT_MONTGOMERY {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -248,7 +263,7 @@ fn main() {
     }
 
     // 6) ell_coeffs_evaluate_montgomery_fast equivalent: build coeffs for variable Q
-    if ENABLE_ELL_COEFFS_EVALUATE_MONTGOMERY_FAST {
+    if !ONLY_G1 && ENABLE_ELL_COEFFS_EVALUATE_MONTGOMERY_FAST {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -265,7 +280,7 @@ fn main() {
     }
 
     // 6b) miller loops
-    if ENABLE_MILLER_LOOP_EVALUATE_MONTGOMERY_FAST {
+    if !ONLY_G1 && ENABLE_MILLER_LOOP_EVALUATE_MONTGOMERY_FAST {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -281,7 +296,7 @@ fn main() {
         }));
     }
 
-    if ENABLE_MILLER_LOOP {
+    if !ONLY_G1 && ENABLE_MILLER_LOOP {
         handles.push(thread::spawn({
             let inputs_for_arg = inputs.clone();
             let inputs_for_capture = inputs.clone();
@@ -295,7 +310,7 @@ fn main() {
     }
 
     // 7) deserialize_compressed_g1: y = sqrt(x^3 + b); sign by flag (TRUE)
-    if ENABLE_DESERIALIZED_COMPRESSED_G1 {
+    if !ONLY_G1 && ENABLE_DESERIALIZED_COMPRESSED_G1 {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -326,7 +341,7 @@ fn main() {
     }
 
     // 8) deserialize_compressed_g2: y = sqrt(x^3 + b) over Fq2; sign by flag (TRUE)
-    if ENABLE_DESERIALIZED_COMPRESSED_G2 {
+    if !ONLY_G1 && ENABLE_DESERIALIZED_COMPRESSED_G2 {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -360,7 +375,7 @@ fn main() {
     }
 
     // 9) multi_miller_loop_const_q
-    if ENABLE_MULTI_MILLER_LOOP {
+    if !ONLY_G1 && ENABLE_MULTI_MILLER_LOOP {
         handles.push(thread::spawn({
             let inputs_for_arg = inputs.clone();
             let inputs_for_capture = inputs.clone();
@@ -376,7 +391,7 @@ fn main() {
     }
 
     // 10) multi_miller_loop_montgomery_fast
-    if ENABLE_MULTI_MILLER_LOOP_EVALUATE_MONTGOMERY_FAST {
+    if !ONLY_G1 && ENABLE_MULTI_MILLER_LOOP_EVALUATE_MONTGOMERY_FAST {
         handles.push(thread::spawn({
             let inputs = inputs.clone();
             move || {
@@ -396,6 +411,142 @@ fn main() {
 
     // Wait for all threads to finish
     for h in handles {
+        let _ = h.join();
+    }
+
+    // --- G1 gadgets ---
+    // Projective -> Affine (z -> 1) conversion
+    if ENABLE_G1_PROJECTIVE_TO_AFFINE {
+        run_and_print("g1_projective_to_affine", inputs.clone(), move |ctx, w| {
+            let _ = groth16_gadgets::projective_to_affine_montgomery(ctx, &w.g1);
+            vec![]
+        });
+    }
+
+    let mut g1_handles = Vec::new();
+
+    if ENABLE_G1_ADD {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_add", inputs, move |ctx, w| {
+                    let _ = G1Projective::add_montgomery(ctx, &w.g1, &w.g1);
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_G1_ADD_EVAL {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_add_eval", inputs, move |ctx, w| {
+                    let _ = G1Projective::add_montgomery(ctx, &w.g1, &w.g1);
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_G1_DOUBLE {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_double", inputs, move |ctx, w| {
+                    let _ = G1Projective::double_montgomery(ctx, &w.g1);
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_G1_MULTIPLEXER {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_multiplexer", inputs, move |ctx, w| {
+                    const W: usize = 10; // window size -> n = 2^W
+                    let n = 1usize << W;
+                    // Prepare constant entries: 0*G, 1*G, ..., (n-1)*G in Montgomery
+                    let base = ark_bn254::G1Projective::generator();
+                    let mut acc = ark_bn254::G1Projective::default();
+                    let mut arr = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        let p_m = G1Projective::as_montgomery(acc);
+                        arr.push(G1Projective::new_constant(&p_m));
+                        acc += base;
+                    }
+                    // Selectors: reuse first W bits of g1.x so they are encoded
+                    let sel = w.g1.x.iter().take(W).copied().collect::<Vec<_>>();
+                    let _out = G1Projective::multiplexer(ctx, &arr, &sel, W);
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_G1_MULTIPLEXER_EVAL {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_multiplexer_eval", inputs, move |ctx, w| {
+                    const W: usize = 10;
+                    let n = 1usize << W;
+                    let base = ark_bn254::G1Projective::generator();
+                    let mut acc = ark_bn254::G1Projective::default();
+                    let mut arr = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        let p_m = G1Projective::as_montgomery(acc);
+                        arr.push(G1Projective::new_constant(&p_m));
+                        acc += base;
+                    }
+                    let sel = w.g1.x.iter().take(W).copied().collect::<Vec<_>>();
+                    let _out = G1Projective::multiplexer(ctx, &arr, &sel, W);
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_G1_SCALAR_MUL_CONST_BASE_EVAL {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_scalar_mul_const_base_eval", inputs, move |ctx, w| {
+                    const W: usize = 10;
+                    // Use g1.x bits as a stand-in scalar (same width 254)
+                    let s = Fr(BigIntWires::from_bits(w.g1.x.iter().copied()));
+                    let base = ark_bn254::G1Projective::generator();
+                    let _res = G1Projective::scalar_mul_by_constant_base_montgomery::<W, _>(
+                        ctx, &s, &base,
+                    );
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    if ENABLE_G1_MSM_CONST_BASES_EVAL {
+        g1_handles.push(thread::spawn({
+            let inputs = inputs.clone();
+            move || {
+                run_and_print("g1_msm_const_bases_eval", inputs, move |ctx, w| {
+                    const W: usize = 10;
+                    let s = Fr(BigIntWires::from_bits(w.g1.x.iter().copied()));
+                    let base = ark_bn254::G1Projective::generator();
+                    let _res = G1Projective::msm_with_constant_bases_montgomery::<W, _>(
+                        ctx,
+                        &vec![s],
+                        &vec![base],
+                    );
+                    vec![]
+                });
+            }
+        }));
+    }
+
+    for h in g1_handles {
         let _ = h.join();
     }
 }
