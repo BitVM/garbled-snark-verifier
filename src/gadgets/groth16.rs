@@ -699,7 +699,7 @@ mod tests {
 
         let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(input, 10_000, |ctx, wires| {
-                let dec = decompress_g1_from_compressed(ctx, &wires);
+                let dec = decompress_g1_from_compressed(ctx, wires);
 
                 let exp = G1Projective::as_montgomery(p.into_group());
                 let x_ok = Fq::equal_constant(ctx, &dec.x, &exp.x);
@@ -725,7 +725,7 @@ mod tests {
 
         let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(input, 20_000, |ctx, wires| {
-                let dec = decompress_g2_from_compressed(ctx, &wires);
+                let dec = decompress_g2_from_compressed(ctx, wires);
 
                 let exp = G2Projective::as_montgomery(p.into_group());
                 let x_ok = Fq2Wire::equal_constant(ctx, &dec.x, &exp.x);

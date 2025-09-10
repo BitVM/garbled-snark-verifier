@@ -4,7 +4,7 @@ use crossbeam::channel;
 use log::info;
 
 use crate::{
-    S, WireId,
+    EvaluatedWire, GarbledWire, S, WireId,
     circuit::streaming::component_meta::ComponentMetaBuilder,
     core::{gate::garbling::GateHasher, gate_type::GateCount},
 };
@@ -321,6 +321,38 @@ impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
                     .clone()
             })
             .collect()
+    }
+}
+
+impl<H: GateHasher> CircuitOutput<GarbleMode<H>> for GarbledWire {
+    type WireRepr = WireId;
+
+    fn decode(wire: Self::WireRepr, cache: &mut GarbleMode<H>) -> Self {
+        cache
+            .lookup_wire(wire)
+            .unwrap_or_else(|| panic!("Can't find {wire:?}"))
+            .clone()
+    }
+}
+
+impl<H: GateHasher> CircuitOutput<EvaluateMode<H>> for EvaluatedWire {
+    type WireRepr = WireId;
+
+    fn decode(wire: Self::WireRepr, cache: &mut EvaluateMode<H>) -> Self {
+        cache
+            .lookup_wire(wire)
+            .unwrap_or_else(|| panic!("Can't find {wire:?}"))
+            .clone()
+    }
+}
+
+impl CircuitOutput<ExecuteMode> for bool {
+    type WireRepr = WireId;
+
+    fn decode(wire: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
+        cache
+            .lookup_wire(wire)
+            .unwrap_or_else(|| panic!("Can't find {wire:?}"))
     }
 }
 

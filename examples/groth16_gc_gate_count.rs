@@ -3,19 +3,15 @@
 
 use std::env;
 
-use ark_ec::AffineRepr;
 use ark_ff::UniformRand;
 use ark_relations::{
     lc,
     r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
 };
 use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
-use garbled_snark_verifier as gsv;
-use gsv::{
-    Groth16ExecInput,
+use garbled_snark_verifier::{
     circuit::streaming::{CircuitBuilder, StreamingResult},
-    gadgets::groth16::Groth16ExecInputCompressed,
-    groth16_verify, groth16_verify_compressed,
+    garbled_groth16,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -98,38 +94,29 @@ fn main() {
     let proof = ark_groth16::Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
     // Construct input once, then choose uncompressed vs compressed execution
-    let input = Groth16ExecInput {
-        public: vec![c_val],
-        a: proof.a.into_group(),
-        b: proof.b.into_group(),
-        c: proof.c.into_group(),
+    let proof_input = garbled_groth16::Proof::new(proof, vec![c_val]);
+    let verify = garbled_groth16::Verify {
+        proof: proof_input,
+        vk: vk.clone(),
     };
 
     let (verified, gate_count) = if use_compressed {
         // Compressed path includes decompression gadgets; allocate more gates
-        let result: StreamingResult<_, _, Vec<bool>> = CircuitBuilder::streaming_execute(
-            Groth16ExecInputCompressed(input),
-            80_000,
-            |ctx, wires| {
-                let ok = groth16_verify_compressed(
-                    ctx,
-                    &wires.public,
-                    &wires.a,
-                    &wires.b,
-                    &wires.c,
-                    &vk,
-                );
-                vec![ok]
-            },
+        let result: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
+            garbled_groth16::Compressed(verify),
+            160_000,
+            garbled_groth16::verify_compressed,
         );
-        (result.output_wires[0], result.gate_count)
+
+        (result.output_wires, result.gate_count)
     } else {
-        let result: StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(input, 40_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
-                vec![ok]
-            });
-        (result.output_wires[0], result.gate_count)
+        let result: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
+            garbled_groth16::Uncompressed(verify),
+            160_000,
+            garbled_groth16::verify,
+        );
+
+        (result.output_wires, result.gate_count)
     };
 
     let total_gates = gate_count.total_gate_count();

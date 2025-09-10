@@ -47,10 +47,4 @@ pub mod test_utils {
     }
 }
 
-pub mod groth16_proof_api;
-pub use groth16_proof_api::*;
-
-// Backwards-compatible module path for examples/imports
-pub mod groth16_proof {
-    pub use crate::groth16_proof_api::*;
-}
+pub mod garbled_groth16;

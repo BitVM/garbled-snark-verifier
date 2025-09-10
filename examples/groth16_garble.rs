@@ -4,9 +4,8 @@
 //   Default (AES): `RUST_LOG=info cargo run --example groth16_garble --release`
 //   Blake3:        `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3`
 
-use std::{env, time::Instant};
+use std::{env, thread, time::Instant};
 
-use ark_ec::AffineRepr;
 use ark_ff::UniformRand;
 use ark_groth16::Groth16;
 use ark_relations::{
@@ -20,7 +19,7 @@ use garbled_snark_verifier::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
     },
-    groth16_proof::{GarbledInputs, Groth16EvaluatorInputs, groth16_proof_verify},
+    garbled_groth16,
 };
 use log::info;
 use rand::{Rng, SeedableRng};
@@ -69,7 +68,7 @@ enum G2EMsg {
         output_label1_hash: [u8; 32],
         ciphertext_hash: u128,
 
-        input_labels: Groth16EvaluatorInputs,
+        proof_labels: garbled_groth16::Evaluator,
         true_wire: u128,
         false_wire: u128,
     },
@@ -81,10 +80,8 @@ fn hash(inp: &impl AsRef<[u8]>) -> [u8; 32] {
 
 const CAPACITY: usize = 150_000;
 
-fn run_with_hasher<H: GateHasher + 'static>() {
-    let garbling_seed: u64 = rand::thread_rng().r#gen();
-
-    println!("Setting up Groth16 proof...");
+fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
+    info!("Setting up Groth16 proof...");
 
     // 1) Build and prove a tiny multiplicative circuit
     let k = 6; // 2^k constraints
@@ -97,18 +94,19 @@ fn run_with_hasher<H: GateHasher + 'static>() {
     };
     let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).expect("setup");
 
-    println!("Proof generated successfully");
+    info!("Proof generated successfully");
 
-    let inputs = GarbledInputs {
+    let inputs = garbled_groth16::GarbledInputs {
         public_params_len: 1,
+        vk: vk.clone(),
     };
 
     // Create channel for garbled tables
     let (ciphertext_acc_hash_sender, ciphertext_acc_hash_receiver) =
         crossbeam::channel::unbounded();
 
-    let ciphertext_hash = std::thread::spawn(move || {
-        println!("Starting ciphertext hashing thread...");
+    let ciphertext_hash = thread::spawn(move || {
+        info!("Starting ciphertext hashing thread...");
 
         let mut hasher = CiphertextHashAcc::default();
         while let Ok((_index, ciphertext)) = ciphertext_acc_hash_receiver.recv() {
@@ -117,35 +115,23 @@ fn run_with_hasher<H: GateHasher + 'static>() {
         hasher.finalize()
     });
 
-    println!("Starting garbling of Groth16 verification circuit...");
+    info!("Starting garbling of Groth16 verification circuit...");
 
     // Measure first garbling pass performance
     let garble_start = Instant::now();
 
-    let mut garbling_result: StreamingResult<GarbleMode<H>, _, Vec<GarbledWire>> =
+    let garbling_result: StreamingResult<GarbleMode<H>, _, GarbledWire> =
         CircuitBuilder::streaming_garbling(
             inputs.clone(),
             CAPACITY,
             garbling_seed,
             ciphertext_acc_hash_sender,
-            |ctx, wires| groth16_proof_verify(ctx, wires, &vk),
+            garbled_groth16::verify,
         );
 
-    let garble_elapsed = garble_start.elapsed();
-    let garble_total = garbling_result.gate_count.total_gate_count();
-    let garble_secs = garble_elapsed.as_secs_f64();
-    if garble_secs > 0.0 {
-        info!(
-            "garbling#1: {:.2} gates/s ({} gates in {:.3}s)",
-            garble_total as f64 / garble_secs,
-            garble_total,
-            garble_secs
-        );
-    } else {
-        info!("garbling#1: {} gates (elapsed < 1ms)", garble_total);
-    }
+    info!("garbling: in {:.3}s", garble_start.elapsed().as_secs_f64());
 
-    let GarbledWire { label0, label1 } = garbling_result.output_wires.remove(0);
+    let GarbledWire { label0, label1 } = garbling_result.output_wires;
 
     let ciphertext_hash: u128 = ciphertext_hash.join().unwrap();
 
@@ -156,10 +142,10 @@ fn run_with_hasher<H: GateHasher + 'static>() {
     // action. If we succeed, then we will send the correct proof and receive the secret label.
     let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
-    // NOTE If you want to break the pruf, the easiest thing to do is just replace this value with whatever you want.
+    // NOTE If you want to break the proof, the easiest thing to do is just replace this value with whatever you want.
     let public_param = circuit.a.unwrap() * circuit.b.unwrap();
 
-    println!(
+    info!(
         "[GARBLER]
             Label0: {:?},
             Label1: {:?},
@@ -168,70 +154,57 @@ fn run_with_hasher<H: GateHasher + 'static>() {
         &label0, &label1
     );
 
-    let input_labels = Groth16EvaluatorInputs::new(
-        proof.a.into_group(),
-        proof.b.into_group(),
-        proof.c.into_group(),
-        vec![public_param],
-        garbling_result.input_values,
-    );
+    let proof = garbled_groth16::Proof::new(proof, vec![public_param]);
+
+    let proof_labels =
+        garbled_groth16::Evaluator::new(proof, vk.clone(), garbling_result.input_values);
 
     let msg = G2EMsg::Commit {
         output_label0_hash: hash(&label0.to_bytes()),
         output_label1_hash: hash(&label1.to_bytes()),
         ciphertext_hash,
-        input_labels,
+        proof_labels,
         true_wire: garbling_result.true_constant.select(true).to_u128(),
         false_wire: garbling_result.false_constant.select(false).to_u128(),
     };
-    println!("Commit sent");
+    info!("Commit sent");
 
     // Create channel for garbled tables
     let (evaluator_sender, evaluator_receiver) = crossbeam::channel::unbounded::<G2EMsg>();
     let (ciphertext_to_evaluator_sender, ciphertext_to_evaluator_receiver) =
         crossbeam::channel::unbounded();
 
-    let vk_garbler = vk.clone();
-    let vk_evaluator = vk;
-
-    let garbler = std::thread::spawn(move || {
+    let garbler = thread::spawn(move || {
         evaluator_sender.send(msg).unwrap();
 
-        // Measure second garbling pass performance (sending to evaluator)
         let regarble_start = Instant::now();
-        let regarbling_result: StreamingResult<GarbleMode<H>, _, Vec<GarbledWire>> =
+
+        let _regarbling_result: StreamingResult<GarbleMode<H>, _, GarbledWire> =
             CircuitBuilder::streaming_garbling(
                 inputs,
                 CAPACITY,
                 garbling_seed,
                 ciphertext_to_evaluator_sender,
-                |ctx, wires| groth16_proof_verify(ctx, wires, &vk_garbler),
+                garbled_groth16::verify,
             );
-        let regarble_elapsed = regarble_start.elapsed();
-        let regarble_total = regarbling_result.gate_count.total_gate_count();
-        let regarble_secs = regarble_elapsed.as_secs_f64();
-        if regarble_secs > 0.0 {
-            info!(
-                "garbling#2: {:.2} gates/s ({} gates in {:.3}s)",
-                regarble_total as f64 / regarble_secs,
-                regarble_total,
-                regarble_secs
-            );
-        } else {
-            info!("garbling#2: {} gates (elapsed < 1ms)", regarble_total);
-        }
+
+        info!(
+            "regarbling: in {:.3}s",
+            regarble_start.elapsed().as_secs_f64()
+        );
     });
 
-    let evaluator = std::thread::spawn(move || {
+    let evaluator = thread::spawn(move || {
         let G2EMsg::Commit {
             output_label0_hash,
             output_label1_hash,
-            ciphertext_hash,
-            input_labels,
+            ciphertext_hash: commit_ciphertext_hash,
+            proof_labels: input_labels,
             true_wire,
             false_wire,
         } = evaluator_receiver.recv().unwrap();
 
+        // We need to send ciphertexts to `Evaluator` and calculate the hash.
         let (proxy_sender, proxy_receiver) = crossbeam::channel::unbounded();
 
         let calculated_ciphertext_hash = std::thread::spawn(move || {
@@ -245,40 +218,29 @@ fn run_with_hasher<H: GateHasher + 'static>() {
             hasher.finalize()
         });
 
-        // Measure evaluation performance
         let eval_start = Instant::now();
-        let mut evaluator_result: StreamingResult<EvaluateMode<H>, _, Vec<EvaluatedWire>> =
+
+        let evaluator_result: StreamingResult<EvaluateMode<H>, _, EvaluatedWire> =
             CircuitBuilder::streaming_evaluation(
                 input_labels,
                 CAPACITY,
                 true_wire,
                 false_wire,
                 proxy_receiver,
-                |ctx, wires| groth16_proof_verify(ctx, wires, &vk_evaluator),
+                garbled_groth16::verify,
             );
-        let eval_elapsed = eval_start.elapsed();
-        let eval_total = evaluator_result.gate_count.total_gate_count();
-        let eval_secs = eval_elapsed.as_secs_f64();
-        if eval_secs > 0.0 {
-            info!(
-                "evaluation: {:.2} gates/s ({} gates in {:.3}s)",
-                eval_total as f64 / eval_secs,
-                eval_total,
-                eval_secs
-            );
-        } else {
-            info!("evaluation: {} gates (elapsed < 1ms)", eval_total);
-        }
+
+        info!("evaluation: in {:.3}s", eval_start.elapsed().as_secs_f64());
 
         let EvaluatedWire {
             active_label: possible_secret,
             value: is_proof_correct,
-        } = evaluator_result.output_wires.remove(0);
+        } = evaluator_result.output_wires;
 
         let calculated_ciphertext_hash = calculated_ciphertext_hash.join().unwrap();
         let result_hash = hash(&possible_secret.to_bytes());
 
-        println!(
+        info!(
             "[EVALUATOR]
             Is Proof Correct: {is_proof_correct},
             Result Hash: {result_hash:?},
@@ -287,13 +249,15 @@ fn run_with_hasher<H: GateHasher + 'static>() {
         "
         );
 
+        assert_eq!(calculated_ciphertext_hash, commit_ciphertext_hash);
+
         if is_proof_correct {
             assert_eq!(result_hash, output_label1_hash);
         } else {
             assert_eq!(result_hash, output_label0_hash);
         }
 
-        assert_eq!(calculated_ciphertext_hash, ciphertext_hash);
+        assert_eq!(calculated_ciphertext_hash, commit_ciphertext_hash);
     });
 
     garbler.join().unwrap();
@@ -304,6 +268,8 @@ fn main() {
     // Initialize logging (default to info if RUST_LOG not set)
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init();
+
+    let garbling_seed: u64 = rand::thread_rng().r#gen();
 
     // Simple parser for `--hasher <name>` or `--hasher=<name>`; defaults to AES
     let mut hasher_choice: Option<String> = None;
@@ -323,21 +289,19 @@ fn main() {
     match hasher_choice.as_deref() {
         Some("blake3") => {
             info!("Using Blake3 hasher");
-            run_with_hasher::<Blake3Hasher>();
+            run_with_hasher::<Blake3Hasher>(garbling_seed);
         }
         Some("aes") | None => {
             // Warn if hardware AES is not available or not used by this build
             garbled_snark_verifier::warn_if_software_aes();
             info!("Using AES-NI hasher (or software fallback)");
-            run_with_hasher::<AesNiHasher>();
+            run_with_hasher::<AesNiHasher>(garbling_seed);
         }
         Some(other) => {
-            eprintln!(
+            panic!(
                 "Unknown hasher '{}'. Supported: aes, blake3. Defaulting to aes.",
                 other
             );
-            garbled_snark_verifier::warn_if_software_aes();
-            run_with_hasher::<AesNiHasher>();
         }
     }
 }
