@@ -125,7 +125,16 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
         self.true_wire.clone()
     }
 
-    fn evaluate_gate(&mut self, gate: &Gate, a: GarbledWire, b: GarbledWire) -> GarbledWire {
+    fn evaluate_gate(&mut self, gate: &Gate) {
+        // Always consume input credits by looking up A and B.
+        let a = self.lookup_wire(gate.wire_a).unwrap();
+        let b = self.lookup_wire(gate.wire_b).unwrap();
+
+        // If C is unreachable, skip evaluation and do not advance gate index.
+        if gate.wire_c == WireId::UNREACHABLE {
+            return;
+        }
+
         let gate_id = self.next_gate_index();
 
         maybe_log_progress("garbled", gate_id);
@@ -138,7 +147,7 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
         // Stream the table entry if it exists
         self.stream_table_entry(gate_id, ciphertext);
 
-        c
+        self.feed_wire(gate.wire_c, c);
     }
 
     fn feed_wire(&mut self, wire_id: crate::WireId, value: Self::WireValue) {

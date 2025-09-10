@@ -30,12 +30,11 @@ pub trait CircuitMode: Sized + fmt::Debug {
 
     fn true_value(&self) -> Self::WireValue;
 
-    fn evaluate_gate(
-        &mut self,
-        gate: &Gate,
-        a: Self::WireValue,
-        b: Self::WireValue,
-    ) -> Self::WireValue;
+    // Evaluate a single gate by performing: lookup A, lookup B, optional evaluate, and feed C.
+    // Implementations must mirror existing behavior:
+    // - Always consume input credits via lookups of A and B.
+    // - If C is UNREACHABLE, skip evaluation/feeding and do not advance gate-index/progress.
+    fn evaluate_gate(&mut self, gate: &Gate);
 
     fn allocate_wire(&mut self, credits: Credits) -> WireId;
 

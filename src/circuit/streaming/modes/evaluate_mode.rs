@@ -108,14 +108,25 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
         }
     }
 
-    fn evaluate_gate(&mut self, gate: &Gate, a: EvaluatedWire, b: EvaluatedWire) -> EvaluatedWire {
+    fn evaluate_gate(&mut self, gate: &Gate) {
+        // Always consume input credits by looking up A and B.
+        let a = self.lookup_wire(gate.wire_a).unwrap();
+        let b = self.lookup_wire(gate.wire_b).unwrap();
+
+        // If C is unreachable, skip evaluation and do not advance gate index.
+        if gate.wire_c == WireId::UNREACHABLE {
+            return;
+        }
+
         let gate_id = self.next_gate_index();
 
         maybe_log_progress("evaluated", gate_id);
 
-        gate.evaluate::<H>(gate_id, &a, &b, || {
+        let c = gate.evaluate::<H>(gate_id, &a, &b, || {
             self.consume_ciphertext(gate_id).unwrap()
-        })
+        });
+
+        self.feed_wire(gate.wire_c, c);
     }
 
     fn feed_wire(&mut self, wire_id: crate::WireId, value: Self::WireValue) {

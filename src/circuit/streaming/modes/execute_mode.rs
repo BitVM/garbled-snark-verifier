@@ -48,11 +48,21 @@ impl CircuitMode for ExecuteMode {
         self.storage.allocate(OptionalBoolean::None, credits)
     }
 
-    fn evaluate_gate(&mut self, gate: &Gate, a: bool, b: bool) -> bool {
+    fn evaluate_gate(&mut self, gate: &Gate) {
+        // Always consume input credits by looking up A and B.
+        let a = self.lookup_wire(gate.wire_a).unwrap();
+        let b = self.lookup_wire(gate.wire_b).unwrap();
+
+        // If C is unreachable, skip evaluation and do not advance gate index.
+        if gate.wire_c == WireId::UNREACHABLE {
+            return;
+        }
+
         maybe_log_progress("executed", self.gate_index);
         self.gate_index += 1;
 
-        gate.execute(a, b)
+        let c = gate.execute(a, b);
+        self.feed_wire(gate.wire_c, c);
     }
 
     fn lookup_wire(&mut self, wire_id: WireId) -> Option<Self::WireValue> {

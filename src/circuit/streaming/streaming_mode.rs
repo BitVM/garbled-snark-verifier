@@ -142,15 +142,7 @@ impl<M: CircuitMode> CircuitContext for StreamingMode<M> {
                 assert_ne!(gate.wire_a, WireId::UNREACHABLE);
                 assert_ne!(gate.wire_b, WireId::UNREACHABLE);
 
-                let a = ctx.lookup_wire(gate.wire_a).unwrap();
-                let b = ctx.lookup_wire(gate.wire_b).unwrap();
-
-                if gate.wire_c == WireId::UNREACHABLE {
-                    return;
-                }
-
-                let c_val = ctx.mode.evaluate_gate(&gate, a, b);
-                ctx.feed_wire(gate.wire_c, c_val);
+                ctx.mode.evaluate_gate(&gate);
             }
         }
     }
