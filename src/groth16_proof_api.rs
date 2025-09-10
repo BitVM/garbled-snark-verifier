@@ -187,7 +187,7 @@ pub struct Groth16EvaluatorInputs {
     pub c: EvaluatedG1Wires,
 }
 impl Groth16EvaluatorInputs {
-    // Return true wire, false wire values and inputs, correctly intepret wires`
+    // Return true wire, false wire values and inputs, correctly interpret wires`
     pub fn new(
         a: ark_bn254::G1Projective,
         b: ark_bn254::G2Projective,

@@ -13,6 +13,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Set up Rust 1.89 with rustfmt
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.89.0
+          override: true
+          components: rustfmt
       - name: Run Cargo fmt
         run: cargo fmt --check
 
@@ -22,8 +29,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Install cargo-clippy
-        run: rustup component add --toolchain 1.85-x86_64-unknown-linux-gnu clippy
+      - name: Set up Rust 1.89 with clippy
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.89.0
+          override: true
+          components: clippy
       - name: Run Cargo clippy
         run: cargo clippy --no-deps $CARGOFLAGS
 
@@ -34,10 +46,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Toolchain
+      - name: Set up Rust nightly for udeps
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-2025-03-09
+          profile: minimal
+          toolchain: nightly
           override: true
 
       - name: Run cargo-udeps
