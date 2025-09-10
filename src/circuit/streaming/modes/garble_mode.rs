@@ -9,10 +9,7 @@ use crate::{
     Delta, GarbledWire, Gate, S, WireId,
     circuit::streaming::{CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE},
     core::{
-        gate::{
-            GarbleResult,
-            garbling::{Blake3Hasher, GateHasher},
-        },
+        gate::garbling::{Blake3Hasher, GateHasher},
         progress::maybe_log_progress,
     },
     storage::{Credits, Storage},
@@ -124,9 +121,34 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) {
-        // Always consume input credits by looking up A and B.
-        let a = self.lookup_wire(gate.wire_a).unwrap();
-        let b = self.lookup_wire(gate.wire_b).unwrap();
+        // Consume input credits by reading label0 directly (without reconstructing full wires).
+        // NOTE: must consume credits even if C is UNREACHABLE to match previous behavior
+        // and keep storage occupancy bounded.
+        // Constants: FALSE uses label0, TRUE uses label1 as its active base.
+        let a_base = match gate.wire_a {
+            TRUE_WIRE => self.true_wire.label1,
+            FALSE_WIRE => self.false_wire.label0,
+            _ => match self.storage.get(gate.wire_a).map(|d| d.to_owned()) {
+                Ok(Some(base)) => base,
+                Ok(None) => panic!(
+                    "Called evaluate_gate for WireId {:?} that was created but not initialized",
+                    gate.wire_a
+                ),
+                Err(_) => panic!("Can't find wire_a {:?}", gate.wire_a),
+            },
+        };
+        let b_base = match gate.wire_b {
+            TRUE_WIRE => self.true_wire.label1,
+            FALSE_WIRE => self.false_wire.label0,
+            _ => match self.storage.get(gate.wire_b).map(|d| d.to_owned()) {
+                Ok(Some(base)) => base,
+                Ok(None) => panic!(
+                    "Called evaluate_gate for WireId {:?} that was created but not initialized",
+                    gate.wire_b
+                ),
+                Err(_) => panic!("Can't find wire_b {:?}", gate.wire_b),
+            },
+        };
 
         // If C is unreachable, skip evaluation and do not advance gate index.
         if gate.wire_c == WireId::UNREACHABLE {
@@ -134,18 +156,54 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
         }
 
         let gate_id = self.next_gate_index();
-
         maybe_log_progress("garbled", gate_id);
 
-        let GarbleResult {
-            result: c,
-            ciphertext,
-        } = gate.garble::<H>(gate_id, &a, &b, &self.delta).unwrap();
+        // Duplicate core garbling logic locally, operating on base labels (label0) only.
+        // For free-XOR gates, compute c_base directly. For table gates, compute ciphertext
+        // and set c_base = w0, where w1 = w0 ^ delta.
+        use crate::GateType;
+        let (c_base, ciphertext): (S, Option<S>) = match gate.gate_type {
+            GateType::Xor => (a_base ^ &b_base, None),
+            GateType::Xnor => (a_base ^ &b_base ^ &self.delta, None),
+            GateType::Not => (a_base ^ &self.delta, None),
+            _ => {
+                // AND-family: use hashing-based garbling.
+                let (alpha_a, alpha_b, alpha_c) = gate.gate_type.alphas();
+                let selected_a = if alpha_a {
+                    a_base ^ &self.delta
+                } else {
+                    a_base
+                };
+                let other_a = if !alpha_a {
+                    a_base ^ &self.delta
+                } else {
+                    a_base
+                };
+                let (h_a0, h_a1) = H::hash_for_garbling(&selected_a, &other_a, gate_id);
+
+                let b_sel = if alpha_b {
+                    b_base ^ &self.delta
+                } else {
+                    b_base
+                };
+                let ct = h_a0 ^ &h_a1 ^ &b_sel;
+
+                let w0 = if alpha_c { h_a0 ^ &self.delta } else { h_a0 };
+                (w0, Some(ct))
+            }
+        };
 
         // Stream the table entry if it exists
         self.stream_table_entry(gate_id, ciphertext);
 
-        self.feed_wire(gate.wire_c, c);
+        // Persist only label0; guard constants/unreachable
+        if !matches!(gate.wire_c, TRUE_WIRE | FALSE_WIRE | WireId::UNREACHABLE) {
+            self.storage
+                .set(gate.wire_c, |slot| {
+                    *slot = Some(c_base);
+                })
+                .unwrap();
+        }
     }
 
     fn feed_wire(&mut self, wire_id: crate::WireId, value: Self::WireValue) {
