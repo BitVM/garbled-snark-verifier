@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::*;
-use crate::{GarbledWires, test_utils::trng};
+use crate::test_utils::trng;
 
 const GATE_ID: GateId = 0;
 
@@ -11,32 +11,22 @@ fn create_test_delta() -> Delta {
     Delta::generate(&mut trng())
 }
 
-fn issue_test_wire() -> GarbledWires {
-    GarbledWires::new(1000)
-}
-
 fn create_test_wire_ids() -> (WireId, WireId, WireId) {
     (WireId(0), WireId(1), WireId(2))
 }
 
 fn test_gate_e2e(gate: Gate, expected_fn: fn(bool, bool) -> bool, gate_name: &str) {
     let delta = create_test_delta();
-    let mut wires = issue_test_wire();
 
     let mut rng = trng();
-    let a = wires
-        .init(gate.wire_a, GarbledWire::random(&mut rng, &delta))
-        .unwrap()
-        .clone();
-    let b = wires
-        .init(gate.wire_b, GarbledWire::random(&mut rng, &delta))
-        .unwrap();
+    let a = GarbledWire::random(&mut rng, &delta);
+    let b = GarbledWire::random(&mut rng, &delta);
 
     let GarbleResult {
         result: c,
         ciphertext,
     } = gate
-        .garble::<Blake3Hasher>(GATE_ID, &a, b, &delta)
+        .garble::<Blake3Hasher>(GATE_ID, &a, &b, &delta)
         .expect("Garbling should succeed");
 
     for (input_a, input_b) in TEST_CASES {
@@ -86,18 +76,15 @@ fn test_gate_e2e(gate: Gate, expected_fn: fn(bool, bool) -> bool, gate_name: &st
 
 fn test_not_gate_e2e(gate: Gate) {
     let delta = create_test_delta();
-    let mut wires = issue_test_wire();
 
     let mut rng = trng();
-    let a = wires
-        .init(gate.wire_a, GarbledWire::random(&mut rng, &delta))
-        .unwrap();
+    let a = GarbledWire::random(&mut rng, &delta);
 
     let GarbleResult {
         result: c,
         ciphertext: None,
     } = gate
-        .garble::<Blake3Hasher>(GATE_ID, a, a, &delta)
+        .garble::<Blake3Hasher>(GATE_ID, &a, &a, &delta)
         .expect("Garbling should succeed")
     else {
         unreachable!()

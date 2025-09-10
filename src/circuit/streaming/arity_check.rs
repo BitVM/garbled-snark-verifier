@@ -8,6 +8,9 @@ use crate::WireId;
 ///
 /// Usage in component implementations:
 /// ```
+/// use garbled_snark_verifier::verify_component_arity;
+/// let output = vec![1, 2, 3];
+/// let input = vec![1, 2];
 /// verify_component_arity!("add_generic", output, input.len() + 1);
 /// ```
 #[macro_export]
