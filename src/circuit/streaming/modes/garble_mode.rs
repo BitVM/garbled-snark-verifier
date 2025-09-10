@@ -21,11 +21,8 @@ use crate::{
 /// Type alias for GarbleMode with Blake3 hasher (default)
 pub type GarbleModeBlake3 = GarbleMode<Blake3Hasher>;
 
-/// Storage representation for garbled wires
-#[derive(Clone, Debug, Default)]
-pub struct OptionalGarbledWire {
-    pub wire: Option<GarbledWire>,
-}
+// Note: We store only one label per wire (label0).
+// The complementary label (label1) is restored on demand as label0 ^ delta.
 
 /// Output type for garbled tables - only actual ciphertexts
 pub type GarbledTableEntry = (usize, S);
@@ -36,7 +33,8 @@ pub struct GarbleMode<H: GateHasher = Blake3Hasher> {
     delta: Delta,
     gate_index: usize,
     output_sender: channel::Sender<GarbledTableEntry>,
-    storage: Storage<WireId, Option<GarbledWire>>,
+    // Store only label0 for each wire; reconstruct label1 as label0 ^ delta
+    storage: Storage<WireId, Option<S>>,
     // Store the constant wires
     false_wire: GarbledWire,
     true_wire: GarbledWire,
@@ -155,9 +153,10 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
             return;
         }
 
+        // Persist only label0; label1 is restored as label0 ^ delta when needed
         self.storage
             .set(wire_id, |val| {
-                *val = Some(value);
+                *val = Some(value.label0);
             })
             .unwrap();
     }
@@ -173,8 +172,8 @@ impl<H: GateHasher> CircuitMode for GarbleMode<H> {
             _ => (),
         }
 
-        match self.storage.get(wire_id).map(|gw| gw.to_owned()) {
-            Ok(Some(gw)) => Some(gw),
+        match self.storage.get(wire_id).map(|lbl0| lbl0.to_owned()) {
+            Ok(Some(label0)) => Some(GarbledWire::new(label0, label0 ^ &self.delta)),
             Ok(None) => panic!(
                 "Called `lookup_wire` for a WireId {wire_id} that was created but not initialized"
             ),
