@@ -123,7 +123,7 @@ impl<K: Debug + Into<usize> + From<usize>, T: Default> Storage<K, T> {
             let after = self.data.capacity();
 
             if before != after {
-                error!("capacity groth up to {after}");
+                error!(" Capacity has grown from {before} to {after}");
             }
 
             self.to_key(index)

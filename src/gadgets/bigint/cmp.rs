@@ -184,7 +184,7 @@ pub fn multiplexer<C: CircuitContext>(
     let n_bits = a.first().map(|a_i| a_i.len()).unwrap();
     assert!(
         a.iter().skip(1).all(|a_i| a_i.len() == n_bits),
-        "not all a consisten: {a:?}"
+        "not all a consistent: {a:?}"
     );
 
     BigIntWires {

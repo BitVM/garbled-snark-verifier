@@ -13,7 +13,7 @@ pub use core::{
     gate::{Gate, GateError},
     gate_type::GateType,
     s::S,
-    wire::{EvaluatedWire, GarbledWires, WireError, WireId},
+    wire::{EvaluatedWire, WireError, WireId},
 };
 
 // Re-export GarbledWire from mode locality while keeping public path stable
