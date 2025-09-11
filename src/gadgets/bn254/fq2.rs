@@ -583,7 +583,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -601,7 +601,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -620,7 +620,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -638,7 +638,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -656,7 +656,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -677,7 +677,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -698,7 +698,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -774,7 +774,7 @@ mod tests {
             |ctx, input| Fq2::mul_by_fq_montgomery(ctx, &input.a, &input.b),
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -793,7 +793,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -811,7 +811,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -829,7 +829,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -847,7 +847,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -868,7 +868,7 @@ mod tests {
                 Fq2::frobenius_montgomery(ctx, a, 0)
             });
 
-            assert_eq!(result.output_wires.value, expected);
+            assert_eq!(result.output_value.value, expected);
         }
 
         // Test frobenius_map(1)
@@ -885,7 +885,7 @@ mod tests {
                 Fq2::frobenius_montgomery(ctx, a, 1)
             });
 
-            assert_eq!(result.output_wires.value, expected);
+            assert_eq!(result.output_value.value, expected);
         }
     }
 
@@ -904,7 +904,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -922,7 +922,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected_norm);
+        assert_eq!(result.output_value.value, expected_norm);
     }
 
     // Inputs for sqrt(c1 == 0)
@@ -999,7 +999,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1018,6 +1018,6 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, Fq2::as_montgomery(expected));
+        assert_eq!(result.output_value.value, Fq2::as_montgomery(expected));
     }
 }

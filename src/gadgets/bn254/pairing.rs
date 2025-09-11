@@ -1149,7 +1149,7 @@ mod tests {
                 ell_montgomery(ctx, &w.f, &w.c, &w.p)
             });
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     #[test]
@@ -1230,7 +1230,7 @@ mod tests {
                 g2_normalize_to_affine(ctx, &wires.p)
             });
 
-        assert_eq!(res.output_wires.val, expected_std);
+        assert_eq!(res.output_value.val, expected_std);
     }
 
     // Local helper to decode Fq2 (Montgomery wires -> canonical field element)
@@ -1327,10 +1327,10 @@ mod tests {
             },
         );
 
-        assert_eq!(res.output_wires.next, next_exp_proj);
-        assert_eq!(res.output_wires.coeffs.c0, exp_c0);
-        assert_eq!(res.output_wires.coeffs.c1, exp_c1);
-        assert_eq!(res.output_wires.coeffs.c2, exp_c2);
+        assert_eq!(res.output_value.next, next_exp_proj);
+        assert_eq!(res.output_value.coeffs.c0, exp_c0);
+        assert_eq!(res.output_value.coeffs.c1, exp_c1);
+        assert_eq!(res.output_value.coeffs.c2, exp_c2);
     }
 
     #[test]
@@ -1429,10 +1429,10 @@ mod tests {
             },
         );
 
-        assert_eq!(res.output_wires.next, next_exp_proj);
-        assert_eq!(res.output_wires.coeffs.c0, exp_c0);
-        assert_eq!(res.output_wires.coeffs.c1, exp_c1);
-        assert_eq!(res.output_wires.coeffs.c2, exp_c2);
+        assert_eq!(res.output_value.next, next_exp_proj);
+        assert_eq!(res.output_value.coeffs.c0, exp_c0);
+        assert_eq!(res.output_value.coeffs.c1, exp_c1);
+        assert_eq!(res.output_value.coeffs.c2, exp_c2);
     }
 
     #[test]
@@ -1519,7 +1519,7 @@ mod tests {
                     g2_frobenius_map_affine(ctx, &wires.p, i)
                 });
 
-            let out = result.output_wires;
+            let out = result.output_value;
             assert_eq!(out.x, exp_x);
             assert_eq!(out.y, exp_y);
             assert_eq!(out.z, ark_bn254::Fq2::ONE);
@@ -1602,7 +1602,7 @@ mod tests {
             },
         );
 
-        assert!(out.output_wires[0]);
+        assert!(out.output_value[0]);
     }
 
     #[test]
@@ -1794,7 +1794,7 @@ mod tests {
             |ctx, input| final_exponentiation(ctx, &input.f),
         );
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     #[test]
@@ -1886,7 +1886,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
     // Local decoder helpers for Fq12 output
     fn decode_fq6_from_wires(
@@ -2021,7 +2021,7 @@ mod tests {
                 ell_eval_const(ctx, &input.f, &coeff, &input.p)
             });
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     #[test]
@@ -2098,7 +2098,7 @@ mod tests {
             |ctx, input| miller_loop_const_q(ctx, &input.p, &q),
         );
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     #[test]
@@ -2175,7 +2175,7 @@ mod tests {
             |ctx, input| pairing_const_q(ctx, &input.p, &q),
         );
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     #[test]
@@ -2267,7 +2267,7 @@ mod tests {
             },
         );
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     fn ell(f: &mut ark_bn254::Fq12, coeffs: ark_bn254::Fq6, p: ark_bn254::G1Affine) {
@@ -2514,7 +2514,7 @@ mod tests {
             |circuit, wires| multi_miller_loop_montgomery_fast(circuit, &wires.ps, &wires.qs),
         );
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 
     // Too slow (~13 minutes) for default test runs; enable when benchmarking.
@@ -2736,7 +2736,7 @@ mod tests {
                 });
 
             assert_eq!(
-                result.output_wires.value, expected_m,
+                result.output_value.value, expected_m,
                 "case {case} mismatch"
             );
         }

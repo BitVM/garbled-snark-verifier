@@ -37,7 +37,7 @@ impl Proof {
 
 /// Verification input = proof + verifying key (off-circuit parameter stored alongside wires)
 #[derive(Debug, Clone)]
-pub struct Verify {
+pub struct VerifierInput {
     pub proof: Proof,
     pub vk: VerifyingKey<Bn254>,
 }
@@ -56,7 +56,7 @@ pub struct ProofWires {
 
 /// Uncompressed encoding wrapper around a `Proof`.
 #[derive(Debug, Clone)]
-pub struct Uncompressed(pub Verify);
+pub struct Uncompressed(pub VerifierInput);
 
 impl CircuitInput for Uncompressed {
     type WireRepr = ProofWires;
@@ -197,7 +197,7 @@ pub struct ProofCompressedWires {
 
 /// Compressed encoding wrapper around a `Proof`.
 #[derive(Debug, Clone)]
-pub struct Compressed(pub Verify);
+pub struct Compressed(pub VerifierInput);
 
 impl CircuitInput for Compressed {
     type WireRepr = ProofCompressedWires;

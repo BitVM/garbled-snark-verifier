@@ -707,7 +707,7 @@ mod tests {
                 Fq6::add(ctx, a, b)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -720,7 +720,7 @@ mod tests {
                 let [a] = input;
                 Fq6::neg(ctx, a.clone())
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -735,7 +735,7 @@ mod tests {
                 let [a, b] = input;
                 Fq6::sub(ctx, a, b)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -748,7 +748,7 @@ mod tests {
                 let [a] = input;
                 Fq6::double(ctx, a)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -761,7 +761,7 @@ mod tests {
                 let [a] = input;
                 Fq6::div6(ctx, a)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -775,7 +775,7 @@ mod tests {
                 let [a, b] = input;
                 Fq6::mul_montgomery(ctx, a, b)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -789,7 +789,7 @@ mod tests {
                 let [a] = input;
                 Fq6::mul_by_constant_montgomery(ctx, a, &Fq6::as_montgomery(b))
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -921,7 +921,7 @@ mod tests {
             CircuitBuilder::streaming_execute::<_, _, Fq6Output>(input, 10_000, |ctx, input| {
                 Fq6::mul_by_fq2_montgomery(ctx, &input.a, &input.b)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -938,7 +938,7 @@ mod tests {
                 let [a] = input;
                 Fq6::mul_by_constant_fq2_montgomery(ctx, a, &Fq2::as_montgomery(b))
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -953,7 +953,7 @@ mod tests {
                 let [a] = input;
                 Fq6::mul_by_nonresidue(ctx, a)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -967,7 +967,7 @@ mod tests {
                 let [a] = input;
                 Fq6::square_montgomery(ctx, a)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -981,7 +981,7 @@ mod tests {
                 let [a] = input;
                 Fq6::inverse_montgomery(ctx, a)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1139,7 +1139,7 @@ mod tests {
             CircuitBuilder::streaming_execute::<_, _, Fq6Output>(input, 10_000, |ctx, input| {
                 Fq6::mul_by_01_montgomery(ctx, &input.a, &input.c0, &input.c1)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1277,7 +1277,7 @@ mod tests {
                     &Fq2::as_montgomery(c1),
                 )
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1290,7 +1290,7 @@ mod tests {
                 let [a] = input;
                 Fq6::triple(ctx, a)
             });
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1309,7 +1309,7 @@ mod tests {
                     Fq6::frobenius_montgomery(ctx, a, 0)
                 },
             );
-            assert_eq!(result.output_wires.value, expected);
+            assert_eq!(result.output_value.value, expected);
         }
 
         // i = 1
@@ -1324,7 +1324,7 @@ mod tests {
                     Fq6::frobenius_montgomery(ctx, a, 1)
                 },
             );
-            assert_eq!(result.output_wires.value, expected);
+            assert_eq!(result.output_value.value, expected);
         }
     }
 }

@@ -667,7 +667,7 @@ mod tests {
                 result_wires.to_wires_vec()
             });
 
-        let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
+        let actual_result = G2Projective::from_bits_unchecked(result.output_value.clone());
         assert_eq!(actual_result, c_mont);
     }
 
@@ -688,7 +688,7 @@ mod tests {
                 result_wires.to_wires_vec()
             });
 
-        let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
+        let actual_result = G2Projective::from_bits_unchecked(result.output_value.clone());
         assert_eq!(actual_result, c_mont);
     }
 
@@ -709,7 +709,7 @@ mod tests {
                 result_wires.to_wires_vec()
             });
 
-        let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
+        let actual_result = G2Projective::from_bits_unchecked(result.output_value.clone());
         assert_eq!(actual_result, neg_a_mont);
     }
 
@@ -789,7 +789,7 @@ mod tests {
                 result_wires.to_wires_vec()
             });
 
-        let actual_result = G2Projective::from_bits_unchecked(result.output_wires.clone());
+        let actual_result = G2Projective::from_bits_unchecked(result.output_value.clone());
         assert_eq!(actual_result, expected);
     }
 
@@ -810,7 +810,7 @@ mod tests {
                 result_wires.to_wires_vec()
             });
 
-        let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_wires.clone());
+        let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_value.clone());
         assert_eq!(actual_result, G2Projective::as_montgomery(result));
     }
 
@@ -870,7 +870,7 @@ mod tests {
                 result_wires.to_wires_vec()
             });
 
-        let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_wires.clone());
+        let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_value.clone());
         assert_eq!(actual_result, G2Projective::as_montgomery(result));
     }
 }

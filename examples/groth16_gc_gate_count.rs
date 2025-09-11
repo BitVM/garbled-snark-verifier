@@ -64,13 +64,13 @@ impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let json_output = args.iter().any(|a| a == "--json");
-    let use_compressed = args.iter().any(|a| a == "--compressed");
+    let is_compressed = args.iter().any(|a| a == "--compressed");
     if !json_output {
         println!(
             "Running Groth16 gate-count example: k={}, constraints={}, mode={}",
             K,
             1 << K,
-            if use_compressed {
+            if is_compressed {
                 "compressed"
             } else {
                 "uncompressed"
@@ -95,12 +95,12 @@ fn main() {
 
     // Construct input once, then choose uncompressed vs compressed execution
     let proof_input = garbled_groth16::Proof::new(proof, vec![c_val]);
-    let verify = garbled_groth16::Verify {
+    let verify = garbled_groth16::VerifierInput {
         proof: proof_input,
         vk: vk.clone(),
     };
 
-    let (verified, gate_count) = if use_compressed {
+    let (verified, gate_count) = if is_compressed {
         // Compressed path includes decompression gadgets; allocate more gates
         let result: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
             garbled_groth16::Compressed(verify),
@@ -108,7 +108,7 @@ fn main() {
             garbled_groth16::verify_compressed,
         );
 
-        (result.output_wires, result.gate_count)
+        (result.output_value, result.gate_count)
     } else {
         let result: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
             garbled_groth16::Uncompressed(verify),
@@ -116,7 +116,7 @@ fn main() {
             garbled_groth16::verify,
         );
 
-        (result.output_wires, result.gate_count)
+        (result.output_value, result.gate_count)
     };
 
     let total_gates = gate_count.total_gate_count();
@@ -136,7 +136,7 @@ fn main() {
                 "breakdown": gate_count.0
             },
             "verification_result": verified,
-            "compressed": use_compressed
+            "compressed": is_compressed
         });
         println!("{}", serde_json::to_string_pretty(&output).expect("json"));
     } else {
@@ -147,7 +147,7 @@ fn main() {
         println!("verified: {}", verified);
         println!(
             "mode:     {}",
-            if use_compressed {
+            if is_compressed {
                 "compressed"
             } else {
                 "uncompressed"

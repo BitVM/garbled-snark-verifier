@@ -124,7 +124,7 @@ mod tests {
                 vec![wire]
             },
         )
-        .output_wires[0];
+        .output_value[0];
         assert!(not_not);
 
         let not_not_not = CircuitBuilder::streaming_execute::<[bool; 1], _, Vec<bool>>(
@@ -139,7 +139,7 @@ mod tests {
                 vec![wire]
             },
         )
-        .output_wires[0];
+        .output_value[0];
 
         assert!(!not_not_not);
     }
@@ -164,7 +164,7 @@ mod tests {
                 vec![res]
             },
         )
-        .output_wires[0];
+        .output_value[0];
 
         assert!(result);
     }
@@ -188,7 +188,7 @@ mod tests {
                     vec![result_wire, carry_wire]
                 },
             )
-            .output_wires;
+            .output_value;
 
             assert_eq!(outputs[0], expected_result);
             assert_eq!(outputs[1], expected_carry);
@@ -218,7 +218,7 @@ mod tests {
                     vec![result_wire, carry_wire]
                 },
             )
-            .output_wires;
+            .output_value;
 
             assert_eq!(outputs[0], expected_result);
             assert_eq!(outputs[1], expected_carry);
@@ -244,7 +244,7 @@ mod tests {
                     vec![result_wire, borrow_wire]
                 },
             )
-            .output_wires;
+            .output_value;
 
             assert_eq!(outputs[0], expected_result);
             assert_eq!(outputs[1], expected_borrow);
@@ -275,7 +275,7 @@ mod tests {
                     vec![result_wire, carry_wire]
                 },
             )
-            .output_wires;
+            .output_value;
 
             assert_eq!(outputs[0], expected_result);
             assert_eq!(outputs[1], expected_carry);
@@ -305,7 +305,7 @@ mod tests {
                     vec![result_wire]
                 },
             )
-            .output_wires[0];
+            .output_value[0];
 
             assert_eq!(output, expected_result);
         }
@@ -387,7 +387,7 @@ mod tests {
                 vec![result_wire]
             },
         )
-        .output_wires[0];
+        .output_value[0];
 
         assert_eq!(output, expected);
     }

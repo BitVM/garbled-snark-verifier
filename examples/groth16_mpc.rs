@@ -187,6 +187,6 @@ fn main() {
             vec![ok]
         });
 
-    println!("verification_result={}", result.output_wires[0]);
+    println!("verification_result={}", result.output_value[0]);
     println!("gate count is {}", result.gate_count);
 }

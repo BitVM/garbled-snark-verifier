@@ -129,12 +129,12 @@ mod tests {
         let tables: Vec<_> = receiver.try_iter().collect();
 
         // Verify
-        assert_eq!(result.output_wires.len(), 1);
+        assert_eq!(result.output_value.len(), 1);
         // Both AND and OR gates should produce tables (not free gates)
         assert_eq!(tables.len(), 2, "Both AND and OR should produce tables");
 
         // Verify constants are set
-        assert!(result.true_constant.label0 != result.false_constant.label0);
+        assert!(result.true_wire_constant.label0 != result.false_wire_constant.label0);
     }
 
     #[test]
@@ -244,7 +244,7 @@ mod tests {
             );
 
         // Verify the circuit was garbled
-        assert_eq!(result.output_wires.len(), 1);
+        assert_eq!(result.output_value.len(), 1);
 
         // Collect tables from receiver - only non-free gates produce entries
         let tables: Vec<_> = receiver.try_iter().collect();

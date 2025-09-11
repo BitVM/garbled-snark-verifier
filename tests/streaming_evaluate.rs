@@ -109,16 +109,16 @@ fn test_garble_evaluate_and_consistency() {
             CircuitBuilder::<EvaluateMode>::streaming_evaluation(
                 eval_inputs,
                 10,
-                garble_result.true_constant.select(true).to_u128(),
-                garble_result.false_constant.select(false).to_u128(),
+                garble_result.true_wire_constant.select(true).to_u128(),
+                garble_result.false_wire_constant.select(false).to_u128(),
                 receiver,
                 circuit_fn,
             );
 
-        let [eval_and_output, ..] = evaluate_result.output_wires.as_slice() else {
+        let [eval_and_output, ..] = evaluate_result.output_value.as_slice() else {
             unreachable!()
         };
-        let [garble_and_output, ..] = garble_result.output_wires.as_slice() else {
+        let [garble_and_output, ..] = garble_result.output_value.as_slice() else {
             unreachable!()
         };
 
@@ -178,16 +178,16 @@ macro_rules! test_gate_consistency {
                     CircuitBuilder::<EvaluateMode>::streaming_evaluation(
                         eval_inputs,
                         10,
-                        garble_result.true_constant.select(true).to_u128(),
-                        garble_result.false_constant.select(false).to_u128(),
+                        garble_result.true_wire_constant.select(true).to_u128(),
+                        garble_result.false_wire_constant.select(false).to_u128(),
                         receiver,
                         circuit_fn,
                     );
 
-                let [eval_gate_output, ..] = evaluate_result.output_wires.as_slice() else {
+                let [eval_gate_output, ..] = evaluate_result.output_value.as_slice() else {
                     unreachable!()
                 };
-                let [garble_gate_output, ..] = garble_result.output_wires.as_slice() else {
+                let [garble_gate_output, ..] = garble_result.output_value.as_slice() else {
                     unreachable!()
                 };
 
@@ -298,16 +298,16 @@ fn test_not_garble_evaluate_consistency() {
             CircuitBuilder::<EvaluateMode>::streaming_evaluation(
                 eval_inputs,
                 10,
-                garble_result.true_constant.select(true).to_u128(),
-                garble_result.false_constant.select(false).to_u128(),
+                garble_result.true_wire_constant.select(true).to_u128(),
+                garble_result.false_wire_constant.select(false).to_u128(),
                 receiver,
                 circuit_fn,
             );
 
-        let [eval_not_output, ..] = evaluate_result.output_wires.as_slice() else {
+        let [eval_not_output, ..] = evaluate_result.output_value.as_slice() else {
             unreachable!()
         };
-        let [garble_not_output, ..] = garble_result.output_wires.as_slice() else {
+        let [garble_not_output, ..] = garble_result.output_value.as_slice() else {
             unreachable!()
         };
 
@@ -429,8 +429,8 @@ fn test_bn254_fq_complex_chain_garble_eval() {
     drop(e_sender);
 
     // Evaluate using constants from garbler
-    let true_s = garble_res.true_constant.select(true);
-    let false_s = garble_res.false_constant.select(false);
+    let true_s = garble_res.true_wire_constant.select(true);
+    let false_s = garble_res.false_wire_constant.select(false);
 
     let eval: StreamingResult<EvaluateMode, _, Vec<EvaluatedWire>> =
         CircuitBuilder::<EvaluateMode>::streaming_evaluation(
@@ -443,8 +443,8 @@ fn test_bn254_fq_complex_chain_garble_eval() {
         );
 
     let bits_len = FqWire::to_bits(ark_bn254::Fq::from(0u32)).len();
-    assert_eq!(eval.output_wires.len(), bits_len);
-    let bits: Vec<bool> = eval.output_wires.iter().map(|w| w.value).collect();
+    assert_eq!(eval.output_value.len(), bits_len);
+    let bits: Vec<bool> = eval.output_value.iter().map(|w| w.value).collect();
     let actual = FqWire::from_montgomery(FqWire::from_bits(bits));
     assert_eq!(actual, expected);
 }

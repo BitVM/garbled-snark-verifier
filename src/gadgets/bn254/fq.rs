@@ -417,7 +417,7 @@ pub(super) mod tests {
                     },
                 );
 
-                assert_eq!(result.output_wires.value, expected);
+                assert_eq!(result.output_value.value, expected);
             }
         };
 
@@ -439,7 +439,7 @@ pub(super) mod tests {
                     },
                 );
 
-                assert_eq!(result.output_wires.value, expected);
+                assert_eq!(result.output_value.value, expected);
             }
         };
 
@@ -461,7 +461,7 @@ pub(super) mod tests {
                     },
                 );
 
-                assert_eq!(result.output_wires.value, expected);
+                assert_eq!(result.output_value.value, expected);
             }
         };
 
@@ -483,7 +483,7 @@ pub(super) mod tests {
                     },
                 );
 
-                assert_eq!(result.output_wires.value, expected);
+                assert_eq!(result.output_value.value, expected);
             }
         };
 
@@ -507,7 +507,7 @@ pub(super) mod tests {
                     },
                 );
 
-                assert_eq!(result.output_wires.value, expected);
+                assert_eq!(result.output_value.value, expected);
             }
         };
 
@@ -531,7 +531,7 @@ pub(super) mod tests {
                     },
                 );
 
-                assert_eq!(result.output_wires.value, expected);
+                assert_eq!(result.output_value.value, expected);
             }
         };
 
@@ -654,7 +654,7 @@ pub(super) mod tests {
                 Fq::montgomery_reduce(ctx, x)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -677,7 +677,7 @@ pub(super) mod tests {
                 Fq::sqrt_montgomery(ctx, aa_wire)
             });
 
-        assert_eq!(result.output_wires.value, expected_c);
+        assert_eq!(result.output_value.value, expected_c);
     }
 
     #[test]
@@ -749,6 +749,6 @@ pub(super) mod tests {
                 Fq::multiplexer(ctx, a, s, w)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 }

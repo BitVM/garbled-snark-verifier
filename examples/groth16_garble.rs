@@ -66,7 +66,7 @@ enum G2EMsg {
         output_label1_hash: [u8; 32],
         ciphertext_hash: u128,
 
-        proof_labels: garbled_groth16::Evaluator,
+        input_labels: garbled_groth16::Evaluator,
         true_wire: u128,
         false_wire: u128,
     },
@@ -129,7 +129,9 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
 
     info!("garbling: in {:.3}s", garble_start.elapsed().as_secs_f64());
 
-    let GarbledWire { label0, label1 } = garbling_result.output_wires;
+    // Take input labels first to avoid borrow conflicts
+    let (&label0, &label1) = garbling_result.output_labels();
+    let input_values = garbling_result.input_wire_values;
 
     let ciphertext_hash: u128 = ciphertext_hash.join().unwrap();
 
@@ -149,21 +151,20 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
             Label1: {:?},
             CiphertextHash: {ciphertext_hash}
         ",
-        &label0, &label1
+        label0, label1
     );
 
     let proof = garbled_groth16::Proof::new(proof, vec![public_param]);
 
-    let proof_labels =
-        garbled_groth16::Evaluator::new(proof, vk.clone(), garbling_result.input_values);
+    let input_labels = garbled_groth16::Evaluator::new(proof, vk.clone(), input_values);
 
     let msg = G2EMsg::Commit {
         output_label0_hash: hash(&label0.to_bytes()),
         output_label1_hash: hash(&label1.to_bytes()),
         ciphertext_hash,
-        proof_labels,
-        true_wire: garbling_result.true_constant.select(true).to_u128(),
-        false_wire: garbling_result.false_constant.select(false).to_u128(),
+        input_labels,
+        true_wire: garbling_result.true_wire_constant.select(true).to_u128(),
+        false_wire: garbling_result.false_wire_constant.select(false).to_u128(),
     };
     info!("Commit sent");
 
@@ -197,7 +198,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
             output_label0_hash,
             output_label1_hash,
             ciphertext_hash: commit_ciphertext_hash,
-            proof_labels: input_labels,
+            input_labels,
             true_wire,
             false_wire,
         } = evaluator_receiver.recv().unwrap();
@@ -233,7 +234,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         let EvaluatedWire {
             active_label: possible_secret,
             value: is_proof_correct,
-        } = evaluator_result.output_wires;
+        } = evaluator_result.output_value;
 
         let calculated_ciphertext_hash = calculated_ciphertext_hash.join().unwrap();
         let result_hash = hash(&possible_secret.to_bytes());

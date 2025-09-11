@@ -629,7 +629,7 @@ mod tests {
                 Fq12::add(ctx, a, b)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -644,7 +644,7 @@ mod tests {
                 Fq12::neg(ctx, a)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -660,7 +660,7 @@ mod tests {
                 Fq12::sub(ctx, a, b)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -675,7 +675,7 @@ mod tests {
                 Fq12::double(ctx, a)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -693,7 +693,7 @@ mod tests {
                 Fq12::mul_montgomery(ctx, a, b)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -711,7 +711,7 @@ mod tests {
                 Fq12::mul_by_constant_montgomery(ctx, a, &b_m)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -812,7 +812,7 @@ mod tests {
                 Fq12::mul_by_34_montgomery(ctx, &input.a, &input.c3, &input.c4)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -901,7 +901,7 @@ mod tests {
                 Fq12::mul_by_034_montgomery(ctx, &input.a, &input.c0, &input.c3, &input.c4)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -989,7 +989,7 @@ mod tests {
                 )
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1005,7 +1005,7 @@ mod tests {
                 Fq12::square_montgomery(ctx, a)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1026,7 +1026,7 @@ mod tests {
                 Fq12::cyclotomic_square_montgomery(ctx, a)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1048,7 +1048,7 @@ mod tests {
                 },
             );
 
-            assert_eq!(result.output_wires.value, expected_m);
+            assert_eq!(result.output_value.value, expected_m);
         }
     }
 
@@ -1065,7 +1065,7 @@ mod tests {
                 Fq12::inverse_montgomery(ctx, a)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 
     #[test]
@@ -1081,6 +1081,6 @@ mod tests {
                 Fq12::conjugate(ctx, a)
             });
 
-        assert_eq!(result.output_wires.value, expected);
+        assert_eq!(result.output_value.value, expected);
     }
 }

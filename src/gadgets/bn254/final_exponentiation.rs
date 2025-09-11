@@ -411,6 +411,6 @@ mod tests {
                 final_exponentiation(ctx, &input.f)
             });
 
-        assert_eq!(result.output_wires.value, expected_m);
+        assert_eq!(result.output_value.value, expected_m);
     }
 }

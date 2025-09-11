@@ -85,8 +85,8 @@ mod tests {
         assert_eq!(tables.len(), 0, "XOR should not produce any table entry");
 
         // Verify output wire is properly garbled
-        assert_eq!(output.output_wires.len(), 1);
-        let output_wire = &output.output_wires[0];
+        assert_eq!(output.output_value.len(), 1);
+        let output_wire = &output.output_value[0];
 
         // For XOR with Free-XOR: output.label0 = input1.label0 ^ input2.label0
         let expected_label0 = input_wires[0].label0 ^ &input_wires[1].label0;
@@ -217,8 +217,8 @@ mod tests {
             );
 
         // Verify constants are properly set
-        assert_eq!(output.output_wires.len(), 2);
-        assert!(output.true_constant.label0 != output.false_constant.label0);
+        assert_eq!(output.output_value.len(), 2);
+        assert!(output.true_wire_constant.label0 != output.false_wire_constant.label0);
     }
 
     #[test]

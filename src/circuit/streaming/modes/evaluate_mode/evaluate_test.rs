@@ -97,8 +97,8 @@ fn test_xor_evaluate_mode_basic() {
         },
     );
 
-    assert_eq!(result.output_wires.len(), 1);
-    assert!(result.output_wires[0].value);
+    assert_eq!(result.output_value.len(), 1);
+    assert!(result.output_value[0].value);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn test_xor_evaluate_mode_with_constants() {
         },
     );
 
-    assert_eq!(result.output_wires[0].value, (a ^ true) ^ b);
+    assert_eq!(result.output_value[0].value, (a ^ true) ^ b);
 }
 
 #[test]
@@ -187,5 +187,5 @@ fn test_evaluate_mode() {
     let val5 = GateType::Imp.f()(a, val3);
     let val6 = GateType::Xor.f()(val5, val4);
 
-    assert_eq!(result.output_wires[0].value, val6);
+    assert_eq!(result.output_value[0].value, val6);
 }

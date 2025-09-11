@@ -398,7 +398,7 @@ mod tests {
         let input = Input::new(n_bits, [a_val, b_val]);
 
         let StreamingResult {
-            output_wires,
+            output_value: output_wires,
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
@@ -503,7 +503,7 @@ mod tests {
         let c_big = BigUint::from(c_val);
 
         let StreamingResult {
-            output_wires,
+            output_value: output_wires,
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
@@ -749,7 +749,7 @@ mod tests {
         let power = 12;
 
         let StreamingResult {
-            output_wires,
+            output_value,
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
@@ -761,7 +761,7 @@ mod tests {
 
         let actual_fn = output_wires_ids
             .iter()
-            .zip(output_wires.iter())
+            .zip(output_value.iter())
             .map(|(w, v)| (*w, *v))
             .collect::<HashMap<WireId, bool>>();
 
@@ -799,7 +799,7 @@ mod tests {
         let power = 8;
 
         let StreamingResult {
-            output_wires,
+            output_value,
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
@@ -811,7 +811,7 @@ mod tests {
 
         let actual_fn = output_wires_ids
             .iter()
-            .zip(output_wires.iter())
+            .zip(output_value.iter())
             .map(|(w, v)| (*w, *v))
             .collect::<HashMap<WireId, bool>>();
 
@@ -850,7 +850,7 @@ mod tests {
         let power = 8; // mod 256
 
         let StreamingResult {
-            output_wires,
+            output_value,
             output_wires_ids,
             ..
         }: crate::circuit::streaming::StreamingResult<ExecuteMode, _, Vec<bool>> =
@@ -861,7 +861,7 @@ mod tests {
 
         let actual_fn = output_wires_ids
             .iter()
-            .zip(output_wires.iter())
+            .zip(output_value.iter())
             .map(|(w, v)| (*w, *v))
             .collect::<HashMap<WireId, bool>>();
 

@@ -500,7 +500,7 @@ mod tests {
                 vec![ok]
             });
 
-        assert!(!out.output_wires[0]);
+        assert!(!out.output_value[0]);
     }
 
     #[derive(Copy, Clone)]
@@ -563,7 +563,7 @@ mod tests {
                 vec![ok]
             });
 
-        assert!(out.output_wires[0]);
+        assert!(out.output_value[0]);
     }
 
     #[test]
@@ -630,7 +630,7 @@ mod tests {
                 vec![ok]
             });
 
-        assert!(!out.output_wires[0]);
+        assert!(!out.output_value[0]);
     }
 
     // Minimal harnesses that allocate compressed wires and feed them directly
@@ -712,7 +712,7 @@ mod tests {
                 vec![x_ok, y_ok, z_ok]
             });
 
-        assert!(out.output_wires.iter().all(|&b| b));
+        assert!(out.output_value.iter().all(|&b| b));
     }
 
     #[test]
@@ -738,7 +738,7 @@ mod tests {
                 vec![x_ok, y_ok, z_ok]
             });
 
-        assert!(out.output_wires.iter().all(|&b| b));
+        assert!(out.output_value.iter().all(|&b| b));
     }
 
     #[test]
@@ -788,7 +788,7 @@ mod tests {
                 ]
             });
 
-        assert!(out.output_wires.iter().all(|&b| b));
+        assert!(out.output_value.iter().all(|&b| b));
     }
 
     // Full end-to-end compressed Groth16 verification. This is heavy because it
@@ -828,7 +828,7 @@ mod tests {
                 vec![ok]
             });
 
-        assert!(out.output_wires[0]);
+        assert!(out.output_value[0]);
     }
 
     // Unified small verifier runner to avoid duplication across flows and bitflips
@@ -871,7 +871,7 @@ mod tests {
                             groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
                         vec![ok]
                     });
-                out.output_wires[0]
+                out.output_value[0]
             }
             VerifyFlow::Compressed => {
                 let inputs_c = Groth16ExecInputCompressed(inputs);
@@ -887,7 +887,7 @@ mod tests {
                         );
                         vec![ok]
                     });
-                out.output_wires[0]
+                out.output_value[0]
             }
         }
     }
