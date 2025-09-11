@@ -122,22 +122,17 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
 
         maybe_log_progress("evaluated", gate_id);
 
+        let expected_label = halfgates_garbling::degarble_gate::<H>(
+            gate.gate_type,
+            || self.consume_ciphertext(gate_id).unwrap(),
+            a.active_label,
+            a.value,
+            b.active_label,
+            gate_id,
+        );
+
         // Re-implement evaluation bound to streaming mode and raw labels.
         let expected_value = (gate.gate_type.f())(a.value, b.value);
-
-        let expected_label = match gate.gate_type {
-            crate::GateType::Xor => a.active_label ^ &b.active_label,
-            crate::GateType::Xnor => a.active_label ^ &b.active_label,
-            crate::GateType::Not => a.active_label,
-            _ => halfgates_garbling::degarble_gate::<H>(
-                gate.gate_type,
-                &self.consume_ciphertext(gate_id).unwrap(),
-                a.active_label,
-                a.value,
-                b.active_label,
-                gate_id,
-            ),
-        };
 
         let c = EvaluatedWire {
             active_label: expected_label,
