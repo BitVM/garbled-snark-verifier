@@ -6,11 +6,7 @@ use super::{BigIntWires, BigUint, select};
 use crate::{CircuitContext, Gate, WireId, circuit::streaming::FALSE_WIRE, gadgets::basic};
 
 #[bn_component(arity = "a.len() + 1")]
-pub fn add_generic<C: CircuitContext>(
-    circuit: &mut C,
-    a: &BigIntWires,
-    b: &BigIntWires,
-) -> BigIntWires {
+pub fn add<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     assert_eq!(a.len(), b.len());
 
     let mut bits = Vec::new();
@@ -34,7 +30,7 @@ pub fn add_without_carry<C: CircuitContext>(
     a: &BigIntWires,
     b: &BigIntWires,
 ) -> BigIntWires {
-    let mut c = add_generic(circuit, a, b);
+    let mut c = add(circuit, a, b);
     c.pop();
     c
 }
@@ -61,7 +57,7 @@ pub fn add_constant<C: CircuitContext>(
             bits.push(a_i);
         } else if i == first_one {
             let wire = circuit.issue_wire();
-            circuit.add_gate(Gate::nand(a_i, a_i, wire));
+            circuit.add_gate(Gate::not_with_xor(a_i, wire)); //This must be necessary, since the bit is duplicated
             bits.push(wire);
             carry = Some(a_i);
         } else if b_bits[i] {
@@ -96,11 +92,7 @@ pub fn add_constant_without_carry<C: CircuitContext>(
 }
 
 #[bn_component(arity = "a.len() + 1")]
-pub fn sub_generic<C: CircuitContext>(
-    circuit: &mut C,
-    a: &BigIntWires,
-    b: &BigIntWires,
-) -> BigIntWires {
+pub fn sub<C: CircuitContext>(circuit: &mut C, a: &BigIntWires, b: &BigIntWires) -> BigIntWires {
     assert_eq!(a.len(), b.len());
     let mut bits = Vec::with_capacity(a.len() + 1);
 
@@ -122,12 +114,12 @@ pub fn sub_generic<C: CircuitContext>(
 }
 
 #[bn_component(arity = "a.len()")]
-pub fn sub_generic_without_borrow<C: CircuitContext>(
+pub fn sub_without_borrow<C: CircuitContext>(
     circuit: &mut C,
     a: &BigIntWires,
     b: &BigIntWires,
 ) -> BigIntWires {
-    let BigIntWires { mut bits } = sub_generic(circuit, a, b);
+    let BigIntWires { mut bits } = sub(circuit, a, b);
     bits.pop();
     BigIntWires { bits }
 }
@@ -351,73 +343,73 @@ mod tests {
     const NUM_BITS: usize = 4;
 
     #[test]
-    fn test_add_generic_basic() {
-        test_two_input_operation(NUM_BITS, 5, 3, 8, add_generic);
+    fn test_add_basic() {
+        test_two_input_operation(NUM_BITS, 5, 3, 8, add);
     }
 
     #[test]
-    fn test_add_generic_with_carry() {
-        test_two_input_operation(NUM_BITS, 7, 9, 16, add_generic);
+    fn test_add_with_carry() {
+        test_two_input_operation(NUM_BITS, 7, 9, 16, add);
     }
 
     #[test]
-    fn test_add_generic_max_plus_one() {
-        test_two_input_operation(NUM_BITS, 15, 1, 16, add_generic);
+    fn test_add_max_plus_one() {
+        test_two_input_operation(NUM_BITS, 15, 1, 16, add);
     }
 
     #[test]
-    fn test_add_generic_zero_zero() {
-        test_two_input_operation(NUM_BITS, 0, 0, 0, add_generic);
+    fn test_add_zero_zero() {
+        test_two_input_operation(NUM_BITS, 0, 0, 0, add);
     }
 
     #[test]
-    fn test_add_generic_one_one() {
-        test_two_input_operation(NUM_BITS, 1, 1, 2, add_generic);
+    fn test_add_one_one() {
+        test_two_input_operation(NUM_BITS, 1, 1, 2, add);
     }
 
     #[test]
-    fn test_add_constant_generic_basic() {
+    fn test_add_constant_basic() {
         test_constant_operation(NUM_BITS, 5, 3, 8, add_constant);
     }
 
     #[test]
-    fn test_add_constant_generic_with_carry() {
+    fn test_add_constant_with_carry() {
         test_constant_operation(NUM_BITS, 7, 9, 16, add_constant);
     }
 
     #[test]
-    fn test_add_constant_generic_max_plus_one() {
+    fn test_add_constant_max_plus_one() {
         test_constant_operation(NUM_BITS, 15, 1, 16, add_constant);
     }
 
     #[test]
-    fn test_add_constant_generic_zero_one() {
+    fn test_add_constant_zero_one() {
         test_constant_operation(NUM_BITS, 0, 1, 1, add_constant);
     }
 
     #[test]
-    fn test_add_constant_generic_one_one() {
+    fn test_add_constant_one_one() {
         test_constant_operation(NUM_BITS, 1, 1, 2, add_constant);
     }
 
     #[test]
-    fn test_sub_generic_basic() {
-        test_two_input_operation(NUM_BITS, 8, 3, 5, sub_generic);
+    fn test_sub_basic() {
+        test_two_input_operation(NUM_BITS, 8, 3, 5, sub);
     }
 
     #[test]
-    fn test_sub_generic_zero_zero() {
-        test_two_input_operation(NUM_BITS, 0, 0, 0, sub_generic);
+    fn test_sub_zero_zero() {
+        test_two_input_operation(NUM_BITS, 0, 0, 0, sub);
     }
 
     #[test]
-    fn test_sub_generic_max_minus_one() {
-        test_two_input_operation(NUM_BITS, 15, 1, 14, sub_generic);
+    fn test_sub_max_minus_one() {
+        test_two_input_operation(NUM_BITS, 15, 1, 14, sub);
     }
 
     #[test]
-    fn test_sub_generic_same_values() {
-        test_two_input_operation(NUM_BITS, 7, 7, 0, sub_generic);
+    fn test_sub_same_values() {
+        test_two_input_operation(NUM_BITS, 7, 7, 0, sub);
     }
 
     fn test_single_input_operation(

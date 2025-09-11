@@ -1,7 +1,9 @@
 use std::fmt;
 
 pub use crate::GateType;
-use crate::{Delta, EvaluatedWire, GarbledWire, S, WireError, WireId};
+use crate::{
+    Delta, EvaluatedWire, GarbledWire, S, WireError, WireId, circuit::streaming::TRUE_WIRE,
+};
 pub mod garbling;
 use garbling::{Blake3Hasher, GateHasher, degarble, garble};
 
@@ -157,6 +159,16 @@ impl Gate {
             wire_b: wire_a,
             wire_c: wire_a,
             gate_type: GateType::Not,
+        }
+    }
+
+    #[must_use]
+    pub fn not_with_xor(wire_a: WireId, wire_c: WireId) -> Self {
+        Self {
+            wire_a,
+            wire_b: TRUE_WIRE,
+            wire_c,
+            gate_type: GateType::Xor,
         }
     }
 

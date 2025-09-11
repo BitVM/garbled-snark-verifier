@@ -97,7 +97,7 @@ pub trait Fp254Impl {
         assert_eq!(a.len(), Self::N_BITS);
         assert_eq!(b.len(), Self::N_BITS);
 
-        let mut wires1 = bigint::add_generic(circuit, a, b);
+        let mut wires1 = bigint::add(circuit, a, b);
         let u = wires1.pop().unwrap();
 
         let mut wires2 = bigint::add_constant(circuit, &wires1, &Self::not_modulus_as_biguint());
@@ -325,9 +325,9 @@ pub trait Fp254Impl {
 
         let subtract_if_too_much = bigint::self_or_zero(circuit, &modulus_as_biguint, bound_check);
 
-        let new_sub = bigint::sub_generic_without_borrow(circuit, &sub, &subtract_if_too_much);
+        let new_sub = bigint::sub_without_borrow(circuit, &sub, &subtract_if_too_much);
 
-        bigint::sub_generic_without_borrow(circuit, &x_high, &new_sub)
+        bigint::sub_without_borrow(circuit, &x_high, &new_sub)
     }
 
     /// Modular inverse using extended Euclidean algorithm
@@ -462,7 +462,7 @@ pub trait Fp254Impl {
                         let k2 = bigint::add_constant_without_carry(circuit, &k, &BigUint::one());
 
                         // part3
-                        let u3 = bigint::sub_generic_without_borrow(circuit, &u1, &v2);
+                        let u3 = bigint::sub_without_borrow(circuit, &u1, &v2);
                         let v3 = v.clone();
                         let r3 = bigint::add_without_carry(circuit, &r, &s);
                         let s3 = bigint::double_without_overflow(circuit, &s);
@@ -470,7 +470,7 @@ pub trait Fp254Impl {
 
                         // part4
                         let u4 = u.clone();
-                        let v4 = bigint::sub_generic_without_borrow(circuit, &v2, &u1);
+                        let v4 = bigint::sub_without_borrow(circuit, &v2, &u1);
                         let r4 = bigint::double_without_overflow(circuit, &r);
                         let s4 = bigint::add_without_carry(circuit, &r, &s);
                         let k4 = bigint::add_constant_without_carry(circuit, &k, &BigUint::one());
