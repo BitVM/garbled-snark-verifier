@@ -30,12 +30,15 @@ pub use component_template_pool::ComponentTemplatePool;
 ///
 /// Simple usage without parameters:
 /// ```
-/// let key = component_key!("my_component");
+/// use garbled_snark_verifier::component_key;
+/// let key = component_key!("my_component", 10, 5);
 /// ```
 ///
-/// With a single parameter (common case):
+/// With parameters (use semicolon to separate params from arity/len):
 /// ```
-/// let key = component_key!("multiplexer", w = window_size);
+/// use garbled_snark_verifier::component_key;
+/// let window_size: &[u8] = &[8];
+/// let key = component_key!("multiplexer", w = window_size ; 10, 5);
 /// ```
 ///
 /// The macro handles conversion to bytes for common types automatically.
