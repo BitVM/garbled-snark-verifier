@@ -1,8 +1,6 @@
-use std::{fmt, mem, ops::Deref};
+use std::{fmt, ops::Deref};
 
-use rand::Rng;
-
-use crate::{Delta, S};
+use crate::S;
 
 /// Errors that can occur during wire operations
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
@@ -54,47 +52,7 @@ impl From<WireId> for usize {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GarbledWire {
-    pub label0: S,
-    pub label1: S,
-}
-
-impl GarbledWire {
-    pub(crate) fn new(label0: S, label1: S) -> Self {
-        GarbledWire { label0, label1 }
-    }
-
-    pub fn toggle_not(&mut self) {
-        mem::swap(&mut self.label1, &mut self.label0);
-    }
-
-    pub fn random(rng: &mut impl Rng, delta: &Delta) -> Self {
-        let label0 = S::random(rng);
-
-        GarbledWire {
-            label0,
-            // free-XOR: label1 = label0 ^ Δ
-            label1: label0 ^ delta,
-        }
-    }
-
-    pub fn select(&self, bit: bool) -> S {
-        match bit {
-            false => self.label0,
-            true => self.label1,
-        }
-    }
-}
-
-impl Default for GarbledWire {
-    fn default() -> Self {
-        GarbledWire {
-            label0: S::ZERO,
-            label1: S::ZERO,
-        }
-    }
-}
+pub use crate::circuit::streaming::modes::garble_mode::GarbledWire;
 
 mod garbled_wires {
     use std::collections::{HashMap, hash_map::Entry};

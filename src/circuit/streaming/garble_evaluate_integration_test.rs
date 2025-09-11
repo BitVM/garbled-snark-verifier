@@ -472,7 +472,10 @@ fn test_direct_garble_degarble_comparison() {
     use rand::SeedableRng;
     use rand_chacha::ChaChaRng;
 
-    use crate::core::gate::garbling::{degarble, garble, Blake3Hasher};
+    use crate::{
+        circuit::streaming::modes::garble_mode::halfgates_garbling,
+        hashers::Blake3Hasher,
+    };
 
     println!("=== DIRECT GARBLE/DEGARBLE COMPARISON ===");
 
@@ -516,8 +519,13 @@ fn test_direct_garble_degarble_comparison() {
     // Garble the AND gate
     let gate_id = 0;
     let gate_type = crate::GateType::And;
-    let (ciphertext, c_garbled_label0) =
-        garble::<Blake3Hasher>(gate_id, gate_type, &a_garbled, &b_garbled, &delta);
+    let a0 = a_garbled.select(false);
+    let b0 = b_garbled.select(false);
+    let (ciphertext, c_garbled_label0) = {
+        let (c0, ct) =
+            halfgates_garbling::garble_gate::<Blake3Hasher>(gate_type, a0, b0, &delta, gate_id);
+        (ct.expect("AND produces ciphertext"), c0)
+    };
     let c_garbled = GarbledWire::new(c_garbled_label0, c_garbled_label0 ^ &delta);
 
     println!("Garbled gate result:");
@@ -535,8 +543,14 @@ fn test_direct_garble_degarble_comparison() {
     );
 
     // Degarble the same gate
-    let degarbled_label =
-        degarble::<Blake3Hasher>(gate_id, gate_type, &ciphertext, &a_eval, &b_eval);
+    let degarbled_label = halfgates_garbling::degarble_gate::<Blake3Hasher>(
+        gate_type,
+        &ciphertext,
+        a_eval.active_label,
+        a_eval.value,
+        b_eval.active_label,
+        gate_id,
+    );
 
     println!("Degarbled result:");
     println!("  degarbled_label: {:?}", degarbled_label);

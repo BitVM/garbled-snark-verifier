@@ -334,8 +334,8 @@ impl CircuitInput for GarbledInputs {
     }
 }
 
-impl<H: crate::core::gate::garbling::GateHasher>
-    EncodeInput<crate::circuit::streaming::modes::GarbleMode<H>> for GarbledInputs
+impl<H: crate::hashers::GateHasher> EncodeInput<crate::circuit::streaming::modes::GarbleMode<H>>
+    for GarbledInputs
 {
     fn encode(
         &self,

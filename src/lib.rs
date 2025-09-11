@@ -2,22 +2,25 @@ pub mod ciphertext_hasher;
 pub mod circuit;
 mod core;
 pub mod gadgets;
+pub mod hashers;
 mod hw;
 mod math;
 pub mod storage;
 
 // Re-export the procedural macro
 pub use core::{
-    DefaultHasher,
     delta::Delta,
-    gate::{
-        Gate, GateError,
-        garbling::{AesNiHasher, Blake3Hasher, GateHasher},
-    },
+    gate::{Gate, GateError},
     gate_type::GateType,
     s::S,
-    wire::{EvaluatedWire, GarbledWire, GarbledWires, WireError, WireId},
+    wire::{EvaluatedWire, GarbledWires, WireError, WireId},
 };
+
+// Re-export GarbledWire from mode locality while keeping public path stable
+pub use crate::circuit::streaming::modes::garble_mode::GarbledWire;
+// Root-level hasher exports
+pub use crate::hashers::{AesNiHasher, Blake3Hasher, GateHasher, HasherKind};
+pub type DefaultHasher = crate::hashers::Blake3Hasher;
 
 pub use ciphertext_hasher::CiphertextHashAcc;
 pub use circuit::{CircuitContext, CircuitError};

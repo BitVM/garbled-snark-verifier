@@ -1,4 +1,3 @@
-pub mod commitment;
 pub mod errors;
 pub mod streaming;
 pub use errors::CircuitError;

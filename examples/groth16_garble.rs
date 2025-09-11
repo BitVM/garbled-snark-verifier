@@ -7,13 +7,14 @@
 use std::{env, thread, time::Instant};
 
 use garbled_snark_verifier::{
-    AesNiHasher, Blake3Hasher, CiphertextHashAcc, EvaluatedWire, GarbledWire, GateHasher,
+    CiphertextHashAcc, EvaluatedWire, GarbledWire,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::streaming::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
     },
     garbled_groth16,
+    hashers::{AesNiHasher, Blake3Hasher, GateHasher},
 };
 use log::info;
 use rand::{Rng, SeedableRng};

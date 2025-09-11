@@ -2,13 +2,13 @@ use std::num::NonZero;
 
 use crossbeam::channel;
 
+// Import degarbling + hashers from garble_mode module, bound to raw labels.
+use super::garble_mode::halfgates_garbling;
 use crate::{
     EvaluatedWire, Gate, S, WireId,
     circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
-    core::{
-        gate::garbling::{Blake3Hasher, GateHasher},
-        progress::maybe_log_progress,
-    },
+    core::progress::maybe_log_progress,
+    hashers::{Blake3Hasher, GateHasher},
     storage::{Credits, Storage},
 };
 
@@ -113,18 +113,36 @@ impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
         let a = self.lookup_wire(gate.wire_a).unwrap();
         let b = self.lookup_wire(gate.wire_b).unwrap();
 
+        let gate_id = self.next_gate_index();
+
         // If C is unreachable, skip evaluation and do not advance gate index.
         if gate.wire_c == WireId::UNREACHABLE {
             return;
         }
 
-        let gate_id = self.next_gate_index();
-
         maybe_log_progress("evaluated", gate_id);
 
-        let c = gate.evaluate::<H>(gate_id, &a, &b, || {
-            self.consume_ciphertext(gate_id).unwrap()
-        });
+        // Re-implement evaluation bound to streaming mode and raw labels.
+        let expected_value = (gate.gate_type.f())(a.value, b.value);
+
+        let expected_label = match gate.gate_type {
+            crate::GateType::Xor => a.active_label ^ &b.active_label,
+            crate::GateType::Xnor => a.active_label ^ &b.active_label,
+            crate::GateType::Not => a.active_label,
+            _ => halfgates_garbling::degarble_gate::<H>(
+                gate.gate_type,
+                &self.consume_ciphertext(gate_id).unwrap(),
+                a.active_label,
+                a.value,
+                b.active_label,
+                gate_id,
+            ),
+        };
+
+        let c = EvaluatedWire {
+            active_label: expected_label,
+            value: expected_value,
+        };
 
         self.feed_wire(gate.wire_c, c);
     }

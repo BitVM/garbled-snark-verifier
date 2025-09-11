@@ -1,4 +1,4 @@
-use crate::{S, core::gate::garbling::aes_ni::aes128_encrypt_block_static};
+use crate::{S, hashers::aes_ni::aes128_encrypt_block_static};
 
 // It can be any, we use it to use AES as a hash.
 pub struct CiphertextHashAcc {

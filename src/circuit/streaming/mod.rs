@@ -5,8 +5,8 @@ use log::info;
 
 use crate::{
     EvaluatedWire, GarbledWire, S, WireId,
-    circuit::streaming::component_meta::ComponentMetaBuilder,
-    core::{gate::garbling::GateHasher, gate_type::GateCount},
+    circuit::streaming::component_meta::ComponentMetaBuilder, core::gate_type::GateCount,
+    hashers::GateHasher,
 };
 
 mod into_wire_list;

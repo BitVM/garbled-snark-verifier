@@ -10,7 +10,7 @@ use crate::{
         CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, EvaluateMode,
         TRUE_WIRE,
     },
-    core::gate::garbling::Blake3Hasher,
+    hashers::Blake3Hasher,
 };
 
 #[derive(Debug)]

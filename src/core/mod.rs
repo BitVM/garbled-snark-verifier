@@ -5,4 +5,4 @@ pub mod progress;
 pub mod s;
 pub mod wire;
 
-pub use gate::DefaultHasher;
+// DefaultHasher now lives at crate root (hashers::Blake3Hasher)
