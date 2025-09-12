@@ -140,13 +140,13 @@ mod groth16_cut_and_choose {
     }
 
     pub struct Garbler {
-        instances: Vec<GarbledInstance<garbled_groth16::GarbledInputs>>,
+        instances: Vec<GarbledInstance<garbled_groth16::GarblerInput>>,
         seeds: Box<[Seed]>,
-        config: Config<garbled_groth16::GarbledInputs>,
+        config: Config<garbled_groth16::GarblerInput>,
     }
 
     impl Garbler {
-        pub fn create(mut rng: impl Rng, config: Config<garbled_groth16::GarbledInputs>) -> Self {
+        pub fn create(mut rng: impl Rng, config: Config<garbled_groth16::GarblerInput>) -> Self {
             let seeds = (0..config.total)
                 .map(|_| rng.r#gen())
                 .collect::<Box<[Seed]>>();
@@ -198,7 +198,7 @@ mod groth16_cut_and_choose {
                         let garbling_thread = thread::spawn(move || {
                             let _: StreamingResult<
                                 GarbleMode<AesNiHasher, _>,
-                                garbled_groth16::GarbledInputs,
+                                garbled_groth16::GarblerInput,
                                 GarbledWire,
                             > = CircuitBuilder::streaming_garbling(
                                 inputs,

@@ -1,5 +1,7 @@
 //! High-level Groth16 verification API (BN254) for streaming circuits.
 
+use std::ops::Deref;
+
 use ark_bn254::Bn254;
 use ark_ec::AffineRepr;
 use ark_ff::{AdditiveGroup, Field, PrimeField};
@@ -10,8 +12,8 @@ use num_bigint::BigUint;
 // Bring trait with N_BITS into scope for Fr/Fq wires
 use crate::gadgets::bn254::Fp254Impl;
 use crate::{
-    CircuitContext, Fq2Wire, FqWire, FrWire, G1Wire, G2Wire, GarbleMode, GarbledWire, GateHasher,
-    WireId, bits_from_biguint_with_len,
+    CircuitContext, EvaluatedWire, Fq2Wire, FqWire, FrWire, G1Wire, G2Wire, GarbleMode,
+    GarbledWire, GateHasher, WireId, bits_from_biguint_with_len,
     circuit::{CiphertextHandler, CircuitInput, CircuitMode, EncodeInput, WiresObject},
     gadgets::groth16::{self as gadgets, CompressedG1Wires, CompressedG2Wires},
 };
@@ -216,6 +218,7 @@ impl CircuitInput for Compressed {
             vk: self.0.vk.clone(),
         }
     }
+
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
         let mut ids = Vec::new();
         for s in &repr.public {
@@ -298,12 +301,18 @@ pub fn verify_compressed<C: CircuitContext>(ctx: &mut C, wires: &ProofCompressed
 // ============================================================================
 
 #[derive(Debug, Clone)]
-pub struct GarbledInputs {
+pub struct GarblerInput {
     pub public_params_len: usize,
     pub vk: VerifyingKey<Bn254>,
 }
 
-impl CircuitInput for GarbledInputs {
+impl GarblerInput {
+    pub fn compress(self) -> GarblerCompressedInput {
+        GarblerCompressedInput { inner: self }
+    }
+}
+
+impl CircuitInput for GarblerInput {
     type WireRepr = ProofWires;
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         ProofWires {
@@ -334,7 +343,7 @@ impl CircuitInput for GarbledInputs {
     }
 }
 
-impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for GarbledInputs {
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for GarblerInput {
     fn encode(&self, repr: &ProofWires, cache: &mut GarbleMode<H, CTH>) {
         for w in &repr.public {
             for &wire in w.iter() {
@@ -363,9 +372,10 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for 
 
 /// Bit-vector wrapper for field element wires evaluated against garbled labels.
 #[derive(Debug, Clone)]
-pub struct EvaluatedFrWires(pub Vec<crate::EvaluatedWire>);
-impl ::core::ops::Deref for EvaluatedFrWires {
-    type Target = [crate::EvaluatedWire];
+pub struct EvaluatedFrWires(pub Vec<EvaluatedWire>);
+
+impl Deref for EvaluatedFrWires {
+    type Target = [EvaluatedWire];
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -384,13 +394,13 @@ pub struct EvaluatedG2Wires {
 }
 
 impl EvaluatedG1Wires {
-    pub fn iter(&self) -> impl Iterator<Item = &crate::EvaluatedWire> {
+    pub fn iter(&self) -> impl Iterator<Item = &EvaluatedWire> {
         self.x.iter().chain(self.y.iter())
     }
 }
 
 #[derive(Debug)]
-pub struct Evaluator {
+pub struct EvaluatorInput {
     pub public: Vec<EvaluatedFrWires>,
     pub a: EvaluatedG1Wires,
     pub b: EvaluatedG2Wires,
@@ -398,7 +408,7 @@ pub struct Evaluator {
     pub vk: VerifyingKey<Bn254>,
 }
 
-impl Evaluator {
+impl EvaluatorInput {
     pub fn new(proof: Proof, vk: VerifyingKey<Bn254>, wires: Vec<GarbledWire>) -> Self {
         // public scalars + (a.x,a.y) + (b.x,b.y as Fq2 -> 2 Fq each) + (c.x,c.y)
         // = public.len * Fr::N_BITS + 8 * Fq::N_BITS
@@ -421,7 +431,7 @@ impl Evaluator {
                 EvaluatedFrWires(
                     bits.into_iter()
                         .zip_eq(wires_chunk)
-                        .map(|(bit, gw)| crate::EvaluatedWire::new_from_garbled(gw, bit))
+                        .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
                         .collect(),
                 )
             })
@@ -439,7 +449,7 @@ impl Evaluator {
             EvaluatedFrWires(
                 bits.into_iter()
                     .zip_eq(wires.by_ref().take(FqWire::N_BITS))
-                    .map(|(bit, gw)| crate::EvaluatedWire::new_from_garbled(gw, bit))
+                    .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
                     .collect(),
             )
         }
@@ -467,7 +477,7 @@ impl Evaluator {
             y: to_eval_fq_bits(&c_m.y, &mut wires),
         };
 
-        Evaluator {
+        EvaluatorInput {
             public,
             a,
             b,
@@ -477,7 +487,7 @@ impl Evaluator {
     }
 }
 
-impl CircuitInput for Evaluator {
+impl CircuitInput for EvaluatorInput {
     type WireRepr = ProofWires;
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
         ProofWires {
@@ -508,7 +518,7 @@ impl CircuitInput for Evaluator {
     }
 }
 
-impl<M: CircuitMode<WireValue = crate::EvaluatedWire>> EncodeInput<M> for Evaluator {
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorInput {
     fn encode(&self, repr: &ProofWires, cache: &mut M) {
         repr.public
             .iter()
@@ -560,5 +570,281 @@ impl<M: CircuitMode<WireValue = crate::EvaluatedWire>> EncodeInput<M> for Evalua
             .for_each(|(wire_id, ew)| {
                 cache.feed_wire(*wire_id, ew.clone());
             });
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GarblerCompressedInput {
+    inner: GarblerInput,
+}
+
+impl CircuitInput for GarblerCompressedInput {
+    type WireRepr = ProofCompressedWires;
+
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+        ProofCompressedWires {
+            public: (0..self.inner.public_params_len)
+                .map(|_| FrWire::new(&mut issue))
+                .collect(),
+            a: CompressedG1Wires::new(&mut issue),
+            b: CompressedG2Wires::new(&mut issue),
+            c: CompressedG1Wires::new(issue),
+            vk: self.inner.vk.clone(),
+        }
+    }
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        let mut ids = Vec::new();
+        for s in &repr.public {
+            ids.extend(s.to_wires_vec());
+        }
+        ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.b.to_wires_vec());
+        ids.extend(repr.c.to_wires_vec());
+        ids
+    }
+}
+
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>>
+    for GarblerCompressedInput
+{
+    fn encode(&self, repr: &ProofCompressedWires, cache: &mut GarbleMode<H, CTH>) {
+        // Assign fresh labels to all input wires deterministically
+        for w in &repr.public {
+            for &wire in w.iter() {
+                let gw = cache.issue_garbled_wire();
+                cache.feed_wire(wire, gw);
+            }
+        }
+
+        for &wire_id in repr.a.x_m.iter() {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(wire_id, gw);
+        }
+        {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(repr.a.y_flag, gw);
+        }
+
+        for &wire_id in repr.b.p.iter() {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(wire_id, gw);
+        }
+        {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(repr.b.y_flag, gw);
+        }
+
+        for &wire_id in repr.c.x_m.iter() {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(wire_id, gw);
+        }
+        {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(repr.c.y_flag, gw);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct EvaluatedCompressedG1Wires {
+    pub x: EvaluatedFrWires,
+    pub y_flag: EvaluatedWire,
+}
+
+#[derive(Debug)]
+pub struct EvaluatedCompressedG2Wires {
+    pub x: [EvaluatedFrWires; 2],
+    pub y_flag: EvaluatedWire,
+}
+
+pub struct EvaluatorCompressedInput {
+    pub public: Vec<EvaluatedFrWires>,
+    pub a: EvaluatedCompressedG1Wires,
+    pub b: EvaluatedCompressedG2Wires,
+    pub c: EvaluatedCompressedG1Wires,
+    pub vk: VerifyingKey<Bn254>,
+}
+
+impl EvaluatorCompressedInput {
+    pub fn new(proof: Proof, vk: VerifyingKey<Bn254>, wires: Vec<GarbledWire>) -> Self {
+        // public.len * Fr::N_BITS + (A: Fq::N_BITS + 1) + (B: 2*Fq::N_BITS + 1) + (C: Fq::N_BITS + 1)
+        let expected = (proof.public_inputs.len() * FrWire::N_BITS)
+            + (FqWire::N_BITS + 1)
+            + (2 * FqWire::N_BITS + 1)
+            + (FqWire::N_BITS + 1);
+        assert_eq!(wires.len(), expected);
+
+        let mut it = wires.iter();
+
+        // Public inputs
+        let public: Vec<EvaluatedFrWires> = proof
+            .public_inputs
+            .iter()
+            .map(|f| {
+                let wires_chunk = it.by_ref().take(FrWire::N_BITS).collect::<Box<[_]>>();
+                assert_eq!(wires_chunk.len(), FrWire::N_BITS);
+                let bits =
+                    bits_from_biguint_with_len(&BigUint::from(f.into_bigint()), FrWire::N_BITS)
+                        .unwrap();
+                EvaluatedFrWires(
+                    bits.into_iter()
+                        .zip_eq(wires_chunk)
+                        .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        // Compression flags computed from standard affine y
+        let a_aff_std = proof.proof.a;
+        let b_aff_std = proof.proof.b;
+        let c_aff_std = proof.proof.c;
+
+        let a_flag = (a_aff_std.y.square())
+            .sqrt()
+            .expect("y^2 must be QR")
+            .eq(&a_aff_std.y);
+        let b_flag = (b_aff_std.y.square())
+            .sqrt()
+            .expect("y^2 must be QR in Fq2")
+            .eq(&b_aff_std.y);
+        let c_flag = (c_aff_std.y.square())
+            .sqrt()
+            .expect("y^2 must be QR")
+            .eq(&c_aff_std.y);
+
+        // A.x (Montgomery) bits + flag
+        let a_x_m = FqWire::as_montgomery(a_aff_std.x);
+        let a_bits = FqWire::to_bits(a_x_m);
+        let a_x = EvaluatedFrWires(
+            a_bits
+                .into_iter()
+                .zip_eq(it.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+        );
+        let a_y_flag = {
+            let gw = it.next().expect("a.y_flag wire");
+            EvaluatedWire::new_from_garbled(gw, a_flag)
+        };
+
+        // B.x (Montgomery) bits + flag
+        let b_x_m = Fq2Wire::as_montgomery(b_aff_std.x);
+        let (b_c0_bits, b_c1_bits) = Fq2Wire::to_bits(b_x_m);
+        let b_x0 = EvaluatedFrWires(
+            b_c0_bits
+                .into_iter()
+                .zip_eq(it.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+        );
+        let b_x1 = EvaluatedFrWires(
+            b_c1_bits
+                .into_iter()
+                .zip_eq(it.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+        );
+        let b_y_flag = {
+            let gw = it.next().expect("b.y_flag wire");
+            EvaluatedWire::new_from_garbled(gw, b_flag)
+        };
+
+        // C.x (Montgomery) bits + flag
+        let c_x_m = FqWire::as_montgomery(c_aff_std.x);
+        let c_bits = FqWire::to_bits(c_x_m);
+        let c_x = EvaluatedFrWires(
+            c_bits
+                .into_iter()
+                .zip_eq(it.by_ref().take(FqWire::N_BITS))
+                .map(|(bit, gw)| EvaluatedWire::new_from_garbled(gw, bit))
+                .collect(),
+        );
+        let c_y_flag = {
+            let gw = it.next().expect("c.y_flag wire");
+            EvaluatedWire::new_from_garbled(gw, c_flag)
+        };
+
+        EvaluatorCompressedInput {
+            public,
+            a: EvaluatedCompressedG1Wires {
+                x: a_x,
+                y_flag: a_y_flag,
+            },
+            b: EvaluatedCompressedG2Wires {
+                x: [b_x0, b_x1],
+                y_flag: b_y_flag,
+            },
+            c: EvaluatedCompressedG1Wires {
+                x: c_x,
+                y_flag: c_y_flag,
+            },
+            vk,
+        }
+    }
+}
+
+impl CircuitInput for EvaluatorCompressedInput {
+    type WireRepr = ProofCompressedWires;
+
+    fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+        ProofCompressedWires {
+            public: (0..self.public.len())
+                .map(|_| FrWire::new(&mut issue))
+                .collect(),
+            a: CompressedG1Wires::new(&mut issue),
+            b: CompressedG2Wires::new(&mut issue),
+            c: CompressedG1Wires::new(issue),
+            vk: self.vk.clone(),
+        }
+    }
+    fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+        let mut ids = Vec::new();
+        for s in &repr.public {
+            ids.extend(s.to_wires_vec());
+        }
+        ids.extend(repr.a.to_wires_vec());
+        ids.extend(repr.b.to_wires_vec());
+        ids.extend(repr.c.to_wires_vec());
+        ids
+    }
+}
+
+impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorCompressedInput {
+    fn encode(&self, repr: &ProofCompressedWires, cache: &mut M) {
+        // Public inputs
+        repr.public
+            .iter()
+            .zip_eq(self.public.iter())
+            .for_each(|(wires, vals)| {
+                wires
+                    .iter()
+                    .zip_eq(vals.iter())
+                    .for_each(|(wire_id, ew)| cache.feed_wire(*wire_id, ew.clone()));
+            });
+
+        // A.x bits and y_flag
+        repr.a
+            .x_m
+            .iter()
+            .zip_eq(self.a.x.iter())
+            .for_each(|(wire_id, ew)| cache.feed_wire(*wire_id, ew.clone()));
+        cache.feed_wire(repr.a.y_flag, self.a.y_flag.clone());
+
+        // B.x bits (c0 || c1) and y_flag
+        repr.b
+            .p
+            .iter()
+            .zip_eq(self.b.x[0].iter().chain(self.b.x[1].iter()))
+            .for_each(|(wire_id, ew)| cache.feed_wire(*wire_id, ew.clone()));
+        cache.feed_wire(repr.b.y_flag, self.b.y_flag.clone());
+
+        // C.x bits and y_flag
+        repr.c
+            .x_m
+            .iter()
+            .zip_eq(self.c.x.iter())
+            .for_each(|(wire_id, ew)| cache.feed_wire(*wire_id, ew.clone()));
+        cache.feed_wire(repr.c.y_flag, self.c.y_flag.clone());
     }
 }
