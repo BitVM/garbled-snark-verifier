@@ -108,8 +108,8 @@ impl<H: GateHasher, I: CircuitInput, CTH: CiphertextHandler>
     StreamingResult<GarbleMode<H, CTH>, I, GarbledWire>
 {
     /// Return references to (label0, label1) of the single-bit output.
-    pub fn output_labels(&self) -> (&crate::S, &crate::S) {
-        (&self.output_value.label0, &self.output_value.label1)
+    pub fn output_labels(&self) -> &GarbledWire {
+        &self.output_value
     }
 
     /// Borrow all input garbled labels in allocation order.
@@ -138,7 +138,7 @@ pub trait CiphertextHandler: Sized {
     type Result: Default;
 
     fn handle(&mut self, gate_id: usize, ct: S);
-    fn finalize(self) -> Self::Result;
+    fn finalize(&self) -> Self::Result;
 }
 
 impl CiphertextHandler for CiphertextHashAcc {
@@ -148,8 +148,8 @@ impl CiphertextHandler for CiphertextHashAcc {
         self.update(ct);
     }
 
-    fn finalize(self) -> Self::Result {
-        self.finalize()
+    fn finalize(&self) -> Self::Result {
+        CiphertextHashAcc::finalize(self)
     }
 }
 
@@ -161,7 +161,7 @@ impl CiphertextHandler for CiphertextSender {
         self.send((gate_id, ct)).unwrap();
     }
 
-    fn finalize(self) -> Self::Result {}
+    fn finalize(&self) -> Self::Result {}
 }
 
 impl CiphertextHandler for () {
@@ -169,7 +169,7 @@ impl CiphertextHandler for () {
 
     fn handle(&mut self, _gate_id: usize, _ct: S) {}
 
-    fn finalize(self) -> Self::Result {}
+    fn finalize(&self) -> Self::Result {}
 }
 
 impl<H: GateHasher, CTH: CiphertextHandler> CircuitBuilder<GarbleMode<H, CTH>> {

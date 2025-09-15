@@ -22,7 +22,7 @@ impl CiphertextHashAcc {
         );
     }
 
-    pub fn finalize(self) -> u128 {
+    pub fn finalize(&self) -> u128 {
         self.running_hash.to_u128()
     }
 }

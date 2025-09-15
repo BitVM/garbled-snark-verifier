@@ -119,7 +119,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     info!("garbling: in {:.3}s", garble_start.elapsed().as_secs_f64());
 
     // Take input labels first to avoid borrow conflicts
-    let (&label0, &label1) = garbling_result.output_labels();
+    let GarbledWire { label0, label1 } = *garbling_result.output_labels();
     let input_values = garbling_result.input_wire_values;
 
     let ciphertext_hash: u128 = garbling_result.ciphertext_handler_result;
