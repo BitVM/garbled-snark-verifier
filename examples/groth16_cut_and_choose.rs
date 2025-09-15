@@ -123,11 +123,11 @@ fn main() {
     let g_input = garbled_groth16::GarblerInput {
         public_params_len: 1,
         vk: vk.clone(),
-    };
+    }
+    .compress();
     let eval_proof = garbled_groth16::Proof::new(proof, vec![c_val]);
 
-    // Protocol parameters
-    let total = 181usize;
+    let total = 3usize;
     let to_finalize = 1usize;
 
     // Channels for the two-party protocol
@@ -206,7 +206,7 @@ fn main() {
 
         // Build evaluator input from labels + proof
         let eval_input =
-            garbled_groth16::EvaluatorInput::new(eval_proof, vk_e.clone(), input_labels);
+            garbled_groth16::EvaluatorCompressedInput::new(eval_proof, vk_e.clone(), input_labels);
 
         // Stream ciphertexts for this instance from file to the evaluator
         let file_path = out_dir.join(format!("gc_{}.bin", idx));
@@ -223,7 +223,7 @@ fn main() {
             true_const,
             false_const,
             rx,
-            garbled_groth16::verify,
+            garbled_groth16::verify_compressed,
         );
 
         let out = result.output_value;

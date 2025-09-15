@@ -127,13 +127,16 @@ pub enum OpenForInstance {
 }
 
 pub struct Garbler {
-    instances: Vec<GarbledInstance<garbled_groth16::GarblerInput>>,
+    instances: Vec<GarbledInstance<garbled_groth16::GarblerCompressedInput>>,
     seeds: Box<[Seed]>,
-    config: Config<garbled_groth16::GarblerInput>,
+    config: Config<garbled_groth16::GarblerCompressedInput>,
 }
 
 impl Garbler {
-    pub fn create(mut rng: impl Rng, config: Config<garbled_groth16::GarblerInput>) -> Self {
+    pub fn create(
+        mut rng: impl Rng,
+        config: Config<garbled_groth16::GarblerCompressedInput>,
+    ) -> Self {
         let seeds = (0..config.total)
             .map(|_| rng.r#gen())
             .collect::<Box<[Seed]>>();
@@ -152,7 +155,7 @@ impl Garbler {
                         CAPACITY,
                         *garbling_seed,
                         hasher,
-                        garbled_groth16::verify,
+                        garbled_groth16::verify_compressed,
                     )
                 })
                 .collect(),
@@ -190,14 +193,14 @@ impl Garbler {
                     let garbling_thread = thread::spawn(move || {
                         let _: StreamingResult<
                             GarbleMode<AesNiHasher, _>,
-                            garbled_groth16::GarblerInput,
+                            garbled_groth16::GarblerCompressedInput,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
                             inputs,
                             CAPACITY,
                             garbling_seed,
                             sender,
-                            garbled_groth16::verify,
+                            garbled_groth16::verify_compressed,
                         );
                     });
 
@@ -231,7 +234,7 @@ impl Garbler {
 pub struct Evaluator {
     commits: Vec<GarbledInstanceCommit>,
     to_finalize: Box<[usize]>,
-    config: Config<garbled_groth16::GarblerInput>,
+    config: Config<garbled_groth16::GarblerCompressedInput>,
     /// Receivers for ciphertext streams keyed by instance index (filled when building senders)
     receivers: HashMap<usize, channel::Receiver<(usize, S)>>,
 }
@@ -240,7 +243,7 @@ impl Evaluator {
     // Generate `to_finalize` with `rng` based on data on `Config`
     pub fn create(
         mut rng: impl Rng,
-        config: Config<garbled_groth16::GarblerInput>,
+        config: Config<garbled_groth16::GarblerCompressedInput>,
         commits: Vec<GarbledInstanceCommit>,
     ) -> Self {
         assert!(
@@ -378,13 +381,13 @@ impl Evaluator {
         let inputs = self.config.input.clone();
         let garble_ok = open_items.par_iter().all(|(index, seed)| {
             let hasher = CiphertextHashAcc::default();
-            let res: GarbledInstance<garbled_groth16::GarblerInput> =
+            let res: GarbledInstance<garbled_groth16::GarblerCompressedInput> =
                 CircuitBuilder::streaming_garbling(
                     inputs.clone(),
                     CAPACITY,
                     *seed,
                     hasher,
-                    garbled_groth16::verify,
+                    garbled_groth16::verify_compressed,
                 );
             let actual = GarbledInstanceCommit::new(&res);
             let expected = &self.commits[*index];
