@@ -8,7 +8,7 @@ use std::{fs::File, io::Read, path::PathBuf, thread};
 use crossbeam::channel;
 use garbled_snark_verifier as gsv;
 use gsv::{
-    S,
+    CiphertextHashAcc, S,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::CircuitBuilder,
     garbled_groth16, groth16_cut_and_choose as ccn,
@@ -175,6 +175,7 @@ fn main() {
     let evaluator = thread::spawn(move || {
         // Receive commits from garbler
         let commits = commits_rx.recv().expect("recv commits");
+        let commits_for_check = commits.clone();
 
         // Build evaluator-side state and choose which instance to finalize
         let cfg = ccn::Config::new(total, to_finalize, e_input);
@@ -231,6 +232,21 @@ fn main() {
             idx, out.value
         );
         assert!(out.value, "Groth16 verification should succeed");
+
+        // Compute commit of resulting output label and compare with the appropriate one
+        let mut h = CiphertextHashAcc::default();
+        h.update(out.active_label);
+        let out_label_commit = h.finalize();
+
+        let expected_commit = if out.value {
+            commits_for_check[idx].output_commit_label1()
+        } else {
+            commits_for_check[idx].output_commit_label0()
+        };
+        assert_eq!(
+            out_label_commit, expected_commit,
+            "Output label commit mismatch for finalized instance"
+        );
     });
 
     garbler.join().unwrap();

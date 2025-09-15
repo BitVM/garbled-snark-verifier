@@ -55,10 +55,13 @@ impl<I: CircuitInput> Config<I> {
 pub type GarbledInstance<I> =
     StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>;
 
+#[derive(Clone, Debug)]
 pub struct GarbledInstanceCommit {
     ciphertext_commit: Commit,
     input_labels_commit: Commit,
-    output_labels_commit: Commit,
+    // Separate commits for output labels: one for label1 and one for label0
+    output_label1_commit: Commit,
+    output_label0_commit: Commit,
     constant_commits: Commit,
 }
 
@@ -67,7 +70,9 @@ impl GarbledInstanceCommit {
         Self {
             ciphertext_commit: instance.ciphertext_handler_result,
             input_labels_commit: Self::commit(instance.input_labels()),
-            output_labels_commit: Self::commit(&[instance.output_labels().clone()]),
+            // Commit output labels separately for 1 and 0 selections
+            output_label1_commit: Self::commit_label1(&[instance.output_labels().clone()]),
+            output_label0_commit: Self::commit_label0(&[instance.output_labels().clone()]),
             constant_commits: {
                 let mut h = CiphertextHashAcc::default();
                 for GarbledWire { label0, label1 } in instance.input_labels() {
@@ -86,6 +91,30 @@ impl GarbledInstanceCommit {
             h.update(*label1);
         });
         h.finalize()
+    }
+
+    fn commit_label1(inputs: &[GarbledWire]) -> Commit {
+        let mut h = CiphertextHashAcc::default();
+        for GarbledWire { label1, .. } in inputs.iter() {
+            h.update(*label1);
+        }
+        h.finalize()
+    }
+
+    fn commit_label0(inputs: &[GarbledWire]) -> Commit {
+        let mut h = CiphertextHashAcc::default();
+        for GarbledWire { label0, .. } in inputs.iter() {
+            h.update(*label0);
+        }
+        h.finalize()
+    }
+
+    pub fn output_commit_label1(&self) -> Commit {
+        self.output_label1_commit
+    }
+
+    pub fn output_commit_label0(&self) -> Commit {
+        self.output_label0_commit
     }
 }
 
@@ -362,7 +391,8 @@ impl Evaluator {
 
             actual.ciphertext_commit == expected.ciphertext_commit
                 && actual.input_labels_commit == expected.input_labels_commit
-                && actual.output_labels_commit == expected.output_labels_commit
+                && actual.output_label1_commit == expected.output_label1_commit
+                && actual.output_label0_commit == expected.output_label0_commit
                 && actual.constant_commits == expected.constant_commits
         });
 
