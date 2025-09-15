@@ -126,23 +126,15 @@ pub fn sub_without_borrow<C: CircuitContext>(
 
 #[bn_component(arity = "a.len() + 1")]
 pub fn double<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
-    let zero_wire = circuit.issue_wire();
-    let a_0 = a.get(0).unwrap();
-    circuit.add_gate(Gate::nimp(a_0, a_0, zero_wire));
-
     BigIntWires {
-        bits: iter::once(zero_wire).chain(a.iter().copied()).collect(),
+        bits: iter::once(FALSE_WIRE).chain(a.iter().copied()).collect(),
     }
 }
 
 #[bn_component(arity = "a.len()")]
 pub fn double_without_overflow<C: CircuitContext>(circuit: &mut C, a: &BigIntWires) -> BigIntWires {
-    let zero_wire = circuit.issue_wire();
-    let a_0 = a.get(0).unwrap();
-    circuit.add_gate(Gate::nimp(a_0, a_0, zero_wire));
-
     BigIntWires {
-        bits: iter::once(zero_wire)
+        bits: iter::once(FALSE_WIRE)
             .chain(a.iter().take(a.len() - 1).copied())
             .collect(),
     }
