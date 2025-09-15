@@ -306,6 +306,7 @@ pub struct Empty;
 
 impl CircuitMode for Empty {
     type WireValue = bool;
+    type CiphertextAcc = ();
 
     fn false_value(&self) -> bool {
         false

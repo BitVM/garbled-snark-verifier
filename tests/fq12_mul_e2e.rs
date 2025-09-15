@@ -1,10 +1,10 @@
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    EvaluatedWire, GarbledWire, WireId,
+    Blake3Hasher, EvaluatedWire, GarbleMode, GarbledWire, GateHasher, WireId,
     ark::PrimeField,
     circuit::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateModeBlake3, GarbleModeBlake3},
+        CiphertextHandler, CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult,
+        WiresObject, modes::EvaluateModeBlake3,
     },
     gadgets::{
         bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -53,13 +53,17 @@ impl CircuitInput for Fq12MulInputs {
 }
 
 // Encode inputs for garbling: assign random labels to each bit wire
-impl EncodeInput<GarbleModeBlake3> for Fq12MulInputs {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleModeBlake3) {
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for Fq12MulInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode<H, CTH>) {
         let a_m = Fq12::as_montgomery(self.a);
         let b_m = Fq12::as_montgomery(self.b);
 
         // Helper to feed all bits of an Fq6 into the cache
-        fn feed_fq6_bits(val: &ark_bn254::Fq6, wires: &Fq6, cache: &mut GarbleModeBlake3) {
+        fn feed_fq6_bits<H: GateHasher, CTH: CiphertextHandler>(
+            val: &ark_bn254::Fq6,
+            wires: &Fq6,
+            cache: &mut GarbleMode<H, CTH>,
+        ) {
             // For each Fq2(c0,c1) -> for each Fq limb (254 bits)
             let limbs = [val.c0, val.c1, val.c2];
             let wires_arr = [&wires.0[0], &wires.0[1], &wires.0[2]];
@@ -178,8 +182,8 @@ fn test_fq12_mul_montgomery_e2e() {
 
     // Garbling phase
     let (garbled_sender, garbled_receiver) = channel::unbounded();
-    let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-        CircuitBuilder::streaming_garbling_blake3_with_sender(
+    let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+        CircuitBuilder::streaming_garbling(
             inputs.clone(),
             15_000,
             SEED,

@@ -34,6 +34,7 @@ impl ExecuteMode {
 
 impl CircuitMode for ExecuteMode {
     type WireValue = bool;
+    type CiphertextAcc = ();
 
     fn false_value(&self) -> bool {
         false

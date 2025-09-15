@@ -125,6 +125,8 @@ impl<H: GateHasher> std::fmt::Debug for EvaluateMode<H> {
 
 impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
     type WireValue = EvaluatedWire;
+    // TODO #37 Add CiphertextHandler here and use it to single-thread acc check
+    type CiphertextAcc = ();
 
     fn false_value(&self) -> EvaluatedWire {
         EvaluatedWire {

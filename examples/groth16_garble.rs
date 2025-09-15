@@ -100,31 +100,19 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         vk: vk.clone(),
     };
 
-    // Create channel for garbled tables
-    let (ciphertext_acc_hash_sender, ciphertext_acc_hash_receiver) =
-        crossbeam::channel::unbounded();
-
-    let ciphertext_hash = thread::spawn(move || {
-        info!("Starting ciphertext hashing thread...");
-
-        let mut hasher = CiphertextHashAcc::default();
-        while let Ok((_index, ciphertext)) = ciphertext_acc_hash_receiver.recv() {
-            hasher.update(ciphertext)
-        }
-        hasher.finalize()
-    });
+    let hasher = CiphertextHashAcc::default();
 
     info!("Starting garbling of Groth16 verification circuit...");
 
     // Measure first garbling pass performance
     let garble_start = Instant::now();
 
-    let garbling_result: StreamingResult<GarbleMode<H>, _, GarbledWire> =
-        CircuitBuilder::streaming_garbling_with_sender(
+    let garbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> =
+        CircuitBuilder::streaming_garbling(
             inputs.clone(),
             CAPACITY,
             garbling_seed,
-            ciphertext_acc_hash_sender,
+            hasher,
             garbled_groth16::verify,
         );
 
@@ -134,7 +122,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     let (&label0, &label1) = garbling_result.output_labels();
     let input_values = garbling_result.input_wire_values;
 
-    let ciphertext_hash: u128 = ciphertext_hash.join().unwrap();
+    let ciphertext_hash: u128 = garbling_result.ciphertext_handler_result;
 
     // NOTE For the SetupPhase, we must use a random set of bytes and compare
     // them with the hash provided earlier.
@@ -179,7 +167,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
 
         let regarble_start = Instant::now();
 
-        let _regarbling_result: StreamingResult<GarbleMode<H>, _, GarbledWire> =
+        let _regarbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> =
             CircuitBuilder::streaming_garbling_with_sender(
                 inputs,
                 CAPACITY,

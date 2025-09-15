@@ -2,11 +2,13 @@ use crate_lib::{
     CircuitContext, Delta, EvaluatedWire, FqWire, GarbledWire, Gate, GateType, S, WireId,
     circuit::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateModeBlake3 as EvaluateMode, GarbleModeBlake3 as GarbleMode},
+        modes::EvaluateModeBlake3 as EvaluateMode,
     },
 };
 use crossbeam::channel;
-use garbled_snark_verifier as crate_lib;
+use garbled_snark_verifier::{
+    self as crate_lib, Blake3Hasher, GarbleMode, GateHasher, circuit::CiphertextHandler,
+};
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -102,14 +104,8 @@ fn test_garble_evaluate_and_consistency() {
         };
         let (sender, receiver) = channel::unbounded();
 
-        let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3_with_sender(
-                garble_inputs,
-                10,
-                seed,
-                sender,
-                circuit_fn,
-            );
+        let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
         let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
             CircuitBuilder::<EvaluateMode>::streaming_evaluation(
@@ -171,14 +167,11 @@ macro_rules! test_gate_consistency {
                 };
 
                 let (sender, receiver) = channel::unbounded();
-                let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-                    CircuitBuilder::streaming_garbling_blake3_with_sender(
-                        garble_inputs,
-                        10,
-                        seed,
-                        sender,
-                        circuit_fn,
-                    );
+                let garble_result: StreamingResult<
+                    GarbleMode<Blake3Hasher, _>,
+                    _,
+                    Vec<GarbledWire>,
+                > = CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
                 let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
                     CircuitBuilder::<EvaluateMode>::streaming_evaluation(
@@ -297,14 +290,8 @@ fn test_not_garble_evaluate_consistency() {
         };
 
         let (sender, receiver) = channel::unbounded();
-        let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3_with_sender(
-                garble_inputs,
-                10,
-                seed,
-                sender,
-                circuit_fn,
-            );
+        let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
         let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
             CircuitBuilder::<EvaluateMode>::streaming_evaluation(
@@ -371,8 +358,8 @@ impl CircuitInput for FqPairInputs {
     }
 }
 
-impl EncodeInput<GarbleMode> for FqPairInputs {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode) {
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for FqPairInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode<H, CTH>) {
         let mut rng = ChaChaRng::seed_from_u64(777);
         let delta = Delta::generate(&mut rng);
         for w in repr.a.0.iter().chain(repr.b.0.iter()) {
@@ -423,8 +410,9 @@ fn test_bn254_fq_complex_chain_garble_eval() {
 
     // Garble to produce ciphertexts and obtain constants
     let (g_sender, g_receiver) = channel::unbounded();
-    let garble_res: StreamingResult<GarbleMode, _, Vec<GarbledWire>> =
-        CircuitBuilder::streaming_garbling_blake3_with_sender(
+
+    let garble_res: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+        CircuitBuilder::streaming_garbling(
             inputs.clone(),
             100_000,
             99,

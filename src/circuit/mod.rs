@@ -4,8 +4,8 @@ use crossbeam::channel;
 use log::info;
 
 use crate::{
-    EvaluatedWire, GarbledWire, S, WireId, circuit::component_meta::ComponentMetaBuilder,
-    core::gate_type::GateCount, hashers::GateHasher,
+    CiphertextHashAcc, EvaluatedWire, GarbledWire, S, WireId,
+    circuit::component_meta::ComponentMetaBuilder, core::gate_type::GateCount, hashers::GateHasher,
 };
 
 mod into_wire_list;
@@ -62,9 +62,7 @@ macro_rules! component_key {
 }
 
 pub mod modes;
-pub use modes::{
-    CircuitMode, EvaluateMode, EvaluateModeBlake3, ExecuteMode, GarbleMode, GarbleModeBlake3,
-};
+pub use modes::{CircuitMode, EvaluateMode, EvaluateModeBlake3, ExecuteMode, GarbleMode};
 
 pub mod component_meta;
 
@@ -100,11 +98,15 @@ pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>>
     /// Values of the input Wires, which were fed to the circuit input
     pub input_wire_values: Vec<M::WireValue>,
 
+    pub ciphertext_handler_result: M::CiphertextAcc,
+
     pub gate_count: GateCount,
 }
 
 // Convenience helpers for garbling results
-impl<H: GateHasher, I: CircuitInput> StreamingResult<GarbleMode<H>, I, GarbledWire> {
+impl<H: GateHasher, I: CircuitInput, CTH: CiphertextHandler>
+    StreamingResult<GarbleMode<H, CTH>, I, GarbledWire>
+{
     /// Return references to (label0, label1) of the single-bit output.
     pub fn output_labels(&self) -> (&crate::S, &crate::S) {
         (&self.output_value.label0, &self.output_value.label1)
@@ -132,7 +134,45 @@ impl CircuitBuilder<ExecuteMode> {
     }
 }
 
-impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
+pub trait CiphertextHandler: Sized {
+    type Result: Default;
+
+    fn handle(&mut self, gate_id: usize, ct: S);
+    fn finalize(self) -> Self::Result;
+}
+
+impl CiphertextHandler for CiphertextHashAcc {
+    type Result = u128;
+
+    fn handle(&mut self, _gate_id: usize, ct: S) {
+        self.update(ct);
+    }
+
+    fn finalize(self) -> Self::Result {
+        self.finalize()
+    }
+}
+
+pub type CiphertextSender = channel::Sender<(usize, S)>;
+impl CiphertextHandler for CiphertextSender {
+    type Result = ();
+
+    fn handle(&mut self, gate_id: usize, ct: S) {
+        self.send((gate_id, ct)).unwrap();
+    }
+
+    fn finalize(self) -> Self::Result {}
+}
+
+impl CiphertextHandler for () {
+    type Result = ();
+
+    fn handle(&mut self, _gate_id: usize, _ct: S) {}
+
+    fn finalize(self) -> Self::Result {}
+}
+
+impl<H: GateHasher, CTH: CiphertextHandler> CircuitBuilder<GarbleMode<H, CTH>> {
     /// Streaming garbling with a generic handler for ciphertexts.
     ///
     /// The `handler` closure is invoked for each non-free gate with `(gate_id, ciphertext)`.
@@ -141,14 +181,14 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
-        handler: impl FnMut((usize, S)) + 'static,
+        handler: CTH,
         f: F,
-    ) -> StreamingResult<GarbleMode<H>, I, O>
+    ) -> StreamingResult<GarbleMode<H, CTH>, I, O>
     where
-        I: CircuitInput + EncodeInput<GarbleMode<H>>,
-        O: CircuitOutput<GarbleMode<H>>,
+        I: CircuitInput + EncodeInput<GarbleMode<H, CTH>>,
+        O: CircuitOutput<GarbleMode<H, CTH>>,
         O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<GarbleMode<H>>, &I::WireRepr) -> O::WireRepr,
+        F: Fn(&mut StreamingMode<GarbleMode<H, CTH>>, &I::WireRepr) -> O::WireRepr,
     {
         CircuitBuilder::run_streaming(
             inputs,
@@ -156,73 +196,23 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
             f,
         )
     }
+}
 
+impl<H: GateHasher> CircuitBuilder<GarbleMode<H, CiphertextSender>> {
     pub fn streaming_garbling_with_sender<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
         output_sender: channel::Sender<(usize, S)>,
         f: F,
-    ) -> StreamingResult<GarbleMode<H>, I, O>
+    ) -> StreamingResult<GarbleMode<H, CiphertextSender>, I, O>
     where
-        I: CircuitInput + EncodeInput<GarbleMode<H>>,
-        O: CircuitOutput<GarbleMode<H>>,
+        I: CircuitInput + EncodeInput<GarbleMode<H, CiphertextSender>>,
+        O: CircuitOutput<GarbleMode<H, CiphertextSender>>,
         O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<GarbleMode<H>>, &I::WireRepr) -> O::WireRepr,
+        F: Fn(&mut StreamingMode<GarbleMode<H, CiphertextSender>>, &I::WireRepr) -> O::WireRepr,
     {
-        // Wrap the `Sender` into a closure-based handler to preserve the existing API
-        let sender = output_sender;
-        Self::streaming_garbling(
-            inputs,
-            live_wires_capacity,
-            seed,
-            move |entry| {
-                sender.send(entry).unwrap();
-            },
-            f,
-        )
-    }
-}
-
-// Convenience impl for Blake3 (backward compatibility)
-impl CircuitBuilder<GarbleModeBlake3> {
-    pub fn streaming_garbling_blake3_with_sender<I, F, O>(
-        inputs: I,
-        live_wires_capacity: usize,
-        seed: u64,
-        output_sender: channel::Sender<(usize, S)>,
-        f: F,
-    ) -> StreamingResult<GarbleModeBlake3, I, O>
-    where
-        I: CircuitInput + EncodeInput<GarbleModeBlake3>,
-        O: CircuitOutput<GarbleModeBlake3>,
-        O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
-    {
-        Self::streaming_garbling_with_sender(inputs, live_wires_capacity, seed, output_sender, f)
-    }
-
-    /// Convenience wrapper for Blake3 hasher that accepts a closure handler.
-    pub fn streaming_garbling_blake3<I, F, O>(
-        inputs: I,
-        live_wires_capacity: usize,
-        seed: u64,
-        handler: impl FnMut((usize, S)) + 'static,
-        f: F,
-    ) -> StreamingResult<GarbleModeBlake3, I, O>
-    where
-        I: CircuitInput + EncodeInput<GarbleModeBlake3>,
-        O: CircuitOutput<GarbleModeBlake3>,
-        O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
-    {
-        CircuitBuilder::<GarbleModeBlake3>::streaming_garbling(
-            inputs,
-            live_wires_capacity,
-            seed,
-            handler,
-            f,
-        )
+        Self::streaming_garbling(inputs, live_wires_capacity, seed, output_sender, f)
     }
 }
 
@@ -307,11 +297,12 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         let output_repr = f(&mut ctx, &allocated_inputs);
         let output_wires = output_repr.to_wires_vec();
 
-        let (gate_count, output) = match &mut ctx {
+        let (ciphertext_handler_result, gate_count, output) = match &mut ctx {
             StreamingMode::ExecutionPass(ctx) => {
                 info!("gate count: {}", ctx.gate_count);
                 println!("gate count: {}", ctx.gate_count);
                 (
+                    ctx.finalize_ciphertext_accumulator(),
                     ctx.gate_count.clone(),
                     O::decode(output_repr, &mut ctx.mode),
                 )
@@ -320,6 +311,7 @@ impl<M: CircuitMode> CircuitBuilder<M> {
         };
 
         StreamingResult {
+            ciphertext_handler_result,
             output_value: output,
             output_wires_ids: output_wires,
             true_wire_constant: ctx.lookup_wire(TRUE_WIRE).unwrap(),
@@ -407,10 +399,10 @@ impl<M: CircuitMode> CircuitOutput<M> for Vec<M::WireValue> {
     }
 }
 
-impl<H: GateHasher> CircuitOutput<GarbleMode<H>> for GarbledWire {
+impl<H: GateHasher, CTH: CiphertextHandler> CircuitOutput<GarbleMode<H, CTH>> for GarbledWire {
     type WireRepr = WireId;
 
-    fn decode(wire: Self::WireRepr, cache: &mut GarbleMode<H>) -> Self {
+    fn decode(wire: Self::WireRepr, cache: &mut GarbleMode<H, CTH>) -> Self {
         cache
             .lookup_wire(wire)
             .unwrap_or_else(|| panic!("Can't find {wire:?}"))
