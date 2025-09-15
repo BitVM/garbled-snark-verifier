@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::{HashMap, HashSet},
-    fs::{self, File},
-    io::{BufWriter, Write},
+    collections::HashMap,
+    mem,
     path::Path,
     thread::{self, JoinHandle},
 };
 
 use crossbeam::channel;
+use itertools::Itertools;
 use log::info;
 use rand::Rng;
 use rayon::{iter::IntoParallelRefIterator, prelude::*};
@@ -55,7 +55,7 @@ impl<I: CircuitInput> Config<I> {
 pub type GarbledInstance<I> =
     StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GarbledInstanceCommit {
     ciphertext_commit: Commit,
     input_labels_commit: Commit,
@@ -245,6 +245,7 @@ impl Evaluator {
         mut rng: impl Rng,
         config: Config<garbled_groth16::GarblerCompressedInput>,
         commits: Vec<GarbledInstanceCommit>,
+        receivers: Vec<channel::Receiver<(usize, S)>>,
     ) -> Self {
         assert!(
             config.to_finalize <= config.total,
@@ -263,9 +264,9 @@ impl Evaluator {
 
         Self {
             commits,
+            receivers: idxs.iter().copied().zip_eq(receivers).collect(),
             to_finalize: idxs.into_boxed_slice(),
             config,
-            receivers: HashMap::new(),
         }
     }
 
@@ -273,149 +274,47 @@ impl Evaluator {
         &self.to_finalize
     }
 
-    /// Create channels for all indices selected to finalize.
-    /// Returns the list of (index, sender) pairs to pass to Garbler::open_commit.
-    /// Stores matching receivers internally for later ciphertext collection.
-    pub fn make_finalize_senders(&mut self) -> Vec<(usize, channel::Sender<(usize, S)>)> {
-        let mut out = Vec::with_capacity(self.to_finalize.len());
-        for &idx in self.to_finalize.iter() {
-            let (tx, rx) = channel::unbounded::<(usize, S)>();
-            self.receivers.insert(idx, rx);
-            out.push((idx, tx));
-        }
-        out
-    }
-
     // 1. Check that `OpenForInstance` matches the ones stored in `self.to_finalize`.
     // 2. For `Open` run `streaming_garbling` via rayon, where at the end it checks for a match with saved commits
-    // 3. For `Closed` - receive ciphertexts and save them into folder in separate files with name `gc_{index}.bin`
     #[allow(clippy::result_unit_err)]
-    pub fn regarbling(
-        &self,
-        input: Vec<OpenForInstance>,
+    pub fn run_regarbling(
+        mut self,
+        seeds: Vec<(usize, Seed)>,
         folder_for_ciphertexts: &Path,
     ) -> Result<(), ()> {
-        // Basic shape checks
-        if input.len() != self.config.total {
-            return Err(());
-        }
+        let receivers = mem::take(&mut self.receivers);
 
-        // Validate closed set matches to_finalize (both elements and count)
-        let mut closed_count = 0usize;
-        let selected_closed: HashSet<usize> = input
-            .iter()
-            .filter_map(|e| match e {
-                OpenForInstance::Closed { index, .. } => {
-                    closed_count += 1;
-                    Some(*index)
-                }
-                _ => None,
-            })
-            .collect();
-
-        let expected_closed: HashSet<usize> = self.to_finalize.iter().copied().collect();
-        if selected_closed != expected_closed || closed_count != self.to_finalize.len() {
-            return Err(());
-        }
-
-        // Ensure output folder exists
-        if let Err(_e) = fs::create_dir_all(folder_for_ciphertexts) {
-            return Err(());
-        }
-
-        // Determine open set now (we will consume `input` below for writers)
-        let open_items: Vec<(usize, Seed)> = input
-            .iter()
-            .filter_map(|e| match e {
-                OpenForInstance::Open(index, seed) => Some((*index, *seed)),
-                _ => None,
-            })
-            .collect();
-
-        // 1) For closed instances, start receiving/saving immediately (large streams)
-        // This runs concurrently with re-garbling open instances below.
-        let mut writer_threads: Vec<(usize, JoinHandle<Result<u128, ()>>)> = Vec::new();
-        let mut garble_threads: Vec<(usize, JoinHandle<()>)> = Vec::new();
-
-        for entry in input.into_iter() {
-            if let OpenForInstance::Closed {
-                index,
-                garbling_thread,
-            } = entry
-            {
-                // Lookup receiver; if missing, protocol misuse
-                let recv = match self.receivers.get(&index) {
-                    Some(r) => r.clone(),
-                    None => return Err(()),
-                };
-                garble_threads.push((index, garbling_thread));
-
-                let path = folder_for_ciphertexts.join(format!("gc_{}.bin", index));
-                // Use rayon
-                // Make check of commit internally
-                let handle = thread::spawn(move || -> Result<u128, ()> {
-                    let file = File::create(&path).map_err(|_| ())?;
-                    // Larger buffer to reduce syscall overhead while keeping memory bounded
-                    let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, file);
-                    let mut hasher = CiphertextHashAcc::default();
-
-                    let mut rec_buf = [0u8; 8 + 16];
-                    // Stream until sender closes
-                    while let Ok((gate_id, ct)) = recv.recv() {
-                        hasher.update(ct);
-                        // Pack gate_id (LE u64) + ciphertext bytes into a single write
-                        rec_buf[..8].copy_from_slice(&(gate_id as u64).to_le_bytes());
-                        rec_buf[8..].copy_from_slice(&ct.to_bytes());
-                        writer.write_all(&rec_buf).map_err(|_| ())?;
-                    }
-
-                    writer.flush().map_err(|_| ())?;
-                    Ok(hasher.finalize())
-                });
-
-                writer_threads.push((index, handle));
-            }
-        }
-
-        // 2) Re-garble open instances concurrently while writers are flushing to disk
-        let inputs = self.config.input.clone();
-        let garble_ok = open_items.par_iter().all(|(index, seed)| {
-            let hasher = CiphertextHashAcc::default();
-            let res: GarbledInstance<garbled_groth16::GarblerCompressedInput> =
-                CircuitBuilder::streaming_garbling(
-                    inputs.clone(),
-                    CAPACITY,
-                    *seed,
-                    hasher,
-                    garbled_groth16::verify_compressed,
-                );
-            let actual = GarbledInstanceCommit::new(&res);
-            let expected = &self.commits[*index];
-
-            actual.ciphertext_commit == expected.ciphertext_commit
-                && actual.input_labels_commit == expected.input_labels_commit
-                && actual.output_label1_commit == expected.output_label1_commit
-                && actual.output_label0_commit == expected.output_label0_commit
-                && actual.constant_commits == expected.constant_commits
+        rayon::spawn(|| {
+            todo!("
+                Get a ciphertext sequentially from all receivers and save it to files as efficiently as possible
+                Considering that each one of them loads 3 billion ciphertexts
+            ")
         });
 
-        if !garble_ok {
-            return Err(());
-        }
+        seeds.par_iter().all(|(index, garbling_seed)| {
+            let inputs = self.config.input.clone();
+            let hasher = CiphertextHashAcc::default();
 
-        // 3) Verify hashes and join IO writers
-        for (index, handle) in writer_threads.into_iter() {
-            let computed = handle.join().map_err(|_| ())??;
-            if computed != self.commits[index].ciphertext_commit {
-                return Err(());
-            }
-        }
+            info!("Starting garbling of Groth16 verification circuit...");
 
-        // 4) Join garbling threads to ensure they finished cleanly
-        for (_index, handle) in garble_threads.into_iter() {
-            handle.join().map_err(|_| ())?;
-        }
+            let res: StreamingResult<
+                GarbleMode<AesNiHasher, _>,
+                garbled_groth16::GarblerCompressedInput,
+                GarbledWire,
+            > = CircuitBuilder::streaming_garbling(
+                inputs.clone(),
+                CAPACITY,
+                *garbling_seed,
+                hasher,
+                garbled_groth16::verify_compressed,
+            );
 
-        Ok(())
+            let regarbling_commit = GarbledInstanceCommit::new(&res);
+            let received_commit = &self.commits[*index];
+
+            &regarbling_commit == received_commit
+        });
+
+        todo!()
     }
 }

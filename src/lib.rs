@@ -67,4 +67,4 @@ pub mod ark {
 }
 
 pub mod groth16_cut_and_choose;
-pub use groth16_cut_and_choose::{GarbledInstanceCommit, Garbler};
+pub use groth16_cut_and_choose::{GarbledInstanceCommit, Garbler, OpenForInstance};
