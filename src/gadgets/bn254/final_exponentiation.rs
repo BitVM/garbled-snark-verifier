@@ -67,8 +67,6 @@ pub fn final_exponentiation_native(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
 
 #[component]
 fn exp_by_u_cyclotomic<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
-    use ark_ff::BitIteratorBE;
-
     // Create a constant ONE in Montgomery form (same pattern as pairing.rs)
     let one_mont = Fq12::as_montgomery(ark_bn254::Fq12::ONE);
     let c0 = one_mont.c0;
@@ -106,16 +104,22 @@ fn exp_by_u_cyclotomic<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
     );
 
     let mut res = Fq12::from_components(c0_fq6, c1_fq6);
+    let a_inverse = Fq12::inverse_montgomery(circuit, a);
 
     let mut found_nonzero = false;
-    for bit in BitIteratorBE::without_leading_zeros(ark_bn254::Config::X).map(|e| e as i8) {
+    for value in ark_ff::biginteger::arithmetic::find_naf(ark_bn254::Config::X)
+        .into_iter()
+        .rev()
+    {
         if found_nonzero {
             res = Fq12::cyclotomic_square_montgomery(circuit, &res);
         }
-        if bit != 0 {
+        if value != 0 {
             found_nonzero = true;
-            if bit > 0 {
+            if value > 0 {
                 res = Fq12::mul_montgomery(circuit, &res, a);
+            } else {
+                res = Fq12::mul_montgomery(circuit, &res, &a_inverse);
             }
         }
     }

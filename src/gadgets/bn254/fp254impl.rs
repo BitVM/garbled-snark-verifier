@@ -386,7 +386,7 @@ pub trait Fp254Impl {
 
         // initialize value for wires
         let neg_odd_part = Self::neg(circuit, &odd_part);
-        let u = Self::half(circuit, &neg_odd_part);
+        let u = bigint::half(circuit, &neg_odd_part);
         let v = odd_part;
 
         let k = BigIntWires::new_constant(a.len(), &BigUint::from(ark_bn254::Fq::ONE)).unwrap();
