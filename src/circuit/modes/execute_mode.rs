@@ -2,7 +2,7 @@ use std::num::NonZero;
 
 use crate::{
     Gate, WireId,
-    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
+    circuit::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
     core::progress::maybe_log_progress,
     storage::{Credits, Error as StorageError, Storage},
 };

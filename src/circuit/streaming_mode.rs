@@ -4,7 +4,7 @@ use log::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{
+    circuit::{
         CircuitMode, ComponentMetaBuilder, ComponentTemplatePool, FALSE_WIRE, TRUE_WIRE,
         WiresObject, component_key::ComponentKey, component_meta::ComponentMetaInstance,
         into_wire_list::FromWires,
@@ -76,7 +76,7 @@ impl<M: CircuitMode> StreamingMode<M> {
     }
 
     // Build execution context from collected metadata and encode inputs.
-    pub fn to_root_ctx<I: crate::circuit::streaming::EncodeInput<M>>(
+    pub fn to_root_ctx<I: crate::circuit::EncodeInput<M>>(
         self,
         mode: M,
         input: &I,

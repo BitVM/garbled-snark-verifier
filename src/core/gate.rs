@@ -1,18 +1,7 @@
 use std::fmt;
 
 pub use crate::GateType;
-use crate::{WireError, WireId};
-
-#[derive(Clone, Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    #[error("Error while get wire {wire}: {err:?}")]
-    Get { wire: &'static str, err: WireError },
-    #[error("Error while init wire {wire}: {err:?}")]
-    Init { wire: &'static str, err: WireError },
-    #[error("Error while get_or_init wire {wire}: {err:?}")]
-    GetOrInit { wire: &'static str, err: WireError },
-}
-pub type GateError = Error;
+use crate::{WireId, circuit::TRUE_WIRE};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Gate {
@@ -151,6 +140,16 @@ impl Gate {
             wire_b: wire_a,
             wire_c: wire_a,
             gate_type: GateType::Not,
+        }
+    }
+
+    #[must_use]
+    pub fn not_with_xor(wire_a: WireId, wire_c: WireId) -> Self {
+        Self {
+            wire_a,
+            wire_b: TRUE_WIRE,
+            wire_c,
+            gate_type: GateType::Xor,
         }
     }
 

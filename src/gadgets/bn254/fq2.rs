@@ -13,7 +13,7 @@ use rand::Rng;
 
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::WiresObject,
+    circuit::WiresObject,
     gadgets::{
         bigint::{BigIntWires, select},
         bn254::{fp254impl::Fp254Impl, fq::Fq},
@@ -46,7 +46,7 @@ impl WiresObject for Fq2 {
     }
 }
 
-impl crate::circuit::streaming::FromWires for Fq2 {
+impl crate::circuit::FromWires for Fq2 {
     fn from_wires(wires: &[WireId]) -> Option<Self> {
         if wires.len() >= 508 {
             // 2 * 254 bits
@@ -455,7 +455,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        circuit::streaming::{
+        circuit::{
             CircuitInput, CircuitOutput, EncodeInput,
             modes::{CircuitMode, ExecuteMode},
         },
@@ -574,7 +574,7 @@ mod tests {
         let expected = a + b;
 
         let input = Fq2Input::new([a, b]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -592,7 +592,7 @@ mod tests {
         let expected = -a;
 
         let input = Fq2Input::new([a]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -611,7 +611,7 @@ mod tests {
         let expected = a - b;
 
         let input = Fq2Input::new([a, b]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -629,7 +629,7 @@ mod tests {
         let expected = a + a;
 
         let input = Fq2Input::new([a]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -647,7 +647,7 @@ mod tests {
         let expected = a + a + a;
 
         let input = Fq2Input::new([a]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -668,7 +668,7 @@ mod tests {
         let expected = Fq2::as_montgomery(a * b);
 
         let input = Fq2Input::new([a_m, b_m]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -689,7 +689,7 @@ mod tests {
         let expected = Fq2::as_montgomery(a * b);
 
         let input = Fq2Input::new([a_m]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -768,7 +768,7 @@ mod tests {
         }
 
         let input = In { a, b };
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| Fq2::mul_by_fq_montgomery(ctx, &input.a, &input.b),
@@ -784,7 +784,7 @@ mod tests {
         let expected = Fq2::as_montgomery(a * ark_bn254::Fq2::new(b, ark_bn254::Fq::ZERO));
 
         let input = Fq2Input::new([Fq2::as_montgomery(a)]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -802,7 +802,7 @@ mod tests {
         let expected = ark_bn254::Fq6Config::mul_fp2_by_nonresidue(a);
 
         let input = Fq2Input::new([a]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -820,7 +820,7 @@ mod tests {
         let expected = Fq2::as_montgomery(a * a);
 
         let input = Fq2Input::new([Fq2::as_montgomery(a)]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -838,7 +838,7 @@ mod tests {
         let expected = Fq2::as_montgomery(a.inverse().unwrap());
 
         let input = Fq2Input::new([Fq2::as_montgomery(a)]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -859,14 +859,14 @@ mod tests {
             let input = Fq2Input::new([Fq2::as_montgomery(a_val)]);
             let expected = Fq2::as_montgomery(a_val.frobenius_map(0));
 
-            let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<
-                _,
-                _,
-                Fq2Output,
-            >(input, 10_000, |ctx, input| {
-                let [a] = input;
-                Fq2::frobenius_montgomery(ctx, a, 0)
-            });
+            let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+                input,
+                10_000,
+                |ctx, input| {
+                    let [a] = input;
+                    Fq2::frobenius_montgomery(ctx, a, 0)
+                },
+            );
 
             assert_eq!(result.output_value.value, expected);
         }
@@ -876,14 +876,14 @@ mod tests {
             let input = Fq2Input::new([Fq2::as_montgomery(a_val)]);
             let expected = Fq2::as_montgomery(a_val.frobenius_map(1));
 
-            let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<
-                _,
-                _,
-                Fq2Output,
-            >(input, 10_000, |ctx, input| {
-                let [a] = input;
-                Fq2::frobenius_montgomery(ctx, a, 1)
-            });
+            let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+                input,
+                10_000,
+                |ctx, input| {
+                    let [a] = input;
+                    Fq2::frobenius_montgomery(ctx, a, 1)
+                },
+            );
 
             assert_eq!(result.output_value.value, expected);
         }
@@ -895,7 +895,7 @@ mod tests {
         let expected = a / ark_bn254::Fq2::from(6u32);
 
         let input = Fq2Input::new([a]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {
@@ -913,7 +913,7 @@ mod tests {
         let expected_norm = Fq::as_montgomery(ark_bn254::Fq::from(r_val.norm()));
 
         let input = Fq2Input::new([Fq2::as_montgomery(r_val)]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, FqOutput>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, FqOutput>(
             input,
             10_000,
             |ctx, input| {
@@ -990,7 +990,7 @@ mod tests {
             is_qr: r_val.c0.legendre().is_qr(),
         };
 
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             1_000_000,
             |ctx, input| {
@@ -1009,7 +1009,7 @@ mod tests {
         let expected = rr.sqrt().unwrap();
 
         let input = Fq2Input::new([Fq2::as_montgomery(rr)]);
-        let result = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
+        let result = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Fq2Output>(
             input,
             10_000,
             |ctx, input| {

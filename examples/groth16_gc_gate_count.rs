@@ -6,7 +6,7 @@ use std::env;
 use garbled_snark_verifier::{
     ark,
     ark::{CircuitSpecificSetupSNARK, SNARK, UniformRand},
-    circuit::streaming::{CircuitBuilder, StreamingResult},
+    circuit::{CircuitBuilder, StreamingResult},
     garbled_groth16,
 };
 use rand::SeedableRng;

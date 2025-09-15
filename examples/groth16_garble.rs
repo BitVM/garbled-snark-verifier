@@ -9,7 +9,7 @@ use std::{env, thread, time::Instant};
 use garbled_snark_verifier::{
     CiphertextHashAcc, EvaluatedWire, GarbledWire,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
-    circuit::streaming::{
+    circuit::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
     },

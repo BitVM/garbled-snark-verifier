@@ -8,7 +8,7 @@ use ark::{CurveGroup, Field, PrimeGroup, SWCurveConfig};
 use garbled_snark_verifier as gsv;
 use garbled_snark_verifier::{
     WireId, ark,
-    circuit::streaming::{
+    circuit::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
         modes::Execute,
     },
@@ -309,12 +309,8 @@ fn main() {
                     );
                     let y = Fq::sqrt_montgomery(ctx, &y2);
                     let neg_y = Fq::neg(ctx, &y);
-                    let y_sel = gsv::gadgets::bigint::select(
-                        ctx,
-                        &y,
-                        &neg_y,
-                        gsv::circuit::streaming::TRUE_WIRE,
-                    );
+                    let y_sel =
+                        gsv::gadgets::bigint::select(ctx, &y, &neg_y, gsv::circuit::TRUE_WIRE);
                     let mut out = x.clone().to_wires_vec();
                     out.extend(y_sel.to_wires_vec());
                     out
@@ -340,13 +336,13 @@ fn main() {
                         ctx,
                         y.c0(),
                         neg_y.c0(),
-                        gsv::circuit::streaming::TRUE_WIRE,
+                        gsv::circuit::TRUE_WIRE,
                     );
                     let y1 = gsv::gadgets::bigint::select(
                         ctx,
                         y.c1(),
                         neg_y.c1(),
-                        gsv::circuit::streaming::TRUE_WIRE,
+                        gsv::circuit::TRUE_WIRE,
                     );
                     let mut out = x.clone().to_wires_vec();
                     out.extend(y0.to_wires_vec());

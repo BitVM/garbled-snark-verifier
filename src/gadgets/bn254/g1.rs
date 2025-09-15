@@ -5,7 +5,7 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{FromWires, WiresObject},
+    circuit::{FromWires, WiresObject},
     gadgets::bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
 };
 
@@ -409,7 +409,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        circuit::streaming::{CircuitBuilder, CircuitInput, EncodeInput, modes::CircuitMode},
+        circuit::{CircuitBuilder, CircuitInput, EncodeInput, modes::CircuitMode},
         test_utils::trng,
     };
 
@@ -494,7 +494,7 @@ mod tests {
             a: G1Projective,
             b: G1Projective,
         }
-        impl crate::circuit::streaming::CircuitInput for TwoG1Inputs {
+        impl crate::circuit::CircuitInput for TwoG1Inputs {
             type WireRepr = TwoG1InputsWire;
             fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 TwoG1InputsWire {
@@ -546,7 +546,7 @@ mod tests {
             a: a_mont,
             b: b_mont,
         };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires =
                     G1Projective::add_montgomery(root, &inputs_wire.a, &inputs_wire.b);
@@ -578,7 +578,7 @@ mod tests {
         struct OneG1InputWire {
             a: G1Projective,
         }
-        impl crate::circuit::streaming::CircuitInput for OneG1Input {
+        impl crate::circuit::CircuitInput for OneG1Input {
             type WireRepr = OneG1InputWire;
             fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 OneG1InputWire {
@@ -611,7 +611,7 @@ mod tests {
         }
 
         let inputs = OneG1Input { a: a_mont };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G1Projective::double_montgomery(root, &inputs_wire.a);
                 let mut output_ids = Vec::new();
@@ -649,7 +649,7 @@ mod tests {
             a: Vec<G1Projective>,
             s: Vec<WireId>,
         }
-        impl crate::circuit::streaming::CircuitInput for MultiplexerInputs {
+        impl crate::circuit::CircuitInput for MultiplexerInputs {
             type WireRepr = MultiplexerInputsWire;
             fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MultiplexerInputsWire {
@@ -692,7 +692,7 @@ mod tests {
         }
 
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires =
                     G1Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
@@ -720,7 +720,7 @@ mod tests {
         struct ScalarInputWire {
             s: Fr,
         }
-        impl crate::circuit::streaming::CircuitInput for ScalarInput {
+        impl crate::circuit::CircuitInput for ScalarInput {
             type WireRepr = ScalarInputWire;
             fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 ScalarInputWire { s: Fr::new(issue) }
@@ -741,7 +741,7 @@ mod tests {
         }
 
         let inputs = ScalarInput { s };
-        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G1Projective::scalar_mul_by_constant_base_montgomery::<10, _>(
                     root,
@@ -774,7 +774,7 @@ mod tests {
         struct MsmInputsWire {
             scalars: Vec<Fr>,
         }
-        impl crate::circuit::streaming::CircuitInput for MsmInputs {
+        impl crate::circuit::CircuitInput for MsmInputs {
             type WireRepr = MsmInputsWire;
             fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MsmInputsWire {
@@ -804,7 +804,7 @@ mod tests {
         }
 
         let inputs = MsmInputs { scalars };
-        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G1Projective::msm_with_constant_bases_montgomery::<10, _>(
                     root,
@@ -833,7 +833,7 @@ mod tests {
         let neg_a_mont = G1Projective::as_montgomery(neg_a);
 
         let inputs = G1Input { points: [a_mont] };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G1Projective::neg(root, &inputs_wire.points[0]);
                 result_wires.to_wires_vec()

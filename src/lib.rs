@@ -8,22 +8,18 @@ mod math;
 pub mod storage;
 
 // Re-export the procedural macro
-pub use core::{
-    delta::Delta,
-    gate::{Gate, GateError},
-    gate_type::GateType,
-    s::S,
-    wire::{EvaluatedWire, WireError, WireId},
-};
+pub use core::{delta::Delta, gate::Gate, gate_type::GateType, s::S, wire::WireId};
 
+// Re-export EvaluatedWire from mode locality while keeping public path stable
+pub use crate::circuit::modes::EvaluatedWire;
 // Re-export GarbledWire from mode locality while keeping public path stable
-pub use crate::circuit::streaming::modes::garble_mode::GarbledWire;
+pub use crate::circuit::modes::GarbledWire;
 // Root-level hasher exports
 pub use crate::hashers::{AesNiHasher, Blake3Hasher, GateHasher, HasherKind};
 pub type DefaultHasher = crate::hashers::Blake3Hasher;
 
 pub use ciphertext_hasher::CiphertextHashAcc;
-pub use circuit::{CircuitContext, CircuitError};
+pub use circuit::CircuitContext;
 pub use circuit_component_macro::component;
 // Publicly re-export commonly used BN254 wire types for examples/binaries
 pub use gadgets::{
@@ -38,7 +34,7 @@ pub use gadgets::{
 pub use hw::{hardware_aes_available, warn_if_software_aes};
 pub use math::*;
 
-pub use crate::circuit::streaming::modes::GarbleMode;
+pub use crate::circuit::modes::GarbleMode;
 
 #[cfg(test)]
 pub mod test_utils {

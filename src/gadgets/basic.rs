@@ -315,7 +315,7 @@ mod tests {
     fn test_multiplexer() {
         use rand::Rng;
 
-        use crate::circuit::streaming::{CircuitInput, EncodeInput, modes::CircuitMode};
+        use crate::circuit::{CircuitInput, EncodeInput, modes::CircuitMode};
 
         let mut rng = trng();
 

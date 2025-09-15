@@ -2,11 +2,10 @@ use std::num::NonZero;
 
 use crossbeam::channel;
 
-// Import degarbling + hashers from garble_mode module, bound to raw labels.
-use super::garble_mode::halfgates_garbling;
+use super::garble_mode::{GarbledWire, halfgates_garbling};
 use crate::{
-    EvaluatedWire, Gate, S, WireId,
-    circuit::streaming::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
+    Gate, S, WireId,
+    circuit::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
     core::progress::maybe_log_progress,
     hashers::{Blake3Hasher, GateHasher},
     storage::{Credits, Storage},
@@ -14,6 +13,44 @@ use crate::{
 
 /// Type alias for EvaluateMode with Blake3 hasher (default)
 pub type EvaluateModeBlake3 = EvaluateMode<Blake3Hasher>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EvaluatedWire {
+    pub active_label: S,
+    pub value: bool,
+}
+
+impl EvaluatedWire {
+    pub fn empty() -> Self {
+        EvaluatedWire {
+            active_label: S::ZERO,
+            value: false,
+        }
+    }
+
+    pub fn new(active_label: S, value: bool) -> Self {
+        EvaluatedWire {
+            active_label,
+            value,
+        }
+    }
+
+    pub fn new_from_garbled(garbled_wire: &GarbledWire, value: bool) -> Self {
+        EvaluatedWire {
+            active_label: garbled_wire.select(value),
+            value,
+        }
+    }
+}
+
+impl Default for EvaluatedWire {
+    fn default() -> Self {
+        EvaluatedWire {
+            active_label: S::ZERO,
+            value: false,
+        }
+    }
+}
 
 /// Storage representation for evaluated wires
 #[derive(Clone, Debug, Default)]

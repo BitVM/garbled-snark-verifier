@@ -20,7 +20,7 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, Fp254Impl,
-    circuit::streaming::{FromWires, OffCircuitParam, WiresArity, WiresObject},
+    circuit::{FromWires, OffCircuitParam, WiresArity, WiresObject},
     gadgets::bn254::{
         final_exponentiation::final_exponentiation, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
         g1::G1Projective, g2::G2Projective,
@@ -1018,7 +1018,7 @@ mod tests {
     use super::*;
     use crate::{
         Gate, WireId,
-        circuit::streaming::{
+        circuit::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput, TRUE_WIRE, WiresObject,
             modes::{CircuitMode, ExecuteMode},
         },
@@ -1318,7 +1318,7 @@ mod tests {
             }
         }
 
-        let res = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Output>(
+        let res = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Output>(
             Input { r },
             50_000,
             |ctx, w| {
@@ -1420,7 +1420,7 @@ mod tests {
             }
         }
 
-        let res = crate::circuit::streaming::CircuitBuilder::streaming_execute::<_, _, Output>(
+        let res = crate::circuit::CircuitBuilder::streaming_execute::<_, _, Output>(
             Input { r, q },
             80_000,
             |ctx, w| {

@@ -141,11 +141,11 @@ pub fn generate_bn_wrapper(
     let key_generation = if sig.ignored_params.is_empty() {
         // No ignored params: just use the component name
         quote! {
-            crate::circuit::streaming::generate_component_key(
+            crate::circuit::generate_component_key(
                 concat!(module_path!(), "::", #fn_name_str),
                 [] as [(&str, &[u8]); 0],
                 #arity_value,
-                crate::circuit::streaming::WiresObject::to_wires_vec(&__input_wires).len()
+                crate::circuit::WiresObject::to_wires_vec(&__input_wires).len()
             )
         }
     } else {
@@ -159,7 +159,7 @@ pub fn generate_bn_wrapper(
         // Generate code to collect parameter bytes using OffCircuitParam trait
         quote! {
             {
-                use crate::circuit::streaming::OffCircuitParam;
+                use crate::circuit::OffCircuitParam;
 
                 // Collect parameter bytes
                 let mut __params = Vec::new();
@@ -175,11 +175,11 @@ pub fn generate_bn_wrapper(
                     .map(|(name, bytes)| (*name, bytes.as_slice()))
                     .collect();
 
-                crate::circuit::streaming::generate_component_key(
+                crate::circuit::generate_component_key(
                     concat!(module_path!(), "::", #fn_name_str),
                     __params_refs,
                     #arity_value,
-                    crate::circuit::streaming::WiresObject::to_wires_vec(&__input_wires).len()
+                    crate::circuit::WiresObject::to_wires_vec(&__input_wires).len()
                 )
             }
         }

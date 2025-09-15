@@ -6,7 +6,7 @@ use rand_chacha::ChaChaRng;
 
 use crate::{
     Delta, EvaluatedWire, GarbledWire, Gate, GateType, S, WireId,
-    circuit::streaming::{
+    circuit::{
         CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, EvaluateMode,
         TRUE_WIRE,
     },
@@ -80,7 +80,7 @@ fn test_xor_evaluate_mode_basic() {
     let (_sender, receiver) = channel::unbounded();
     let (true_wire, false_wire, inputs) = prepare();
 
-    let result: crate::circuit::streaming::StreamingResult<
+    let result: crate::circuit::StreamingResult<
         EvaluateMode<Blake3Hasher>,
         TestEvalInputs,
         Vec<EvaluatedWire>,
@@ -108,7 +108,7 @@ fn test_xor_evaluate_mode_with_constants() {
     let a = inputs.a.value;
     let b = inputs.b.value;
 
-    let result: crate::circuit::streaming::StreamingResult<
+    let result: crate::circuit::StreamingResult<
         EvaluateMode<Blake3Hasher>,
         TestEvalInputs,
         Vec<EvaluatedWire>,
@@ -147,7 +147,7 @@ fn test_evaluate_mode() {
     let a = inputs.a.value;
     let b = inputs.b.value;
 
-    let result: crate::circuit::streaming::StreamingResult<
+    let result: crate::circuit::StreamingResult<
         EvaluateMode<Blake3Hasher>,
         TestEvalInputs,
         Vec<EvaluatedWire>,

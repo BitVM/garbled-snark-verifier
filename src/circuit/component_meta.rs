@@ -32,11 +32,8 @@ use log::{debug, trace};
 use crate::{
     CircuitContext, Gate, WireId,
     circuit::{
-        CircuitInput,
-        streaming::{
-            CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_key::ComponentKey,
-            into_wire_list::FromWires,
-        },
+        CircuitInput, CircuitMode, FALSE_WIRE, TRUE_WIRE, WiresObject, component_key::ComponentKey,
+        into_wire_list::FromWires,
     },
     storage::Credits,
 };

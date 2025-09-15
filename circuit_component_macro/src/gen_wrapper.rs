@@ -126,7 +126,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         syn::ReturnType::Default => quote! { 0usize },
         syn::ReturnType::Type(_, ty) => {
             // Use the WiresObject trait's arity method on a temporary instance
-            quote! { <#ty as crate::circuit::streaming::WiresArity>::ARITY }
+            quote! { <#ty as crate::circuit::WiresArity>::ARITY }
         }
     };
 
@@ -143,11 +143,11 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
     let key_generation = if sig.ignored_params.is_empty() {
         // No ignored params: just use the component name
         quote! {
-            crate::circuit::streaming::generate_component_key(
+            crate::circuit::generate_component_key(
                 concat!(module_path!(), "::", #fn_name_str),
                 [] as [(&str, &[u8]); 0],
                 #arity_expr,
-                crate::circuit::streaming::WiresObject::to_wires_vec(&__input_wires).len()
+                crate::circuit::WiresObject::to_wires_vec(&__input_wires).len()
             )
         }
     } else {
@@ -161,7 +161,7 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
         // Generate code to collect parameter bytes using OffCircuitParam trait
         quote! {
             {
-                use crate::circuit::streaming::OffCircuitParam;
+                use crate::circuit::OffCircuitParam;
 
                 // Collect parameter bytes
                 let mut __params = Vec::new();
@@ -177,11 +177,11 @@ pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Resul
                     .map(|(name, bytes)| (*name, bytes.as_slice()))
                     .collect();
 
-                crate::circuit::streaming::generate_component_key(
+                crate::circuit::generate_component_key(
                     concat!(module_path!(), "::", #fn_name_str),
                     __params_refs,
                     #arity_expr,
-                    crate::circuit::streaming::WiresObject::to_wires_vec(&__input_wires).len()
+                    crate::circuit::WiresObject::to_wires_vec(&__input_wires).len()
                 )
             }
         }

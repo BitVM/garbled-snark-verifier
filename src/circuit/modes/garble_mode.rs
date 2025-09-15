@@ -7,7 +7,7 @@ use rand_chacha::ChaChaRng;
 
 use crate::{
     Delta, Gate, S, WireId,
-    circuit::streaming::{CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE},
+    circuit::{CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE},
     core::progress::maybe_log_progress,
     hashers,
     storage::{Credits, Storage},

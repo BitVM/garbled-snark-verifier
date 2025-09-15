@@ -12,7 +12,7 @@ use crate::gadgets::bn254::Fp254Impl;
 use crate::{
     CircuitContext, Fq2Wire, FqWire, FrWire, G1Wire, G2Wire, GarbledWire, WireId,
     bits_from_biguint_with_len,
-    circuit::streaming::{CircuitInput, CircuitMode, EncodeInput, WiresObject},
+    circuit::{CircuitInput, CircuitMode, EncodeInput, WiresObject},
     gadgets::groth16::{self as gadgets, CompressedG1Wires, CompressedG2Wires},
 };
 
@@ -334,14 +334,10 @@ impl CircuitInput for GarbledInputs {
     }
 }
 
-impl<H: crate::hashers::GateHasher> EncodeInput<crate::circuit::streaming::modes::GarbleMode<H>>
+impl<H: crate::hashers::GateHasher> EncodeInput<crate::circuit::modes::GarbleMode<H>>
     for GarbledInputs
 {
-    fn encode(
-        &self,
-        repr: &ProofWires,
-        cache: &mut crate::circuit::streaming::modes::GarbleMode<H>,
-    ) {
+    fn encode(&self, repr: &ProofWires, cache: &mut crate::circuit::modes::GarbleMode<H>) {
         for w in &repr.public {
             for &wire in w.iter() {
                 let gw = cache.issue_garbled_wire();

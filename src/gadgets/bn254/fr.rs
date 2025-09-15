@@ -15,7 +15,7 @@ use num_bigint::BigUint;
 use super::super::bn254::fp254impl::Fp254Impl;
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::WiresObject,
+    circuit::WiresObject,
     gadgets::{
         self,
         bigint::{self, BigIntWires, Error},
@@ -53,7 +53,7 @@ impl WiresObject for Fr {
     }
 }
 
-impl crate::circuit::streaming::FromWires for Fr {
+impl crate::circuit::FromWires for Fr {
     fn from_wires(wires: &[WireId]) -> Option<Self> {
         Some(Self(crate::gadgets::bigint::BigIntWires::from_bits(
             wires.iter().copied(),

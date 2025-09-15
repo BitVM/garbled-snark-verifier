@@ -5,7 +5,7 @@ pub use num_bigint::BigUint;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{CircuitOutput, FALSE_WIRE, TRUE_WIRE, modes::ExecuteMode},
+    circuit::{CircuitOutput, FALSE_WIRE, TRUE_WIRE, modes::ExecuteMode},
 };
 
 mod add;
@@ -194,7 +194,7 @@ impl CircuitOutput<ExecuteMode> for BigUint {
     type WireRepr = BigIntWires;
 
     fn decode(wires: Self::WireRepr, cache: &mut ExecuteMode) -> Self {
-        use crate::circuit::streaming::modes::CircuitMode;
+        use crate::circuit::modes::CircuitMode;
 
         let bit_len = wires.len();
 

@@ -2,7 +2,7 @@ use crossbeam::channel;
 use garbled_snark_verifier::{
     EvaluatedWire, GarbledWire, WireId,
     ark::PrimeField,
-    circuit::streaming::{
+    circuit::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
         modes::{EvaluateModeBlake3, GarbleModeBlake3},
     },
@@ -157,7 +157,7 @@ impl EncodeInput<EvaluateModeBlake3> for EvaluateFq12MulInput {
 }
 
 // The circuit under test: Fq12 multiplication (Montgomery)
-fn fq12_mul_circuit<C: garbled_snark_verifier::circuit::streaming::CircuitContext>(
+fn fq12_mul_circuit<C: garbled_snark_verifier::circuit::CircuitContext>(
     ctx: &mut C,
     inputs: &Fq12MulWireRepr,
 ) -> Vec<WireId> {
@@ -195,7 +195,7 @@ fn test_fq12_mul_montgomery_e2e() {
         wires: garble_result.input_wire_values,
     };
 
-    let eval: garbled_snark_verifier::circuit::streaming::StreamingResult<
+    let eval: garbled_snark_verifier::circuit::StreamingResult<
         EvaluateModeBlake3,
         _,
         Vec<EvaluatedWire>,

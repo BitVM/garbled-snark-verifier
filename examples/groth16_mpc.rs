@@ -5,7 +5,7 @@
 use garbled_snark_verifier::{
     FrWire, G1Wire, G2Wire, WireId,
     ark::{self, AffineRepr, CircuitSpecificSetupSNARK, SNARK, UniformRand},
-    circuit::streaming::{
+    circuit::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
     },
     groth16_verify,

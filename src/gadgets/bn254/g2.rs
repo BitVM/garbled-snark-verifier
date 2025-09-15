@@ -5,7 +5,7 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{FromWires, WiresObject},
+    circuit::{FromWires, WiresObject},
     gadgets::{
         bigint::Error,
         bn254::{fp254impl::Fp254Impl, fq::Fq, fq2::Fq2, fr::Fr},
@@ -535,7 +535,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        circuit::streaming::{CircuitBuilder, CircuitInput, EncodeInput, modes::CircuitMode},
+        circuit::{CircuitBuilder, CircuitInput, EncodeInput, modes::CircuitMode},
         test_utils::trng,
     };
 
@@ -657,7 +657,7 @@ mod tests {
         let inputs = G2Input {
             points: [a_mont, b_mont],
         };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::add_montgomery(
                     root,
@@ -682,7 +682,7 @@ mod tests {
         let c_mont = G2Projective::as_montgomery(c);
 
         let inputs = G2Input { points: [a_mont] };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::double_montgomery(root, &inputs_wire.points[0]);
                 result_wires.to_wires_vec()
@@ -703,7 +703,7 @@ mod tests {
         let neg_a_mont = G2Projective::as_montgomery(neg_a);
 
         let inputs = G2Input { points: [a_mont] };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::neg(root, &inputs_wire.points[0]);
                 result_wires.to_wires_vec()
@@ -737,7 +737,7 @@ mod tests {
             a: Vec<G2Projective>,
             s: Vec<WireId>,
         }
-        impl crate::circuit::streaming::CircuitInput for MultiplexerInputs {
+        impl crate::circuit::CircuitInput for MultiplexerInputs {
             type WireRepr = MultiplexerInputsWire;
             fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MultiplexerInputsWire {
@@ -782,7 +782,7 @@ mod tests {
         }
 
         let inputs = MultiplexerInputs { a: a_val, s: s_val };
-        let result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires =
                     G2Projective::multiplexer(root, &inputs_wire.a, &inputs_wire.s, w);
@@ -800,7 +800,7 @@ mod tests {
         let result = p * s;
 
         let inputs = ScalarInput { scalars: [s] };
-        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::scalar_mul_by_constant_base_montgomery::<_, 10>(
                     root,
@@ -829,7 +829,7 @@ mod tests {
         struct MsmInputsWire {
             scalars: Vec<Fr>,
         }
-        impl crate::circuit::streaming::CircuitInput for MsmInputs {
+        impl crate::circuit::CircuitInput for MsmInputs {
             type WireRepr = MsmInputsWire;
             fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
                 MsmInputsWire {
@@ -860,7 +860,7 @@ mod tests {
         }
 
         let inputs = MsmInputs { scalars };
-        let circuit_result: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
                 let result_wires = G2Projective::msm_with_constant_bases_montgomery::<10, _>(
                     root,

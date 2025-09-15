@@ -1,6 +1,6 @@
 use crate_lib::{
     CircuitContext, Delta, EvaluatedWire, FqWire, GarbledWire, Gate, GateType, S, WireId,
-    circuit::streaming::{
+    circuit::{
         CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
         modes::{EvaluateModeBlake3 as EvaluateMode, GarbleModeBlake3 as GarbleMode},
     },

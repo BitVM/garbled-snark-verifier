@@ -10,10 +10,7 @@ use circuit_component_macro::component;
 
 use crate::{
     CircuitContext, Fq2Wire, WireId,
-    circuit::{
-        CircuitInput,
-        streaming::{CircuitMode, EncodeInput, WiresObject},
-    },
+    circuit::{CircuitInput, CircuitMode, EncodeInput, WiresObject},
     gadgets::{
         bigint,
         bn254::{
@@ -468,7 +465,7 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::circuit::streaming::{CircuitBuilder, CircuitMode, EncodeInput};
+    use crate::circuit::{CircuitBuilder, CircuitMode, EncodeInput};
 
     // Helper to reduce duplication across bitflip tests for A, B, and C
     fn run_false_bitflip_test(seed: u64, mutate: impl FnOnce(&mut Groth16ExecInput)) {
@@ -494,7 +491,7 @@ mod tests {
         // Apply caller-provided mutation to corrupt a component
         mutate(&mut inputs);
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
                 let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
                 vec![ok]
@@ -557,7 +554,7 @@ mod tests {
             c: proof.c.into_group(),
         };
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, input| {
                 let ok = groth16_verify(ctx, &input.public, &input.a, &input.b, &input.c, &vk);
                 vec![ok]
@@ -624,7 +621,7 @@ mod tests {
         let b_rand_m = G2Projective::as_montgomery(b_rand_proj);
         let b_rand_wires = G2Projective::new_constant(&b_rand_m).unwrap();
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
                 let ok = groth16_verify(ctx, &wires.public, &wires.a, &b_rand_wires, &wires.c, &vk);
                 vec![ok]
@@ -635,7 +632,7 @@ mod tests {
 
     // Minimal harnesses that allocate compressed wires and feed them directly
     struct OnlyCompressedG1Input(ark_bn254::G1Affine);
-    impl crate::circuit::streaming::CircuitInput for OnlyCompressedG1Input {
+    impl crate::circuit::CircuitInput for OnlyCompressedG1Input {
         type WireRepr = CompressedG1Wires;
         fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
             CompressedG1Wires::new(&mut issue)
@@ -662,7 +659,7 @@ mod tests {
     }
 
     struct OnlyCompressedG2Input(ark_bn254::G2Affine);
-    impl crate::circuit::streaming::CircuitInput for OnlyCompressedG2Input {
+    impl crate::circuit::CircuitInput for OnlyCompressedG2Input {
         type WireRepr = CompressedG2Wires;
         fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
             CompressedG2Wires::new(&mut issue)
@@ -697,7 +694,7 @@ mod tests {
 
         let input = OnlyCompressedG1Input(p);
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(input, 10_000, |ctx, wires| {
                 let dec = decompress_g1_from_compressed(ctx, wires);
 
@@ -723,7 +720,7 @@ mod tests {
 
         let input = OnlyCompressedG2Input(p);
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(input, 20_000, |ctx, wires| {
                 let dec = decompress_g2_from_compressed(ctx, wires);
 
@@ -761,7 +758,7 @@ mod tests {
             c: proof.c.into_group(),
         });
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 80_000, |ctx, wires| {
                 let a_dec = decompress_g1_from_compressed(ctx, &wires.a);
                 let b_dec = decompress_g2_from_compressed(ctx, &wires.b);
@@ -815,7 +812,7 @@ mod tests {
             c: proof.c.into_group(),
         });
 
-        let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
             CircuitBuilder::streaming_execute(inputs, 80_000, |ctx, wires| {
                 let ok = groth16_verify_compressed(
                     ctx,
@@ -865,7 +862,7 @@ mod tests {
 
         match flow {
             VerifyFlow::Uncompressed => {
-                let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+                let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
                     CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, wires| {
                         let ok =
                             groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
@@ -875,7 +872,7 @@ mod tests {
             }
             VerifyFlow::Compressed => {
                 let inputs_c = Groth16ExecInputCompressed(inputs);
-                let out: crate::circuit::streaming::StreamingResult<_, _, Vec<bool>> =
+                let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
                     CircuitBuilder::streaming_execute(inputs_c, 80_000, |ctx, wires| {
                         let ok = groth16_verify_compressed(
                             ctx,

@@ -8,11 +8,8 @@ mod tests {
     use crate::{
         Delta, GarbledWire, Gate, WireId,
         circuit::{
-            CircuitBuilder,
-            streaming::{
-                CircuitContext, CircuitInput, CircuitMode, EncodeInput, FALSE_WIRE,
-                StreamingResult, TRUE_WIRE,
-            },
+            CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, FALSE_WIRE,
+            StreamingResult, TRUE_WIRE,
         },
     };
 

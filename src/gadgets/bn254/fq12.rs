@@ -5,7 +5,7 @@ use rand::Rng;
 use super::fq6::Fq6Components;
 use crate::{
     CircuitContext, Gate, WireId,
-    circuit::streaming::{FromWires, WiresObject},
+    circuit::{FromWires, WiresObject},
     gadgets::bn254::{fq::Fq, fq2::Fq2, fq6::Fq6},
 };
 
@@ -457,7 +457,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        circuit::streaming::{
+        circuit::{
             CircuitBuilder, CircuitInput, CircuitOutput, EncodeInput,
             modes::{CircuitMode, ExecuteMode},
         },

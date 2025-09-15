@@ -10,7 +10,7 @@ use rand::Rng;
 use super::super::{bigint::BigIntWires, bn254::fp254impl::Fp254Impl};
 use crate::{
     CircuitContext, WireId,
-    circuit::streaming::{FromWires, WiresObject},
+    circuit::{FromWires, WiresObject},
     gadgets::{
         self,
         bigint::{self, Error},
@@ -311,8 +311,8 @@ pub(super) mod tests {
     use super::*;
     use crate::{
         circuit::{
-            CircuitBuilder, CircuitInput,
-            streaming::{CircuitMode, CircuitOutput, EncodeInput, modes::ExecuteMode},
+            CircuitBuilder, CircuitInput, CircuitMode, CircuitOutput, EncodeInput,
+            modes::ExecuteMode,
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
