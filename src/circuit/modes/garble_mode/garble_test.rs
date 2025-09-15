@@ -62,7 +62,7 @@ mod tests {
         let (sender, receiver) = channel::unbounded();
 
         let output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 0, // seed
@@ -109,7 +109,7 @@ mod tests {
         let (sender, receiver) = channel::unbounded();
 
         let _output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 0, // seed
@@ -151,7 +151,7 @@ mod tests {
         let (sender, receiver) = channel::unbounded();
 
         let _output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 0, // seed
@@ -196,7 +196,7 @@ mod tests {
         thread::spawn(move || while receiver.recv().is_ok() {});
 
         let output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 0, // seed
@@ -248,7 +248,7 @@ mod tests {
         let (sender, receiver) = channel::unbounded();
 
         let _output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 0, // seed

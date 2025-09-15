@@ -120,7 +120,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     let garble_start = Instant::now();
 
     let garbling_result: StreamingResult<GarbleMode<H>, _, GarbledWire> =
-        CircuitBuilder::streaming_garbling(
+        CircuitBuilder::streaming_garbling_with_sender(
             inputs.clone(),
             CAPACITY,
             garbling_seed,
@@ -180,7 +180,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         let regarble_start = Instant::now();
 
         let _regarbling_result: StreamingResult<GarbleMode<H>, _, GarbledWire> =
-            CircuitBuilder::streaming_garbling(
+            CircuitBuilder::streaming_garbling_with_sender(
                 inputs,
                 CAPACITY,
                 garbling_seed,

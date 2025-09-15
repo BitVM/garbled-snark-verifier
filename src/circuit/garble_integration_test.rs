@@ -59,7 +59,7 @@ mod tests {
 
         // Build and garble a simple circuit: (a AND b) XOR c
         let _result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 456, // seed
@@ -104,7 +104,7 @@ mod tests {
 
         // Circuit using constants: (input AND TRUE) OR FALSE
         let result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 321, // seed
@@ -163,7 +163,7 @@ mod tests {
 
         // Circuit using component: xor_gadget(a, b) AND c
         let _result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 10_000,
                 111, // seed
@@ -206,7 +206,7 @@ mod tests {
 
         // Build a larger circuit with mixed gates
         let result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+            CircuitBuilder::streaming_garbling_blake3_with_sender(
                 inputs,
                 50_000, // larger capacity for more wires
                 777,    // seed

@@ -179,7 +179,7 @@ fn test_fq12_mul_montgomery_e2e() {
     // Garbling phase
     let (garbled_sender, garbled_receiver) = channel::unbounded();
     let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-        CircuitBuilder::streaming_garbling_blake3(
+        CircuitBuilder::streaming_garbling_blake3_with_sender(
             inputs.clone(),
             15_000,
             SEED,

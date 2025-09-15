@@ -1,7 +1,5 @@
 use std::{array, marker::PhantomData, num::NonZero};
 
-use crossbeam::channel;
-use log::error;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
@@ -73,7 +71,8 @@ pub struct GarbleMode<H: hashers::GateHasher = hashers::Blake3Hasher> {
     rng: ChaChaRng,
     delta: Delta,
     gate_index: usize,
-    output_sender: channel::Sender<GarbledTableEntry>,
+    // Handler for streaming ciphertexts (non-free gates only)
+    output_handler: Box<dyn FnMut(GarbledTableEntry) + 'static>,
     // Store only label0 for each wire; reconstruct label1 as label0 ^ delta
     storage: Storage<WireId, Option<S>>,
     // Store the constant wires
@@ -86,7 +85,7 @@ impl<H: hashers::GateHasher> GarbleMode<H> {
     pub fn new(
         capacity: usize,
         seed: u64,
-        output_sender: channel::Sender<GarbledTableEntry>,
+        output_handler: impl FnMut(GarbledTableEntry) + 'static,
     ) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seed);
         let delta = Delta::generate(&mut rng);
@@ -99,7 +98,7 @@ impl<H: hashers::GateHasher> GarbleMode<H> {
             rng,
             delta,
             gate_index: 0,
-            output_sender,
+            output_handler: Box::new(output_handler),
             false_wire,
             true_wire,
             _hasher: PhantomData,
@@ -107,8 +106,8 @@ impl<H: hashers::GateHasher> GarbleMode<H> {
     }
 
     pub fn preallocate_input<I: EncodeInput<Self>>(seed: u64, i: &I) -> Vec<GarbledWire> {
-        let (sender, _receiver) = channel::bounded(1);
-        let mut self_ = Self::new(3200, seed, sender);
+        // Use a no-op handler during preallocation
+        let mut self_ = Self::new(3200, seed, |_| {});
 
         let allocated = i.allocate(|| self_.allocate_wire(1));
         i.encode(&allocated, &mut self_);
@@ -134,10 +133,7 @@ impl<H: hashers::GateHasher> GarbleMode<H> {
         let Some(ciphertext) = entry else {
             return;
         };
-
-        if let Err(err) = self.output_sender.send((gate_id, ciphertext)) {
-            error!("Error while send gate_id {gate_id} ciphertext: {err}");
-        }
+        (self.output_handler)((gate_id, ciphertext));
     }
 }
 

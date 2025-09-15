@@ -133,7 +133,31 @@ impl CircuitBuilder<ExecuteMode> {
 }
 
 impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
+    /// Streaming garbling with a generic handler for ciphertexts.
+    ///
+    /// The `handler` closure is invoked for each non-free gate with `(gate_id, ciphertext)`.
+    /// Use this to avoid forcing a channel and choose single-threaded or multi-threaded plumbing.
     pub fn streaming_garbling<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        seed: u64,
+        handler: impl FnMut((usize, S)) + 'static,
+        f: F,
+    ) -> StreamingResult<GarbleMode<H>, I, O>
+    where
+        I: CircuitInput + EncodeInput<GarbleMode<H>>,
+        O: CircuitOutput<GarbleMode<H>>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<GarbleMode<H>>, &I::WireRepr) -> O::WireRepr,
+    {
+        CircuitBuilder::run_streaming(
+            inputs,
+            GarbleMode::new(live_wires_capacity, seed, handler),
+            f,
+        )
+    }
+
+    pub fn streaming_garbling_with_sender<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
@@ -146,9 +170,15 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<GarbleMode<H>>, &I::WireRepr) -> O::WireRepr,
     {
-        CircuitBuilder::run_streaming(
+        // Wrap the `Sender` into a closure-based handler to preserve the existing API
+        let sender = output_sender;
+        Self::streaming_garbling(
             inputs,
-            GarbleMode::new(live_wires_capacity, seed, output_sender),
+            live_wires_capacity,
+            seed,
+            move |entry| {
+                sender.send(entry).unwrap();
+            },
             f,
         )
     }
@@ -156,7 +186,7 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H>> {
 
 // Convenience impl for Blake3 (backward compatibility)
 impl CircuitBuilder<GarbleModeBlake3> {
-    pub fn streaming_garbling_blake3<I, F, O>(
+    pub fn streaming_garbling_blake3_with_sender<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
@@ -169,7 +199,30 @@ impl CircuitBuilder<GarbleModeBlake3> {
         O::WireRepr: Debug,
         F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
     {
-        Self::streaming_garbling(inputs, live_wires_capacity, seed, output_sender, f)
+        Self::streaming_garbling_with_sender(inputs, live_wires_capacity, seed, output_sender, f)
+    }
+
+    /// Convenience wrapper for Blake3 hasher that accepts a closure handler.
+    pub fn streaming_garbling_blake3<I, F, O>(
+        inputs: I,
+        live_wires_capacity: usize,
+        seed: u64,
+        handler: impl FnMut((usize, S)) + 'static,
+        f: F,
+    ) -> StreamingResult<GarbleModeBlake3, I, O>
+    where
+        I: CircuitInput + EncodeInput<GarbleModeBlake3>,
+        O: CircuitOutput<GarbleModeBlake3>,
+        O::WireRepr: Debug,
+        F: Fn(&mut StreamingMode<GarbleModeBlake3>, &I::WireRepr) -> O::WireRepr,
+    {
+        CircuitBuilder::<GarbleModeBlake3>::streaming_garbling(
+            inputs,
+            live_wires_capacity,
+            seed,
+            handler,
+            f,
+        )
     }
 }
 
