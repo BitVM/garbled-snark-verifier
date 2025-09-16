@@ -1,21 +1,30 @@
-// Cut-and-choose demo over Groth16 verification circuit.
-// Two-party (garbler/evaluator) protocol executed in two threads.
-// Defaults: 181 total instances, 1 finalized.
-// Run: `RUST_LOG=info cargo run --example groth16_cut_and_choose --release`
-
-use std::{fs::File, io::Read, path::PathBuf, thread};
+use std::{path::PathBuf, thread};
 
 use crossbeam::channel;
-use garbled_snark_verifier as gsv;
+use garbled_snark_verifier::{self as gsv, OpenForInstance};
 use gsv::{
     CiphertextHashAcc, S,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
-    circuit::CircuitBuilder,
     garbled_groth16, groth16_cut_and_choose as ccn,
 };
-use log::info;
+use log::{error, info};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+
+// Lightweight control-plane messages between parties.
+enum G2EMsg {
+    // Garbler -> Evaluator: commitments for all instances
+    Commits(Vec<gsv::GarbledInstanceCommit>),
+    // Garbler -> Evaluator: indices and seeds for instances to open
+    OpenSeeds(Vec<(usize, ccn::Seed)>),
+    // Garbler -> Evaluator: constants and input labels for finalized instances
+    FinalizedData(Vec<(usize, u128, u128, Vec<gsv::GarbledWire>)>),
+}
+
+enum E2GMsg {
+    // Evaluator -> Garbler: senders to forward ciphertexts for finalized instances
+    FinalizeSenders(Vec<(usize, channel::Sender<(usize, S)>)>),
+}
 
 // Simple multiplicative circuit used to produce a valid Groth16 proof.
 #[derive(Copy, Clone)]
@@ -56,46 +65,6 @@ impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
     }
 }
 
-fn spawn_file_stream(path: PathBuf) -> channel::Receiver<(usize, S)> {
-    let (tx, rx) = channel::unbounded::<(usize, S)>();
-    thread::spawn(move || {
-        let mut f = File::open(path).expect("open ciphertext file");
-        let mut rec = [0u8; 8 + 16];
-        loop {
-            let mut read = 0usize;
-            while read < rec.len() {
-                match f.read(&mut rec[read..]) {
-                    Ok(0) => {
-                        // EOF; if mid-record, it's an error, but this file is trusted output
-                        if read == 0 {
-                            // normal end
-                            drop(tx);
-                            return;
-                        } else {
-                            panic!("unexpected EOF while reading ciphertexts");
-                        }
-                    }
-                    Ok(n) => read += n,
-                    Err(e) => panic!("io error reading ciphertexts: {e}"),
-                }
-            }
-
-            let mut gid_bytes = [0u8; 8];
-            gid_bytes.copy_from_slice(&rec[..8]);
-            let gate_id = u64::from_le_bytes(gid_bytes) as usize;
-
-            let mut s_bytes = [0u8; 16];
-            s_bytes.copy_from_slice(&rec[8..]);
-            let s = S::from_bytes(s_bytes);
-
-            if tx.send((gate_id, s)).is_err() {
-                return; // receiver dropped
-            }
-        }
-    });
-    rx
-}
-
 fn main() {
     if !gsv::hardware_aes_available() {
         eprintln!(
@@ -117,7 +86,6 @@ fn main() {
     };
     let (pk, vk) = ark::Groth16::<ark::Bn254>::setup(circuit, &mut rng).expect("setup");
     let c_val = circuit.a.unwrap() * circuit.b.unwrap();
-    let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
     // Package inputs for garbling/evaluation gadgets
     let g_input = garbled_groth16::GarblerInput {
@@ -125,48 +93,67 @@ fn main() {
         vk: vk.clone(),
     }
     .compress();
-    let eval_proof = garbled_groth16::Proof::new(proof, vec![c_val]);
 
-    let total = 3usize;
+    let total = 16usize;
     let to_finalize = 1usize;
 
-    // Channels for the two-party protocol
-    let (commits_tx, commits_rx) = channel::bounded(1);
-    let (finalize_senders_tx, finalize_senders_rx) = channel::bounded(1);
-    let (open_result_tx, open_result_rx) = channel::bounded(1);
-    let (labels_req_tx, labels_req_rx) = channel::bounded::<usize>(1);
-    let (labels_resp_tx, labels_resp_rx) =
-        channel::bounded::<(u128, u128, Vec<gsv::GarbledWire>)>(1);
+    // Control-plane channels
+    let (g2e_tx, g2e_rx) = channel::unbounded::<G2EMsg>();
+    let (e2g_tx, e2g_rx) = channel::unbounded::<E2GMsg>();
 
     // Garbler thread
-    let vk_g = vk.clone();
     let g_input_g = g_input.clone();
     let garbler = thread::spawn(move || {
         let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
         let cfg = ccn::Config::new(total, to_finalize, g_input_g);
+        // Create garbler (uses optimized thread pool internally)
         let g = ccn::Garbler::create(&mut seed_rng, cfg);
 
         // Send commits to evaluator
         let commits = g.commit();
-        commits_tx.send(commits).expect("send commits");
+        g2e_tx.send(G2EMsg::Commits(commits)).expect("send commits");
 
         // Receive which indices to finalize + ciphertext senders
-        let finalize_senders = finalize_senders_rx.recv().expect("recv finalize senders");
+        let E2GMsg::FinalizeSenders(finalize_senders) =
+            e2g_rx.recv().expect("recv finalize senders");
 
         // Start streaming ciphertexts for finalized instances; return open/closed set
-        let open_result = g.open_commit(finalize_senders);
-        open_result_tx.send(open_result).expect("send open_result");
-
-        // Provide constants and input labels for the (single) finalized instance on request
-        if let Ok(idx) = labels_req_rx.recv() {
-            let (t, f) = g.constants_for(idx);
-            let labels = g.input_labels_for(idx);
-            labels_resp_tx
-                .send((t, f, labels))
-                .expect("send labels + constants");
+        let mut seeds = vec![];
+        let mut threads = vec![];
+        let finalized_indices: Vec<usize> = finalize_senders.iter().map(|(i, _)| *i).collect();
+        for commit in g.open_commit(finalize_senders) {
+            match commit {
+                OpenForInstance::Closed {
+                    index: _index,
+                    garbling_thread,
+                } => threads.push(garbling_thread),
+                OpenForInstance::Open(index, seed) => seeds.push((index, seed)),
+            }
         }
 
-        drop(vk_g);
+        // Inform evaluator which instances were opened and with which seeds
+        g2e_tx
+            .send(G2EMsg::OpenSeeds(seeds))
+            .expect("send open_result");
+
+        threads.into_iter().for_each(|th| {
+            if let Err(err) = th.join() {
+                error!("while regarbling: {err:?}")
+            }
+        });
+
+        // After regarbling, send constants + input labels for finalized instance(s)
+        let fin_data: Vec<(usize, u128, u128, Vec<gsv::GarbledWire>)> = finalized_indices
+            .into_iter()
+            .map(|idx| {
+                let (t, f) = g.constants_for(idx);
+                let inputs = g.input_labels_for(idx);
+                (idx, t, f, inputs)
+            })
+            .collect();
+        g2e_tx
+            .send(G2EMsg::FinalizedData(fin_data))
+            .expect("send finalized labels/constants");
     });
 
     // Evaluator thread
@@ -174,79 +161,105 @@ fn main() {
     let e_input = g_input.clone();
     let evaluator = thread::spawn(move || {
         // Receive commits from garbler
-        let commits = commits_rx.recv().expect("recv commits");
+        let commits = match g2e_rx.recv().expect("recv commits") {
+            G2EMsg::Commits(c) => c,
+            _ => panic!("unexpected message; expected commits"),
+        };
         let commits_for_check = commits.clone();
 
-        // Build evaluator-side state and choose which instance to finalize
+        // Prepare ciphertext channels for finalized instances (receivers to Evaluator, senders to Garbler)
+        let mut receivers = Vec::with_capacity(to_finalize);
+        let mut senders = Vec::with_capacity(to_finalize);
+        for _ in 0..to_finalize {
+            let (tx, rx) = channel::unbounded::<(usize, S)>();
+            senders.push(tx);
+            receivers.push(rx);
+        }
+
+        // Build evaluator-side state and choose which instance(s) to finalize
         let cfg = ccn::Config::new(total, to_finalize, e_input);
-        let mut eval = ccn::Evaluator::create(&mut rng, cfg, commits);
+        let eval = ccn::Evaluator::create(&mut rng, cfg, commits, receivers);
         let finalize: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
         assert_eq!(finalize.len(), 1, "expected exactly one finalized instance");
         info!("Evaluator selected to finalize index {}", finalize[0]);
 
-        // Prepare senders for finalized instances (ciphertext streaming) and send to garbler
-        let senders = eval.make_finalize_senders();
-        finalize_senders_tx
-            .send(senders)
+        // Zip chosen indices with corresponding senders and send to garbler
+        let finalize_senders: Vec<(usize, channel::Sender<(usize, S)>)> =
+            finalize.iter().copied().zip(senders).collect();
+        e2g_tx
+            .send(E2GMsg::FinalizeSenders(finalize_senders))
             .expect("send finalize senders to garbler");
 
         // Receive and verify open/closed instances; write ciphertexts for closed to disk
-        let open_result = open_result_rx.recv().expect("recv open_result");
+        let open_result = match g2e_rx.recv().expect("recv open_result") {
+            G2EMsg::OpenSeeds(s) => s,
+            _ => panic!("unexpected message; expected open seeds"),
+        };
         let out_dir: PathBuf = ["target", "cut_and_choose"].iter().collect();
-        eval.regarbling(open_result, &out_dir)
+
+        // Run regarbling checks (uses optimized thread pool internally)
+        eval.run_regarbling(open_result, &out_dir)
             .expect("regarbling checks");
 
-        // Ask for constants and input labels for the single finalized instance
-        let idx = finalize[0];
-        labels_req_tx
-            .send(idx)
-            .expect("request labels for finalized idx");
-        let (true_const, false_const, input_labels) =
-            labels_resp_rx.recv().expect("receive labels + constants");
+        // Receive constants and input labels for finalized instance(s)
+        let fin = match g2e_rx.recv() {
+            Ok(G2EMsg::FinalizedData(v)) => v,
+            _ => panic!("unexpected message; expected finalized data"),
+        };
 
-        // Build evaluator input from labels + proof
-        let eval_input =
-            garbled_groth16::EvaluatorCompressedInput::new(eval_proof, vk_e.clone(), input_labels);
+        // Build a single Groth16 proof once and reuse for all finalized instances
+        let eval_proof = garbled_groth16::Proof::new(
+            ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove"),
+            vec![c_val],
+        );
 
-        // Stream ciphertexts for this instance from file to the evaluator
-        let file_path = out_dir.join(format!("gc_{}.bin", idx));
-        let rx = spawn_file_stream(file_path);
+        // Build cases: (index, EvaluatorInput, (true,false) constants)
+        let cases: Vec<(
+            usize,
+            garbled_groth16::EvaluatorCompressedInput,
+            (u128, u128),
+        )> = fin
+            .into_iter()
+            .map(|(idx, t, f, labels)| {
+                let input = garbled_groth16::EvaluatorCompressedInput::new(
+                    eval_proof.clone(),
+                    vk_e.clone(),
+                    labels,
+                );
+                (idx, input, (t, f))
+            })
+            .collect();
 
-        // Evaluate
-        let result: gsv::circuit::StreamingResult<
-            gsv::circuit::modes::EvaluateMode<gsv::AesNiHasher>,
-            _,
-            gsv::EvaluatedWire,
-        > = CircuitBuilder::streaming_evaluation(
-            eval_input,
+        // Evaluate all saved ciphertexts (uses optimized thread pool internally)
+        let results = ccn::Evaluator::evaluate_from_saved_all(
+            cases,
             160_000,
-            true_const,
-            false_const,
-            rx,
+            &out_dir,
             garbled_groth16::verify_compressed,
         );
 
-        let out = result.output_value;
-        info!(
-            "Finalized instance {}: is_proof_correct = {}",
-            idx, out.value
-        );
-        assert!(out.value, "Groth16 verification should succeed");
+        for (idx, out) in results {
+            info!(
+                "Finalized instance {}: is_proof_correct = {}",
+                idx, out.value
+            );
+            assert!(out.value, "Groth16 verification should succeed");
 
-        // Compute commit of resulting output label and compare with the appropriate one
-        let mut h = CiphertextHashAcc::default();
-        h.update(out.active_label);
-        let out_label_commit = h.finalize();
+            // Compute commit of resulting output label and compare with the appropriate one
+            let mut h = CiphertextHashAcc::default();
+            h.update(out.active_label);
+            let out_label_commit = h.finalize();
 
-        let expected_commit = if out.value {
-            commits_for_check[idx].output_commit_label1()
-        } else {
-            commits_for_check[idx].output_commit_label0()
-        };
-        assert_eq!(
-            out_label_commit, expected_commit,
-            "Output label commit mismatch for finalized instance"
-        );
+            let expected_commit = if out.value {
+                commits_for_check[idx].output_commit_label1()
+            } else {
+                commits_for_check[idx].output_commit_label0()
+            };
+            assert_eq!(
+                out_label_commit, expected_commit,
+                "Output label commit mismatch for finalized instance"
+            );
+        }
     });
 
     garbler.join().unwrap();

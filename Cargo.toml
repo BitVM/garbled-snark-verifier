@@ -37,6 +37,8 @@ num-traits = "0.2"
 rand = "0.8" # using old version for consistency with ark
 rand_chacha = "0.3" # using old version for consistency with ark
 rayon = "1.10.0"
+core_affinity = "0.8"
+num_cpus = "1.16"
 slab = "0.4.11"
 thiserror = "2.0.12"
 

@@ -2,8 +2,12 @@
 
 use std::{
     collections::HashMap,
+    fs,
+    fs::File,
+    io::{BufWriter, Write},
     mem,
-    path::Path,
+    path::{Path, PathBuf},
+    sync::Arc,
     thread::{self, JoinHandle},
 };
 
@@ -11,11 +15,11 @@ use crossbeam::channel;
 use itertools::Itertools;
 use log::info;
 use rand::Rng;
-use rayon::{iter::IntoParallelRefIterator, prelude::*};
+use rayon::{ThreadPool, ThreadPoolBuilder, iter::IntoParallelRefIterator, prelude::*};
 
 use crate::{
-    AesNiHasher, CiphertextHashAcc, GarbleMode, GarbledWire, S,
-    circuit::{CircuitBuilder, CircuitInput, StreamingResult},
+    AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, S,
+    circuit::{CircuitBuilder, CircuitInput, StreamingResult, modes::EvaluateMode},
     garbled_groth16,
 };
 
@@ -141,8 +145,10 @@ impl Garbler {
             .map(|_| rng.r#gen())
             .collect::<Box<[Seed]>>();
 
-        Self {
-            instances: seeds
+        // Use optimized thread pool internally
+        let pool = get_optimized_pool();
+        let instances = pool.install(|| {
+            seeds
                 .par_iter()
                 .map(|garbling_seed| {
                     let inputs = config.input.clone();
@@ -151,22 +157,27 @@ impl Garbler {
                     info!("Starting garbling of Groth16 verification circuit...");
 
                     CircuitBuilder::streaming_garbling(
-                        inputs.clone(),
+                        inputs,
                         CAPACITY,
                         *garbling_seed,
                         hasher,
                         garbled_groth16::verify_compressed,
                     )
                 })
-                .collect(),
+                .collect()
+        });
+
+        Self {
+            instances,
             seeds,
             config,
         }
     }
 
     pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
+        // Build commits in parallel; independent per instance
         self.instances
-            .iter()
+            .par_iter()
             .map(GarbledInstanceCommit::new)
             .collect()
     }
@@ -284,37 +295,207 @@ impl Evaluator {
     ) -> Result<(), ()> {
         let receivers = mem::take(&mut self.receivers);
 
-        rayon::spawn(|| {
-            todo!("
-                Get a ciphertext sequentially from all receivers and save it to files as efficiently as possible
-                Considering that each one of them loads 3 billion ciphertexts
-            ")
-        });
-
-        seeds.par_iter().all(|(index, garbling_seed)| {
-            let inputs = self.config.input.clone();
-            let hasher = CiphertextHashAcc::default();
-
-            info!("Starting garbling of Groth16 verification circuit...");
-
-            let res: StreamingResult<
-                GarbleMode<AesNiHasher, _>,
-                garbled_groth16::GarblerCompressedInput,
-                GarbledWire,
-            > = CircuitBuilder::streaming_garbling(
-                inputs.clone(),
-                CAPACITY,
-                *garbling_seed,
-                hasher,
-                garbled_groth16::verify_compressed,
+        // Ensure output directory exists
+        if let Err(e) = fs::create_dir_all(folder_for_ciphertexts) {
+            log::error!(
+                "failed to create output dir {:?}: {e}",
+                folder_for_ciphertexts
             );
+            return Err(());
+        }
 
-            let regarbling_commit = GarbledInstanceCommit::new(&res);
-            let received_commit = &self.commits[*index];
+        for (index, rx) in receivers {
+            let path: PathBuf = folder_for_ciphertexts.join(format!("gc_{}.bin", index));
+            rayon::spawn(move || {
+                let file = File::create(&path).expect("create ciphertext file");
+                // Larger buffer to reduce syscalls
+                let mut w = BufWriter::with_capacity(1 << 20, file);
+                while let Ok((gate_id, s)) = rx.recv() {
+                    let gid = gate_id as u64;
+                    let _ = w.write_all(&gid.to_le_bytes());
+                    let _ = w.write_all(&s.to_bytes());
+                }
+                let _ = w.flush();
+            });
+        }
 
-            &regarbling_commit == received_commit
+        // Use optimized thread pool for parallel regarbling
+        let pool = get_optimized_pool();
+        let all_ok = pool.install(|| {
+            seeds.par_iter().all(|(index, garbling_seed)| {
+                let inputs = self.config.input.clone();
+                let hasher = CiphertextHashAcc::default();
+
+                info!("Starting garbling of Groth16 verification circuit...");
+
+                let res: StreamingResult<
+                    GarbleMode<AesNiHasher, _>,
+                    garbled_groth16::GarblerCompressedInput,
+                    GarbledWire,
+                > = CircuitBuilder::streaming_garbling(
+                    inputs.clone(),
+                    CAPACITY,
+                    *garbling_seed,
+                    hasher,
+                    garbled_groth16::verify_compressed,
+                );
+
+                let regarbling_commit = GarbledInstanceCommit::new(&res);
+                let received_commit = &self.commits[*index];
+
+                &regarbling_commit == received_commit
+            })
         });
 
-        todo!()
+        if all_ok { Ok(()) } else { Err(()) }
+    }
+}
+
+impl Evaluator {
+    fn spawn_file_stream(path: PathBuf) -> channel::Receiver<(usize, S)> {
+        let (tx, rx) = channel::unbounded::<(usize, S)>();
+        thread::spawn(move || {
+            let mut f = match File::open(path) {
+                Ok(f) => f,
+                Err(_) => return,
+            };
+            let mut rec = [0u8; 8 + 16];
+            loop {
+                let mut read = 0usize;
+                while read < rec.len() {
+                    match std::io::Read::read(&mut f, &mut rec[read..]) {
+                        Ok(0) => {
+                            if read == 0 {
+                                drop(tx);
+                                return;
+                            } else {
+                                panic!("unexpected EOF while reading ciphertexts");
+                            }
+                        }
+                        Ok(n) => read += n,
+                        Err(_) => return,
+                    }
+                }
+
+                let mut gid_bytes = [0u8; 8];
+                gid_bytes.copy_from_slice(&rec[..8]);
+                let gate_id = u64::from_le_bytes(gid_bytes) as usize;
+
+                let mut s_bytes = [0u8; 16];
+                s_bytes.copy_from_slice(&rec[8..]);
+                let s = S::from_bytes(s_bytes);
+
+                if tx.send((gate_id, s)).is_err() {
+                    return;
+                }
+            }
+        });
+        rx
+    }
+
+    /// Evaluate all finalized instances from saved ciphertext files in `folder`.
+    /// Returns `(index, EvaluatedWire)` pairs.
+    pub fn evaluate_from_saved_all<I, F>(
+        cases: Vec<(usize, I, (u128, u128))>,
+        capacity: usize,
+        folder: &Path,
+        f: F,
+    ) -> Vec<(usize, EvaluatedWire)>
+    where
+        I: CircuitInput + crate::circuit::EncodeInput<EvaluateMode<AesNiHasher>> + Send,
+        F: Fn(
+                &mut crate::circuit::StreamingMode<EvaluateMode<AesNiHasher>>,
+                &I::WireRepr,
+            ) -> crate::WireId
+            + Send
+            + Sync
+            + Copy,
+    {
+        // Use optimized thread pool for parallel evaluation
+        let pool = get_optimized_pool();
+        pool.install(|| {
+            cases
+                .into_par_iter()
+                .map(|(index, eval_input, (true_const, false_const))| {
+                    let file_path = folder.join(format!("gc_{}.bin", index));
+                    let rx = Self::spawn_file_stream(file_path);
+
+                    let result: StreamingResult<EvaluateMode<AesNiHasher>, I, EvaluatedWire> =
+                        CircuitBuilder::streaming_evaluation(
+                            eval_input,
+                            capacity,
+                            true_const,
+                            false_const,
+                            rx,
+                            f,
+                        );
+
+                    (index, result.output_value)
+                })
+                .collect()
+        })
+    }
+}
+
+// ============================================================================
+// Threading utilities - isolated CPU affinity optimization (internal use only)
+// ============================================================================
+
+use std::sync::OnceLock;
+
+static OPTIMIZED_POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
+
+/// Get the singleton optimized thread pool, creating it if necessary.
+/// This is for internal use only - not exposed in the public API.
+fn get_optimized_pool() -> &'static Arc<ThreadPool> {
+    OPTIMIZED_POOL.get_or_init(|| {
+        let n_threads = num_cpus::get_physical().max(1);
+        Arc::new(build_pinned_pool(n_threads))
+    })
+}
+
+/// Build a thread pool with threads pinned to specific CPU cores.
+/// This reduces thread migrations and can improve performance for CPU-intensive tasks.
+fn build_pinned_pool(n_threads: usize) -> ThreadPool {
+    let chosen_cores = select_cores_for_affinity(n_threads);
+
+    ThreadPoolBuilder::new()
+        .num_threads(n_threads)
+        .start_handler(move |thread_idx| {
+            // Try to pin this thread to its assigned core
+            if let Some(core_id) = chosen_cores.get(thread_idx).cloned() {
+                // Silently ignore affinity errors (may not be supported on all systems)
+                let _ = core_affinity::set_for_current(core_id);
+            }
+        })
+        .build()
+        .unwrap_or_else(|_| {
+            // Fallback to default thread pool if pinned pool creation fails
+            ThreadPoolBuilder::new()
+                .num_threads(n_threads)
+                .build()
+                .expect("failed to create fallback thread pool")
+        })
+}
+
+/// Select CPU cores for thread affinity.
+/// Strategy:
+/// - If we have at least 2x cores as threads, use every other core (avoid hyperthreads)
+/// - Otherwise, use the first N cores available
+/// - Returns empty vector if core detection fails (affinity will be skipped)
+fn select_cores_for_affinity(n: usize) -> Vec<core_affinity::CoreId> {
+    match core_affinity::get_core_ids() {
+        Some(cores) if cores.len() >= 2 * n => {
+            // Skip hyperthreads by taking every other core
+            cores.into_iter().step_by(2).take(n).collect()
+        }
+        Some(cores) => {
+            // Use first N cores available
+            cores.into_iter().take(n).collect()
+        }
+        None => {
+            // Core detection failed - affinity will not be set
+            Vec::new()
+        }
     }
 }
