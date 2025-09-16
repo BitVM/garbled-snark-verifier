@@ -48,6 +48,7 @@ pub mod test_utils {
     }
 }
 
+pub mod cut_and_choose;
 pub mod garbled_groth16;
 
 // All ark-* related items live under this module for clarity

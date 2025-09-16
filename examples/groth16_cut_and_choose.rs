@@ -1,7 +1,7 @@
-use std::{path::PathBuf, thread};
+use std::{fs, io, path::PathBuf, thread};
 
 use crossbeam::channel;
-use garbled_snark_verifier::{self as gsv, OpenForInstance};
+use garbled_snark_verifier::{self as gsv, OpenForInstance, cut_and_choose::DEFAULT_CAPACITY};
 use gsv::{
     CiphertextHashAcc, S,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
@@ -12,8 +12,8 @@ use rand_chacha::ChaCha20Rng;
 use tracing::{error, info};
 
 // Configuration constants - modify these as needed
-const TOTAL_INSTANCES: usize = 181;
-const FINALIZE_INSTANCES: usize = 7;
+const TOTAL_INSTANCES: usize = 3;
+const FINALIZE_INSTANCES: usize = 1;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 6; // 2^k constraints
 
@@ -237,7 +237,6 @@ fn main() {
         };
         info!("Output dir: {}", out_dir.display());
 
-        // Run regarbling checks (uses optimized thread pool internally)
         eval.run_regarbling(open_result, &out_dir)
             .expect("regarbling checks");
 
@@ -267,19 +266,19 @@ fn main() {
                     use std::io::Write;
                     let const_path = out_dir.join(format!("gc_{}.consts.bin", idx));
                     let mut w = std::io::BufWriter::new(
-                        std::fs::File::create(&const_path).expect("create consts file"),
+                        fs::File::create(&const_path).expect("create consts file"),
                     );
-                    w.write_all(&gsv::S::from_u128(t).to_bytes()).unwrap();
-                    w.write_all(&gsv::S::from_u128(f).to_bytes()).unwrap();
+                    w.write_all(&S::from_u128(t).to_bytes()).unwrap();
+                    w.write_all(&S::from_u128(f).to_bytes()).unwrap();
                     w.flush().ok();
                 }
 
                 // Save labels as: u64 count (LE), then pairs of 16-byte big-endian (label0,label1)
                 {
-                    use std::io::Write;
+                    use io::Write;
                     let labels_path = out_dir.join(format!("gc_{}.labels.bin", idx));
-                    let mut w = std::io::BufWriter::new(
-                        std::fs::File::create(&labels_path).expect("create labels file"),
+                    let mut w = io::BufWriter::new(
+                        fs::File::create(&labels_path).expect("create labels file"),
                     );
                     let count = labels.len() as u64;
                     w.write_all(&count.to_le_bytes()).unwrap();
@@ -300,7 +299,7 @@ fn main() {
             .collect();
 
         // Evaluate all saved ciphertexts (uses optimized thread pool internally)
-        let results = ccn::Evaluator::evaluate_from_saved_all(cases, 160_000, &out_dir);
+        let results = ccn::Evaluator::evaluate_from_saved_all(cases, DEFAULT_CAPACITY, &out_dir);
 
         for (idx, out) in results {
             info!(

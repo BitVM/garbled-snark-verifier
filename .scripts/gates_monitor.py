@@ -13,7 +13,10 @@ Modes:
 - --regarbling:
     Parses lines like
       "<TS> INFO regarble: garbled: <NUM>[m|b] instance=<ID>"
-    Tracks per‑instance progress for the regarbling phase.
+      "<TS> INFO garble2evaluation: garbled: <NUM>[m|b] instance=<ID>"
+      (also accepts "garble2evaluator" alias if present)
+    Tracks per‑instance progress for the entire regarbling stage, including
+    the evaluation‑garbling streams for finalized instances.
 - --evaluation:
     Parses lines like
       "<TS> INFO evaluated: <NUM>[m|b]"
@@ -42,6 +45,15 @@ RE_GARBLE = re.compile(
 )
 RE_REGARBLE = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+regarble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
+)
+# During regarbling, finalized instances are garbled again for evaluation
+# under a separate span name. Support both the canonical name and a common
+# alias spelling.
+RE_G2EVAL = re.compile(
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble2evaluation:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
+)
+RE_G2EVALUATOR = re.compile(
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble2evaluator:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
 RE_EVALUATED = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
@@ -83,8 +95,11 @@ def parse_line(line: str) -> Optional[Sample]:
         # Single stream for evaluation mode; use instance 0
         return Sample(ts, v, 0)
     else:
-        regex = RE_GARBLE if MODE == "garbling" else RE_REGARBLE
-        m = regex.match(line)
+        if MODE == "garbling":
+            m = RE_GARBLE.match(line)
+        else:  # regarbling stage may include multiple spans
+            m = RE_REGARBLE.match(line) or RE_G2EVAL.match(line) or RE_G2EVALUATOR.match(line)
+
         if m:
             ts = parse_iso_utc(m.group('ts'))
             num = float(m.group('num'))
@@ -428,7 +443,9 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
             if m2:
                 total = int(m2.group(1))
                 to_finalize = int(m2.group(2))
-                expected_total = (total - to_finalize) if MODE == "regarbling" else total
+                # In regarbling mode we now track both regarbling and garble2evaluation
+                # streams, so expected total equals the original total instances.
+                expected_total = total
                 print(
                     f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
                     file=sys.stderr,
@@ -503,7 +520,7 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
                     if m2:
                         total = int(m2.group(1))
                         to_finalize = int(m2.group(2))
-                        expected_total = (total - to_finalize) if MODE == "regarbling" else total
+                        expected_total = total
                         print(
                             f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
                             file=sys.stderr,
@@ -547,7 +564,7 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
             if m2:
                 total = int(m2.group(1))
                 to_finalize = int(m2.group(2))
-                expected_total = (total - to_finalize) if MODE == "regarbling" else total
+                expected_total = total
                 print(
                     f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
                     file=sys.stderr,
