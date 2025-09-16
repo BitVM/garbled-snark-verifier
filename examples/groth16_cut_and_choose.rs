@@ -1,4 +1,4 @@
-use std::{path::PathBuf, thread, time::Instant};
+use std::{path::PathBuf, thread};
 
 use crossbeam::channel;
 use garbled_snark_verifier::{self as gsv, OpenForInstance};
@@ -10,6 +10,9 @@ use gsv::{
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use tracing::{error, info};
+
+const TOTAL: usize = 3usize;
+const TO_FINALIZE: usize = 1usize;
 
 // Lightweight control-plane messages between parties.
 enum G2EMsg {
@@ -65,6 +68,9 @@ impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
     }
 }
 
+// Calculate and display total gates to process
+const GATES_PER_INSTANCE: u64 = 11_174_708_821;
+
 fn main() {
     if !gsv::hardware_aes_available() {
         eprintln!(
@@ -93,17 +99,14 @@ fn main() {
     }
     .compress();
 
-    let total = 16usize;
-    let to_finalize = 1usize;
+    let total_gates = GATES_PER_INSTANCE * TOTAL as u64;
+    info!("Starting cut-and-choose with {TOTAL} instances");
 
-    // Calculate and display total gates to process
-    const GATES_PER_INSTANCE: u64 = 11_174_708_821;
-    let total_gates = GATES_PER_INSTANCE * total as u64;
-    info!("Starting cut-and-choose with {} instances", total);
     info!(
         "Total gates to process in first stage: {:.2}B",
         total_gates as f64 / 1_000_000_000.0
     );
+
     info!(
         "Gates per instance: {:.2}B",
         GATES_PER_INSTANCE as f64 / 1_000_000_000.0
@@ -117,10 +120,10 @@ fn main() {
     let g_input_g = g_input.clone();
     let garbler = thread::spawn(move || {
         let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
-        let cfg = ccn::Config::new(total, to_finalize, g_input_g);
+        let cfg = ccn::Config::new(TOTAL, TO_FINALIZE, g_input_g);
         info!(
             "Garbler: Creating {} instances ({} to finalize)",
-            total, to_finalize
+            TOTAL, TO_FINALIZE
         );
         // Create garbler (uses optimized thread pool internally)
         let g = ccn::Garbler::create(&mut seed_rng, cfg);
@@ -184,16 +187,16 @@ fn main() {
         let commits_for_check = commits.clone();
 
         // Prepare ciphertext channels for finalized instances (receivers to Evaluator, senders to Garbler)
-        let mut receivers = Vec::with_capacity(to_finalize);
-        let mut senders = Vec::with_capacity(to_finalize);
-        for _ in 0..to_finalize {
+        let mut receivers = Vec::with_capacity(TO_FINALIZE);
+        let mut senders = Vec::with_capacity(TO_FINALIZE);
+        for _ in 0..TO_FINALIZE {
             let (tx, rx) = channel::unbounded::<(usize, S)>();
             senders.push(tx);
             receivers.push(rx);
         }
 
         // Build evaluator-side state and choose which instance(s) to finalize
-        let cfg = ccn::Config::new(total, to_finalize, e_input);
+        let cfg = ccn::Config::new(TOTAL, TO_FINALIZE, e_input);
         let eval = ccn::Evaluator::create(&mut rng, cfg, commits, receivers);
         let finalize: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
         assert_eq!(finalize.len(), 1, "expected exactly one finalized instance");
@@ -229,7 +232,8 @@ fn main() {
             vec![c_val],
         );
 
-        // Build cases: (index, EvaluatorInput, (true,false) constants)
+        // Persist finalized instance inputs for later "eval-only" runs
+        // and build cases: (index, EvaluatorInput, (true,false) constants)
         let cases: Vec<(
             usize,
             garbled_groth16::EvaluatorCompressedInput,
@@ -237,6 +241,34 @@ fn main() {
         )> = fin
             .into_iter()
             .map(|(idx, t, f, labels)| {
+                // Save constants as two 16-byte big-endian words
+                {
+                    use std::io::Write;
+                    let const_path = out_dir.join(format!("gc_{}.consts.bin", idx));
+                    let mut w = std::io::BufWriter::new(
+                        std::fs::File::create(&const_path).expect("create consts file"),
+                    );
+                    w.write_all(&gsv::S::from_u128(t).to_bytes()).unwrap();
+                    w.write_all(&gsv::S::from_u128(f).to_bytes()).unwrap();
+                    w.flush().ok();
+                }
+
+                // Save labels as: u64 count (LE), then pairs of 16-byte big-endian (label0,label1)
+                {
+                    use std::io::Write;
+                    let labels_path = out_dir.join(format!("gc_{}.labels.bin", idx));
+                    let mut w = std::io::BufWriter::new(
+                        std::fs::File::create(&labels_path).expect("create labels file"),
+                    );
+                    let count = labels.len() as u64;
+                    w.write_all(&count.to_le_bytes()).unwrap();
+                    for gw in &labels {
+                        w.write_all(&gw.label0.to_bytes()).unwrap();
+                        w.write_all(&gw.label1.to_bytes()).unwrap();
+                    }
+                    w.flush().ok();
+                }
+
                 let input = garbled_groth16::EvaluatorCompressedInput::new(
                     eval_proof.clone(),
                     vk_e.clone(),

@@ -360,40 +360,101 @@ impl Evaluator {
 
 impl Evaluator {
     fn spawn_file_stream(path: PathBuf) -> channel::Receiver<(usize, S)> {
+        use std::io::{BufReader, Read};
+
+        // Records are fixed-size: 8 bytes gate_id + 16 bytes S
+        const RECORD_SIZE: usize = 24;
+        // Use a large buffer to minimize syscalls (4 MiB)
+        const BUF_CAP: usize = 4 << 20;
+
         let (tx, rx) = channel::unbounded::<(usize, S)>();
         thread::spawn(move || {
-            let mut f = match File::open(path) {
+            let file = match File::open(path) {
                 Ok(f) => f,
                 Err(_) => return,
             };
-            let mut rec = [0u8; 8 + 16];
+
+            let mut reader = BufReader::with_capacity(BUF_CAP, file);
+            let mut buf = vec![0u8; BUF_CAP];
+            // carry holds leftover bytes from previous read that didn't make a full record
+            let mut carry: Vec<u8> = Vec::with_capacity(RECORD_SIZE);
+
             loop {
-                let mut read = 0usize;
-                while read < rec.len() {
-                    match std::io::Read::read(&mut f, &mut rec[read..]) {
-                        Ok(0) => {
-                            if read == 0 {
-                                drop(tx);
-                                return;
-                            } else {
-                                panic!("unexpected EOF while reading ciphertexts");
-                            }
+                let bytes_read = match reader.read(&mut buf) {
+                    Ok(0) => {
+                        // EOF: valid only if there is no partial record pending
+                        if carry.is_empty() {
+                            drop(tx);
+                            return;
+                        } else {
+                            panic!("unexpected EOF while reading ciphertexts (truncated record)");
                         }
-                        Ok(n) => read += n,
-                        Err(_) => return,
                     }
-                }
+                    Ok(n) => n,
+                    Err(_) => return,
+                };
 
-                let mut gid_bytes = [0u8; 8];
-                gid_bytes.copy_from_slice(&rec[..8]);
-                let gate_id = u64::from_le_bytes(gid_bytes) as usize;
+                // Compose chunk = carry || newly read bytes
+                let mut processed = 0usize;
+                if carry.is_empty() {
+                    // Fast path: operate directly on buf slice
+                    let chunk = &buf[..bytes_read];
+                    let limit = chunk.len() - (chunk.len() % RECORD_SIZE);
+                    while processed < limit {
+                        // gate_id
+                        let mut gid_bytes = [0u8; 8];
+                        gid_bytes.copy_from_slice(&chunk[processed..processed + 8]);
+                        let gate_id = u64::from_le_bytes(gid_bytes) as usize;
+                        processed += 8;
 
-                let mut s_bytes = [0u8; 16];
-                s_bytes.copy_from_slice(&rec[8..]);
-                let s = S::from_bytes(s_bytes);
+                        // S bytes
+                        let mut s_bytes = [0u8; 16];
+                        s_bytes.copy_from_slice(&chunk[processed..processed + 16]);
+                        let s = S::from_bytes(s_bytes);
+                        processed += 16;
 
-                if tx.send((gate_id, s)).is_err() {
-                    return;
+                        if tx.send((gate_id, s)).is_err() {
+                            return;
+                        }
+                    }
+
+                    // Save leftover (less than a full record) into carry
+                    if processed < chunk.len() {
+                        carry.clear();
+                        carry.extend_from_slice(&chunk[processed..]);
+                    }
+                } else {
+                    // Slow path: need to prepend carry to the newly read bytes
+                    // Build a temporary contiguous slice: carry || buf[..bytes_read]
+                    let mut combined: Vec<u8> = Vec::with_capacity(carry.len() + bytes_read);
+                    combined.extend_from_slice(&carry);
+                    combined.extend_from_slice(&buf[..bytes_read]);
+
+                    let chunk = &combined[..];
+                    let limit = chunk.len() - (chunk.len() % RECORD_SIZE);
+                    while processed < limit {
+                        // gate_id
+                        let mut gid_bytes = [0u8; 8];
+                        gid_bytes.copy_from_slice(&chunk[processed..processed + 8]);
+                        let gate_id = u64::from_le_bytes(gid_bytes) as usize;
+                        processed += 8;
+
+                        // S bytes
+                        let mut s_bytes = [0u8; 16];
+                        s_bytes.copy_from_slice(&chunk[processed..processed + 16]);
+                        let s = S::from_bytes(s_bytes);
+                        processed += 16;
+
+                        if tx.send((gate_id, s)).is_err() {
+                            return;
+                        }
+                    }
+
+                    // Update carry with leftover bytes
+                    carry.clear();
+                    if processed < chunk.len() {
+                        carry.extend_from_slice(&chunk[processed..]);
+                    }
                 }
             }
         });
