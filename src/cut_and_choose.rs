@@ -32,6 +32,7 @@ pub type Seed = u64;
 pub type Commit = u128;
 
 /// Protocol configuration shared by Garbler/Evaluator.
+#[derive(Clone)]
 pub struct Config<I: CircuitInput> {
     total: usize,
     to_finalize: usize,

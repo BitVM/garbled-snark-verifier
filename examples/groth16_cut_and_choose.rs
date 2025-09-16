@@ -1,9 +1,12 @@
-use std::{fs, io, path::PathBuf, thread};
+use std::{path::PathBuf, thread};
 
+use ark_bn254::Bn254;
+use ark_groth16::{
+    Groth16 as ArkGroth16, ProvingKey as ArkProvingKey, VerifyingKey as ArkVerifyingKey,
+};
 use crossbeam::channel;
-use garbled_snark_verifier::{self as gsv, OpenForInstance, cut_and_choose::DEFAULT_CAPACITY};
-use gsv::{
-    CiphertextHashAcc, S,
+use garbled_snark_verifier::{
+    CiphertextHashAcc, GarbledInstanceCommit, OpenForInstance, S,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     garbled_groth16, groth16_cut_and_choose as ccn,
 };
@@ -16,15 +19,24 @@ const TOTAL_INSTANCES: usize = 3;
 const FINALIZE_INSTANCES: usize = 1;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 6; // 2^k constraints
+// Default pipeline capacity matching library default
+const CAPACITY_EVAL: usize = 160_000;
 
 // Lightweight control-plane messages between parties.
+// Compact type for finalized-evaluation input sent by Garbler
+struct FinalizedCase {
+    index: usize,
+    input: garbled_groth16::EvaluatorCompressedInput,
+    consts: (u128, u128), // (true_const, false_const)
+}
+
 enum G2EMsg {
     // Garbler -> Evaluator: commitments for all instances
-    Commits(Vec<gsv::GarbledInstanceCommit>),
+    Commits(Vec<GarbledInstanceCommit>),
     // Garbler -> Evaluator: indices and seeds for instances to open
     OpenSeeds(Vec<(usize, ccn::Seed)>),
-    // Garbler -> Evaluator: constants and input labels for finalized instances
-    FinalizedData(Vec<(usize, u128, u128, Vec<gsv::GarbledWire>)>),
+    // Garbler -> Evaluator: fully built evaluator inputs for finalized instances
+    FinalizedInputs(Vec<FinalizedCase>),
 }
 
 enum E2GMsg {
@@ -75,13 +87,13 @@ impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
 fn main() {
-    if !gsv::hardware_aes_available() {
+    if !garbled_snark_verifier::hardware_aes_available() {
         eprintln!(
             "Warning: AES hardware acceleration not detected; using software AES (not constant-time)."
         );
     }
 
-    gsv::init_tracing();
+    garbled_snark_verifier::init_tracing();
 
     // Configuration
     let total = TOTAL_INSTANCES;
@@ -124,207 +136,188 @@ fn main() {
     let (g2e_tx, g2e_rx) = channel::unbounded::<G2EMsg>();
     let (e2g_tx, e2g_rx) = channel::unbounded::<E2GMsg>();
 
-    // Garbler thread
-    let g_input_g = g_input.clone();
+    // Create configs for both parties
+    let garbler_cfg = ccn::Config::new(total, finalize, g_input.clone());
+    let evaluator_cfg = ccn::Config::new(total, finalize, g_input.clone());
+
+    // Spawn both parties
     let garbler = thread::spawn(move || {
-        let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
-        let cfg = ccn::Config::new(total, finalize, g_input_g);
-        info!(
-            "Garbler: Creating {} instances ({} to finalize)",
-            total, finalize
+        run_garbler(
+            garbler_cfg,
+            pk.clone(),
+            vk.clone(),
+            circuit,
+            c_val,
+            g2e_tx,
+            e2g_rx,
         );
-        // Create garbler (uses optimized thread pool internally)
-        let g = ccn::Garbler::create(&mut seed_rng, cfg);
-
-        // Send commits to evaluator
-        let commits = g.commit();
-        g2e_tx.send(G2EMsg::Commits(commits)).expect("send commits");
-
-        // Receive which indices to finalize + ciphertext senders
-        let E2GMsg::FinalizeSenders(finalize_senders) =
-            e2g_rx.recv().expect("recv finalize senders");
-
-        // Start streaming ciphertexts for finalized instances; return open/closed set
-        let mut seeds = vec![];
-        let mut threads = vec![];
-
-        let finalized_indices: Vec<usize> = finalize_senders.iter().map(|(i, _)| *i).collect();
-
-        for commit in g.open_commit(finalize_senders) {
-            match commit {
-                OpenForInstance::Closed {
-                    index: _index,
-                    garbling_thread,
-                } => threads.push(garbling_thread),
-                OpenForInstance::Open(index, seed) => seeds.push((index, seed)),
-            }
-        }
-
-        // Inform evaluator which instances were opened and with which seeds
-        g2e_tx
-            .send(G2EMsg::OpenSeeds(seeds))
-            .expect("send open_result");
-
-        threads.into_iter().for_each(|th| {
-            if let Err(err) = th.join() {
-                error!("while regarbling: {err:?}")
-            }
-        });
-
-        // After regarbling, send constants + input labels for finalized instance(s)
-        let fin_data: Vec<(usize, u128, u128, Vec<gsv::GarbledWire>)> = finalized_indices
-            .into_iter()
-            .map(|idx| {
-                let (t, f) = g.constants_for(idx);
-                let inputs = g.input_labels_for(idx);
-                (idx, t, f, inputs)
-            })
-            .collect();
-        g2e_tx
-            .send(G2EMsg::FinalizedData(fin_data))
-            .expect("send finalized labels/constants");
     });
 
-    // Evaluator thread
-    let vk_e = vk.clone();
-    let e_input = g_input.clone();
     let evaluator = thread::spawn(move || {
-        // Receive commits from garbler
-        let commits = match g2e_rx.recv().expect("recv commits") {
-            G2EMsg::Commits(c) => c,
-            _ => panic!("unexpected message; expected commits"),
-        };
-        let commits_for_check = commits.clone();
-
-        // Prepare ciphertext channels for finalized instances (receivers to Evaluator, senders to Garbler)
-        let mut receivers = Vec::with_capacity(finalize);
-        let mut senders = Vec::with_capacity(finalize);
-        // Use unbounded channels since we're writing to disk
-        for _ in 0..finalize {
-            let (tx, rx) = channel::unbounded::<(usize, S)>();
-            senders.push(tx);
-            receivers.push(rx);
-        }
-
-        // Build evaluator-side state and choose which instance(s) to finalize
-        let cfg = ccn::Config::new(total, finalize, e_input);
-        let eval = ccn::Evaluator::create(&mut rng, cfg, commits, receivers);
-        let finalize_indices: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
-
-        assert_eq!(
-            finalize_indices.len(),
-            finalize,
-            "unexpected finalize count"
-        );
-
-        info!(
-            "Evaluator selected to finalize index {}",
-            finalize_indices[0]
-        );
-
-        // Zip chosen indices with corresponding senders and send to garbler
-        let finalize_senders: Vec<(usize, channel::Sender<(usize, S)>)> =
-            finalize_indices.iter().copied().zip(senders).collect();
-
-        e2g_tx
-            .send(E2GMsg::FinalizeSenders(finalize_senders))
-            .expect("send finalize senders to garbler");
-
-        // Receive and verify open/closed instances; write ciphertexts for closed to disk
-        let open_result = match g2e_rx.recv().expect("recv open_result") {
-            G2EMsg::OpenSeeds(s) => s,
-            _ => panic!("unexpected message; expected open seeds"),
-        };
-        info!("Output dir: {}", out_dir.display());
-
-        eval.run_regarbling(open_result, &out_dir)
-            .expect("regarbling checks");
-
-        // Receive constants and input labels for finalized instance(s)
-        let fin = match g2e_rx.recv() {
-            Ok(G2EMsg::FinalizedData(v)) => v,
-            _ => panic!("unexpected message; expected finalized data"),
-        };
-
-        // Build a single Groth16 proof once and reuse for all finalized instances
-        let eval_proof = garbled_groth16::Proof::new(
-            ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove"),
-            vec![c_val],
-        );
-
-        // Persist finalized instance inputs for later "eval-only" runs
-        // and build cases: (index, EvaluatorInput, (true,false) constants)
-        let cases: Vec<(
-            usize,
-            garbled_groth16::EvaluatorCompressedInput,
-            (u128, u128),
-        )> = fin
-            .into_iter()
-            .map(|(idx, t, f, labels)| {
-                // Save constants as two 16-byte big-endian words
-                {
-                    use std::io::Write;
-                    let const_path = out_dir.join(format!("gc_{}.consts.bin", idx));
-                    let mut w = std::io::BufWriter::new(
-                        fs::File::create(&const_path).expect("create consts file"),
-                    );
-                    w.write_all(&S::from_u128(t).to_bytes()).unwrap();
-                    w.write_all(&S::from_u128(f).to_bytes()).unwrap();
-                    w.flush().ok();
-                }
-
-                // Save labels as: u64 count (LE), then pairs of 16-byte big-endian (label0,label1)
-                {
-                    use io::Write;
-                    let labels_path = out_dir.join(format!("gc_{}.labels.bin", idx));
-                    let mut w = io::BufWriter::new(
-                        fs::File::create(&labels_path).expect("create labels file"),
-                    );
-                    let count = labels.len() as u64;
-                    w.write_all(&count.to_le_bytes()).unwrap();
-                    for gw in &labels {
-                        w.write_all(&gw.label0.to_bytes()).unwrap();
-                        w.write_all(&gw.label1.to_bytes()).unwrap();
-                    }
-                    w.flush().ok();
-                }
-
-                let input = garbled_groth16::EvaluatorCompressedInput::new(
-                    eval_proof.clone(),
-                    vk_e.clone(),
-                    labels,
-                );
-                (idx, input, (t, f))
-            })
-            .collect();
-
-        // Evaluate all saved ciphertexts (uses optimized thread pool internally)
-        let results = ccn::Evaluator::evaluate_from_saved_all(cases, DEFAULT_CAPACITY, &out_dir);
-
-        for (idx, out) in results {
-            info!(
-                "Finalized instance {}: is_proof_correct = {}",
-                idx, out.value
-            );
-            assert!(out.value, "Groth16 verification should succeed");
-
-            // Compute commit of resulting output label and compare with the appropriate one
-            let mut h = CiphertextHashAcc::default();
-            h.update(out.active_label);
-            let out_label_commit = h.finalize();
-
-            let expected_commit = if out.value {
-                commits_for_check[idx].output_commit_label1()
-            } else {
-                commits_for_check[idx].output_commit_label0()
-            };
-            assert_eq!(
-                out_label_commit, expected_commit,
-                "Output label commit mismatch for finalized instance"
-            );
-        }
+        run_evaluator(evaluator_cfg, out_dir, g2e_rx, e2g_tx);
     });
 
     garbler.join().unwrap();
     evaluator.join().unwrap();
+}
+
+fn run_garbler(
+    cfg: ccn::Config<garbled_groth16::GarblerCompressedInput>,
+    pk: ArkProvingKey<Bn254>,
+    vk: ArkVerifyingKey<Bn254>,
+    circuit: DummyCircuit<ark::Fr>,
+    c_val: ark::Fr,
+    g2e_tx: channel::Sender<G2EMsg>,
+    e2g_rx: channel::Receiver<E2GMsg>,
+) {
+    let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
+
+    let total = cfg.total();
+    let finalize = cfg.to_finalize();
+
+    info!(
+        "Garbler: Creating {} instances ({} to finalize)",
+        total, finalize
+    );
+    let g = ccn::Garbler::create(&mut seed_rng, cfg.clone());
+
+    let commits = g.commit();
+    g2e_tx.send(G2EMsg::Commits(commits)).expect("send commits");
+
+    let E2GMsg::FinalizeSenders(finalize_senders) = e2g_rx.recv().expect("recv finalize senders");
+
+    let mut seeds = vec![];
+    let mut threads = vec![];
+    let finalized_indices: Vec<usize> = finalize_senders.iter().map(|(i, _)| *i).collect();
+
+    for commit in g.open_commit(finalize_senders) {
+        match commit {
+            OpenForInstance::Closed {
+                index: _index,
+                garbling_thread,
+            } => threads.push(garbling_thread),
+            OpenForInstance::Open(index, seed) => seeds.push((index, seed)),
+        }
+    }
+
+    g2e_tx
+        .send(G2EMsg::OpenSeeds(seeds))
+        .expect("send open_result");
+
+    threads.into_iter().for_each(|th| {
+        if let Err(err) = th.join() {
+            error!("while regarbling: {err:?}")
+        }
+    });
+
+    let mut proof_rng = ChaCha20Rng::seed_from_u64(42);
+    let eval_proof = garbled_groth16::Proof::new(
+        ArkGroth16::<Bn254>::prove(&pk, circuit, &mut proof_rng).expect("prove"),
+        vec![c_val],
+    );
+
+    let fin_inputs: Vec<FinalizedCase> = finalized_indices
+        .into_iter()
+        .map(|idx| {
+            let (t, f) = g.constants_for(idx);
+            let labels = g.input_labels_for(idx);
+            let input = garbled_groth16::EvaluatorCompressedInput::new(
+                eval_proof.clone(),
+                vk.clone(),
+                labels,
+            );
+            FinalizedCase {
+                index: idx,
+                input,
+                consts: (t, f),
+            }
+        })
+        .collect();
+
+    g2e_tx
+        .send(G2EMsg::FinalizedInputs(fin_inputs))
+        .expect("send finalized evaluator inputs");
+}
+
+fn run_evaluator(
+    cfg: ccn::Config<garbled_groth16::GarblerCompressedInput>,
+    out_dir: PathBuf,
+    g2e_rx: channel::Receiver<G2EMsg>,
+    e2g_tx: channel::Sender<E2GMsg>,
+) {
+    let mut rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
+
+    let finalize = cfg.to_finalize();
+
+    let commits = match g2e_rx.recv().expect("recv commits") {
+        G2EMsg::Commits(c) => c,
+        _ => panic!("unexpected message; expected commits"),
+    };
+    let commits_for_check = commits.clone();
+
+    let mut receivers = Vec::with_capacity(finalize);
+    let mut senders = Vec::with_capacity(finalize);
+    for _ in 0..finalize {
+        let (tx, rx) = channel::unbounded::<(usize, S)>();
+        senders.push(tx);
+        receivers.push(rx);
+    }
+    let eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits, receivers);
+    let finalize_indices: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
+    assert_eq!(
+        finalize_indices.len(),
+        finalize,
+        "unexpected finalize count"
+    );
+    info!(
+        "Evaluator selected to finalize index {}",
+        finalize_indices[0]
+    );
+
+    let finalize_senders: Vec<(usize, channel::Sender<(usize, S)>)> =
+        finalize_indices.iter().copied().zip(senders).collect();
+    e2g_tx
+        .send(E2GMsg::FinalizeSenders(finalize_senders))
+        .expect("send finalize senders to garbler");
+
+    let open_result = match g2e_rx.recv().expect("recv open_result") {
+        G2EMsg::OpenSeeds(s) => s,
+        _ => panic!("unexpected message; expected open seeds"),
+    };
+    info!("Output dir: {}", out_dir.display());
+    eval.run_regarbling(open_result, &out_dir)
+        .expect("regarbling checks");
+
+    let cases: Vec<(
+        usize,
+        garbled_groth16::EvaluatorCompressedInput,
+        (u128, u128),
+    )> = match g2e_rx.recv() {
+        Ok(G2EMsg::FinalizedInputs(v)) => v
+            .into_iter()
+            .map(|c| (c.index, c.input, c.consts))
+            .collect(),
+        _ => panic!("unexpected message; expected finalized inputs"),
+    };
+
+    let results = ccn::Evaluator::evaluate_from_saved_all(cases, CAPACITY_EVAL, &out_dir);
+    for (idx, out) in results {
+        info!(
+            "Finalized instance {}: is_proof_correct = {}",
+            idx, out.value
+        );
+        assert!(out.value, "Groth16 verification should succeed");
+        let mut h = CiphertextHashAcc::default();
+        h.update(out.active_label);
+        let out_label_commit = h.finalize();
+        let expected_commit = if out.value {
+            commits_for_check[idx].output_commit_label1()
+        } else {
+            commits_for_check[idx].output_commit_label0()
+        };
+        assert_eq!(
+            out_label_commit, expected_commit,
+            "Output label commit mismatch for finalized instance"
+        );
+    }
 }
