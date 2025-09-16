@@ -161,7 +161,15 @@ def compute_window_rate_per_instance(samples: List[Sample], window_sec: float) -
 
     return total_rate, instance_rates
 
-def print_status(samples: List[Sample], target_gates: int, window_sec: float, completed_instances: dict, instance_times: dict, expected_total: Optional[int] = None, max_instance_id: int = -1) -> None:
+def print_status(
+    samples: List[Sample],
+    target_gates: int,
+    window_sec: float,
+    completed_instances: dict,
+    instance_times: dict,
+    expected_total: Optional[int] = None,
+    max_instance_id: int = -1,
+) -> None:
     if not samples:
         return
 
@@ -171,7 +179,11 @@ def print_status(samples: List[Sample], target_gates: int, window_sec: float, co
         by_instance[s.instance].append(s)
 
     # Calculate aggregate stats
-    first_time = min(s.t for s in samples)
+    # Use the real earliest start across all instances (not the trimmed window)
+    if instance_times:
+        first_time = min(v['start'] for v in instance_times.values() if v and v.get('start') is not None)
+    else:
+        first_time = min(s.t for s in samples)
     last_time = max(s.t for s in samples)
     elapsed = last_time - first_time
 
