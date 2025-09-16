@@ -96,14 +96,14 @@ fn main() {
         .filter_map(|e| {
             let name = e.file_name();
             let name = name.to_string_lossy();
-            if let Some(idx_str) = name.strip_prefix("gc_") {
-                if let Some(idx_str) = idx_str.strip_suffix(".bin") {
-                    if let Ok(idx) = idx_str.parse::<usize>() {
-                        return Some((idx, e.path()));
-                    }
-                }
+            if let Some(idx_str) = name.strip_prefix("gc_")
+                && let Some(idx_str) = idx_str.strip_suffix(".bin")
+                && let Ok(idx) = idx_str.parse::<usize>()
+            {
+                Some((idx, e.path()))
+            } else {
+                None
             }
-            None
         })
         .collect();
 
@@ -142,7 +142,6 @@ fn main() {
         vec![(*index, input, (t_const, f_const))],
         160_000,
         &folder,
-        garbled_groth16::verify_compressed,
     );
 
     let (_, out) = results.into_iter().next().unwrap();

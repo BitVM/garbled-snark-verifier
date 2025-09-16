@@ -3,8 +3,8 @@ use garbled_snark_verifier::{
     Blake3Hasher, EvaluatedWire, GarbleMode, GarbledWire, GateHasher, WireId,
     ark::PrimeField,
     circuit::{
-        CiphertextHandler, CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult,
-        WiresObject, modes::EvaluateModeBlake3,
+        CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, CircuitMode,
+        EncodeInput, EvaluateMode, StreamingResult, WiresObject,
     },
     gadgets::{
         bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -115,17 +115,19 @@ impl CircuitInput for EvaluateFq12MulInput {
 }
 
 // Encode inputs for evaluation: same labels but mark active label by bit value
-impl EncodeInput<EvaluateModeBlake3> for EvaluateFq12MulInput {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateModeBlake3) {
+impl<H: GateHasher, CIS: CiphertextSource> EncodeInput<EvaluateMode<H, CIS>>
+    for EvaluateFq12MulInput
+{
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode<H, CIS>) {
         let a_m = Fq12::as_montgomery(self.inner.a);
         let b_m = Fq12::as_montgomery(self.inner.b);
 
         // Helper to feed evaluated wires
-        fn feed_fq6_bits(
+        fn feed_fq6_bits<H: GateHasher, CIS: CiphertextSource>(
             val: &ark_bn254::Fq6,
             wires: &Fq6,
             labels: &mut impl Iterator<Item = GarbledWire>,
-            cache: &mut EvaluateModeBlake3,
+            cache: &mut EvaluateMode<H, CIS>,
         ) {
             let limbs = [val.c0, val.c1, val.c2];
             let wires_arr = [&wires.0[0], &wires.0[1], &wires.0[2]];
@@ -200,10 +202,10 @@ fn test_fq12_mul_montgomery_e2e() {
     };
 
     let eval: garbled_snark_verifier::circuit::StreamingResult<
-        EvaluateModeBlake3,
+        EvaluateMode<Blake3Hasher, _>,
         _,
         Vec<EvaluatedWire>,
-    > = CircuitBuilder::<EvaluateModeBlake3>::streaming_evaluation(
+    > = CircuitBuilder::<EvaluateMode<_, _>>::streaming_evaluation(
         inputs,
         15_000,
         true_lbl,

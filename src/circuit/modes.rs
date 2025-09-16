@@ -15,7 +15,7 @@ pub use garble_mode::{GarbleMode, GarbledWire};
 // Collapse thin wrappers; tests live in mode files.
 
 mod evaluate_mode;
-pub use evaluate_mode::{EvaluateMode, EvaluateModeBlake3, EvaluatedWire, OptionalEvaluatedWire};
+pub use evaluate_mode::{EvaluateMode, EvaluatedWire, OptionalEvaluatedWire};
 
 /// Execution backends for the streaming circuit.
 ///

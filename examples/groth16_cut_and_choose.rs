@@ -11,8 +11,11 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 use tracing::{error, info};
 
-const TOTAL: usize = 3usize;
-const TO_FINALIZE: usize = 1usize;
+// Configuration constants - modify these as needed
+const TOTAL_INSTANCES: usize = 181;
+const FINALIZE_INSTANCES: usize = 7;
+const OUT_DIR: &str = "target/cut_and_choose";
+const K_CONSTRAINTS: u32 = 6; // 2^k constraints
 
 // Lightweight control-plane messages between parties.
 enum G2EMsg {
@@ -80,8 +83,13 @@ fn main() {
 
     gsv::init_tracing();
 
+    // Configuration
+    let total = TOTAL_INSTANCES;
+    let finalize = FINALIZE_INSTANCES;
+    let out_dir: PathBuf = OUT_DIR.into();
+    let k = K_CONSTRAINTS; // 2^k constraints
+
     // 1) Build and prove a tiny multiplicative circuit
-    let k = 6; // 2^k constraints
     let mut rng = ChaCha20Rng::seed_from_u64(12345);
     let circuit = DummyCircuit::<ark::Fr> {
         a: Some(ark::Fr::rand(&mut rng)),
@@ -99,8 +107,8 @@ fn main() {
     }
     .compress();
 
-    let total_gates = GATES_PER_INSTANCE * TOTAL as u64;
-    info!("Starting cut-and-choose with {TOTAL} instances");
+    let total_gates = GATES_PER_INSTANCE * total as u64;
+    info!("Starting cut-and-choose with {} instances", total);
 
     info!(
         "Total gates to process in first stage: {:.2}B",
@@ -120,10 +128,10 @@ fn main() {
     let g_input_g = g_input.clone();
     let garbler = thread::spawn(move || {
         let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
-        let cfg = ccn::Config::new(TOTAL, TO_FINALIZE, g_input_g);
+        let cfg = ccn::Config::new(total, finalize, g_input_g);
         info!(
             "Garbler: Creating {} instances ({} to finalize)",
-            TOTAL, TO_FINALIZE
+            total, finalize
         );
         // Create garbler (uses optimized thread pool internally)
         let g = ccn::Garbler::create(&mut seed_rng, cfg);
@@ -139,7 +147,9 @@ fn main() {
         // Start streaming ciphertexts for finalized instances; return open/closed set
         let mut seeds = vec![];
         let mut threads = vec![];
+
         let finalized_indices: Vec<usize> = finalize_senders.iter().map(|(i, _)| *i).collect();
+
         for commit in g.open_commit(finalize_senders) {
             match commit {
                 OpenForInstance::Closed {
@@ -187,24 +197,35 @@ fn main() {
         let commits_for_check = commits.clone();
 
         // Prepare ciphertext channels for finalized instances (receivers to Evaluator, senders to Garbler)
-        let mut receivers = Vec::with_capacity(TO_FINALIZE);
-        let mut senders = Vec::with_capacity(TO_FINALIZE);
-        for _ in 0..TO_FINALIZE {
+        let mut receivers = Vec::with_capacity(finalize);
+        let mut senders = Vec::with_capacity(finalize);
+        // Use unbounded channels since we're writing to disk
+        for _ in 0..finalize {
             let (tx, rx) = channel::unbounded::<(usize, S)>();
             senders.push(tx);
             receivers.push(rx);
         }
 
         // Build evaluator-side state and choose which instance(s) to finalize
-        let cfg = ccn::Config::new(TOTAL, TO_FINALIZE, e_input);
+        let cfg = ccn::Config::new(total, finalize, e_input);
         let eval = ccn::Evaluator::create(&mut rng, cfg, commits, receivers);
-        let finalize: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
-        assert_eq!(finalize.len(), 1, "expected exactly one finalized instance");
-        info!("Evaluator selected to finalize index {}", finalize[0]);
+        let finalize_indices: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
+
+        assert_eq!(
+            finalize_indices.len(),
+            finalize,
+            "unexpected finalize count"
+        );
+
+        info!(
+            "Evaluator selected to finalize index {}",
+            finalize_indices[0]
+        );
 
         // Zip chosen indices with corresponding senders and send to garbler
         let finalize_senders: Vec<(usize, channel::Sender<(usize, S)>)> =
-            finalize.iter().copied().zip(senders).collect();
+            finalize_indices.iter().copied().zip(senders).collect();
+
         e2g_tx
             .send(E2GMsg::FinalizeSenders(finalize_senders))
             .expect("send finalize senders to garbler");
@@ -214,7 +235,7 @@ fn main() {
             G2EMsg::OpenSeeds(s) => s,
             _ => panic!("unexpected message; expected open seeds"),
         };
-        let out_dir: PathBuf = ["target", "cut_and_choose"].iter().collect();
+        info!("Output dir: {}", out_dir.display());
 
         // Run regarbling checks (uses optimized thread pool internally)
         eval.run_regarbling(open_result, &out_dir)
@@ -279,12 +300,7 @@ fn main() {
             .collect();
 
         // Evaluate all saved ciphertexts (uses optimized thread pool internally)
-        let results = ccn::Evaluator::evaluate_from_saved_all(
-            cases,
-            160_000,
-            &out_dir,
-            garbled_groth16::verify_compressed,
-        );
+        let results = ccn::Evaluator::evaluate_from_saved_all(cases, 160_000, &out_dir);
 
         for (idx, out) in results {
             info!(

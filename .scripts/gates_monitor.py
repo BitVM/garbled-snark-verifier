@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-Tail a garbling log and live-report throughput + ETA with per-instance tracking.
+Tail a cut-and-choose log and live‑report throughput + ETA.
 
 Usage:
-    python gates_monitor.py /path/to/logfile
+    python gates_monitor.py [/path/to/logfile] [--regarbling | --evaluation]
 
-Behavior:
-- Follows the file (tail -f style) and parses progress lines:
-    "<TIMESTAMP> INFO <span>: garbled: <NUM>[m|b] instance=<ID>"
-- Tracks progress per instance and shows aggregate statistics
-- Prints per-instance progress, overall rates, and ETA
-- Target gates per instance: 11,174,708,821 (fixed for Groth16 verifier)
+Modes:
+- Default (garbling):
+    Parses lines like
+      "<TS> INFO garble: garbled: <NUM>[m|b] instance=<ID>"
+    Tracks per‑instance progress for the first garbling phase.
+- --regarbling:
+    Parses lines like
+      "<TS> INFO regarble: garbled: <NUM>[m|b] instance=<ID>"
+    Tracks per‑instance progress for the regarbling phase.
+- --evaluation:
+    Parses lines like
+      "<TS> INFO evaluated: <NUM>[m|b]"
+    Tracks single‑stream evaluation throughput and ETA.
+
+Other behavior:
+- Follows the file (tail -f style) and shows aggregate stats + ETA.
+- Target gates per instance: 11,174,708,821 (fixed for Groth16 verifier).
 
 Environment (optional):
     WINDOW_SEC   - sliding window length in seconds (default: 30)
@@ -25,11 +36,19 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Tuple, List, Dict
 
-# New format: "2025-09-16T10:56:02.056992Z  INFO garble: garbled: 0 instance=4"
-# Only match "garble:" span, not "regarble:" to track only first phase
-PROCESSED_RE = re.compile(
+# Patterns configured per mode
+RE_GARBLE = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
+RE_REGARBLE = re.compile(
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+regarble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
+)
+RE_EVALUATED = re.compile(
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
+)
+
+# Selected mode (set in main)
+MODE = "garbling"  # one of: garbling, regarbling, evaluation
 
 @dataclass
 class Sample:
@@ -47,20 +66,38 @@ def parse_iso_utc(ts: str) -> float:
     return dt.timestamp()
 
 def parse_line(line: str) -> Optional[Sample]:
-    m = PROCESSED_RE.match(line)
-    if m:
+    global MODE
+    if MODE == "evaluation":
+        m = RE_EVALUATED.match(line)
+        if not m:
+            return None
         ts = parse_iso_utc(m.group('ts'))
         num = float(m.group('num'))
         unit = m.group('unit').lower() if m.group('unit') else ''
-        instance = int(m.group('instance'))
         if unit == 'b':
             v = int(num * 1_000_000_000)
         elif unit == 'm':
             v = int(num * 1_000_000)
         else:
             v = int(num)
-        return Sample(ts, v, instance)
-    return None
+        # Single stream for evaluation mode; use instance 0
+        return Sample(ts, v, 0)
+    else:
+        regex = RE_GARBLE if MODE == "garbling" else RE_REGARBLE
+        m = regex.match(line)
+        if m:
+            ts = parse_iso_utc(m.group('ts'))
+            num = float(m.group('num'))
+            unit = m.group('unit').lower() if m.group('unit') else ''
+            instance = int(m.group('instance'))
+            if unit == 'b':
+                v = int(num * 1_000_000_000)
+            elif unit == 'm':
+                v = int(num * 1_000_000)
+            else:
+                v = int(num)
+            return Sample(ts, v, instance)
+        return None
 
 def fmt_gates(v: int) -> str:
     if v >= 1_000_000_000:
@@ -220,14 +257,27 @@ def print_status(samples: List[Sample], target_gates: int, window_sec: float, co
         eta = remaining_gates / window_rate
 
     # Clear screen for clean update
+    phase = {
+        "garbling": "GARBLING",
+        "regarbling": "REGARBLING",
+        "evaluation": "EVALUATION",
+    }[MODE]
+
     print("\033[2J\033[H")  # Clear screen and move to top
     print("="*80)
-    print(f"GARBLING PHASE MONITOR - {len(active_instances)} active, {len(completed_instances)} completed, {total_instances} total")
+    if MODE == "evaluation":
+        print(f"{phase} PHASE MONITOR")
+    else:
+        print(f"{phase} PHASE MONITOR - {len(active_instances)} active, {len(completed_instances)} completed, {total_instances} total")
     print("="*80)
 
     # Per-instance progress
-    print("\nPER-INSTANCE PROGRESS:")
-    print("-" * 75)
+    if MODE == "evaluation":
+        print("\nPROGRESS:")
+        print("-" * 75)
+    else:
+        print("\nPER-INSTANCE PROGRESS:")
+        print("-" * 75)
 
     # Show active instances first
     for inst_id in sorted(latest_per_instance.keys()):
@@ -243,7 +293,10 @@ def print_status(samples: List[Sample], target_gates: int, window_sec: float, co
                 time_str = fmt_duration(duration)
             else:
                 time_str = "N/A"
-            print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |   COMPLETED  |  Time: {time_str:>10s}")
+            if MODE == "evaluation":
+                print(f"  {fmt_gates(gates):>10s}  |   COMPLETED  |  Time: {time_str:>10s}")
+            else:
+                print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |   COMPLETED  |  Time: {time_str:>10s}")
         else:
             # Show current runtime for active instances
             if inst_id in instance_times:
@@ -255,10 +308,16 @@ def print_status(samples: List[Sample], target_gates: int, window_sec: float, co
             # Check if likely completed (>99% and stalled)
             time_since_update = last_time - by_instance[inst_id][-1].t
             if progress_pct >= 99.0 and time_since_update > 10.0:
-                print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |   FINISHING  |  Time: {runtime_str:>10s}")
+                if MODE == "evaluation":
+                    print(f"  {fmt_gates(gates):>10s}  |   FINISHING  |  Time: {runtime_str:>10s}")
+                else:
+                    print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |   FINISHING  |  Time: {runtime_str:>10s}")
             else:
                 status = f"{progress_pct:5.1f}%"
-                print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |  {status:>10s}  |  {fmt_rate(rate):>10s} ({runtime_str})")
+                if MODE == "evaluation":
+                    print(f"  {fmt_gates(gates):>10s}  |  {status:>10s}  |  {fmt_rate(rate):>10s} ({runtime_str})")
+                else:
+                    print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |  {status:>10s}  |  {fmt_rate(rate):>10s} ({runtime_str})")
 
     # Aggregate stats
     print("\n" + "="*70)
@@ -272,7 +331,7 @@ def print_status(samples: List[Sample], target_gates: int, window_sec: float, co
         print(f"Avg progress: {fmt_gates(int(avg_progress)):>10s}  ({avg_pct:.1f}%)")
 
     # Calculate expected total time for all instances and progress
-    if total_instances > 0:
+    if MODE != "evaluation" and total_instances > 0:
         total_gates_all = total_instances * target_gates
 
         # Calculate how much work is done
@@ -352,7 +411,17 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
         line = f.readline()
         if not line:
             break
-        if expected_total is None and "Starting cut-and-choose with" in line:
+        if MODE != "evaluation" and "Garbler: Creating" in line:
+            m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
+            if m2:
+                total = int(m2.group(1))
+                to_finalize = int(m2.group(2))
+                expected_total = (total - to_finalize) if MODE == "regarbling" else total
+                print(
+                    f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
+                    file=sys.stderr,
+                )
+        if MODE != "evaluation" and expected_total is None and "Starting cut-and-choose with" in line:
             m = re.search(r'with (\d+) instances', line)
             if m:
                 expected_total = int(m.group(1))
@@ -417,7 +486,17 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
                 line = f.readline()
                 if not line:
                     break
-                if expected_total is None and "Starting cut-and-choose with" in line:
+                if MODE != "evaluation" and "Garbler: Creating" in line:
+                    m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
+                    if m2:
+                        total = int(m2.group(1))
+                        to_finalize = int(m2.group(2))
+                        expected_total = (total - to_finalize) if MODE == "regarbling" else total
+                        print(
+                            f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
+                            file=sys.stderr,
+                        )
+                if MODE != "evaluation" and expected_total is None and "Starting cut-and-choose with" in line:
                     m = re.search(r'with (\d+) instances', line)
                     if m:
                         expected_total = int(m.group(1))
@@ -451,7 +530,17 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
             time.sleep(0.3)
             continue
         pos = f.tell()
-        if expected_total is None and "Starting cut-and-choose with" in line:
+        if MODE != "evaluation" and "Garbler: Creating" in line:
+            m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
+            if m2:
+                total = int(m2.group(1))
+                to_finalize = int(m2.group(2))
+                expected_total = (total - to_finalize) if MODE == "regarbling" else total
+                print(
+                    f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
+                    file=sys.stderr,
+                )
+        if MODE != "evaluation" and expected_total is None and "Starting cut-and-choose with" in line:
             m = re.search(r'with (\d+) instances', line)
             if m:
                 expected_total = int(m.group(1))
@@ -502,9 +591,18 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
         print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
 
 def main():
-    parser = argparse.ArgumentParser(description="Live monitor for garbling logs")
-    parser.add_argument("logfile", help="Path to the log file to follow")
+    global MODE
+    parser = argparse.ArgumentParser(description="Live monitor for garbling/regarbling/evaluation logs")
+    parser.add_argument("logfile", nargs="?", default="2from3.log", help="Path to the log file to follow (default: 2from3.log)")
+    parser.add_argument("--regarbling", action="store_true", help="Track regarbling flow (match 'regarble: garbled: ...')")
+    parser.add_argument("--evaluation", action="store_true", help="Track evaluation throughput (match 'evaluated: ...')")
     args = parser.parse_args()
+
+    # Determine mode (mutually exclusive flags)
+    if args.regarbling and args.evaluation:
+        print("Use only one of --regarbling or --evaluation", file=sys.stderr)
+        sys.exit(2)
+    MODE = "evaluation" if args.evaluation else ("regarbling" if args.regarbling else "garbling")
 
     window_sec = float(os.environ.get("WINDOW_SEC", "30"))
     # Fixed target: each Groth16 instance requires exactly this many gates

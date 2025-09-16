@@ -62,7 +62,10 @@ macro_rules! component_key {
 }
 
 pub mod modes;
-pub use modes::{CircuitMode, EvaluateMode, EvaluateModeBlake3, ExecuteMode, GarbleMode};
+pub use modes::{CircuitMode, EvaluateMode, ExecuteMode, GarbleMode};
+
+pub mod ciphertext_source;
+pub use ciphertext_source::{ChannelSource, CiphertextSource, FileSource};
 
 pub mod component_meta;
 
@@ -216,20 +219,20 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H, CiphertextSender>> {
     }
 }
 
-impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
+impl<H: GateHasher, SRC: CiphertextSource> CircuitBuilder<EvaluateMode<H, SRC>> {
     pub fn streaming_evaluation<I, F, O>(
         inputs: I,
         live_wires_capacity: usize,
         true_wire: u128,
         false_wire: u128,
-        ciphertext_receiver: channel::Receiver<(usize, S)>,
+        source: SRC,
         f: F,
-    ) -> StreamingResult<EvaluateMode<H>, I, O>
+    ) -> StreamingResult<EvaluateMode<H, SRC>, I, O>
     where
-        I: CircuitInput + EncodeInput<EvaluateMode<H>>,
-        O: CircuitOutput<EvaluateMode<H>>,
+        I: CircuitInput + EncodeInput<EvaluateMode<H, SRC>>,
+        O: CircuitOutput<EvaluateMode<H, SRC>>,
         O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<EvaluateMode<H>>, &I::WireRepr) -> O::WireRepr,
+        F: Fn(&mut StreamingMode<EvaluateMode<H, SRC>>, &I::WireRepr) -> O::WireRepr,
     {
         CircuitBuilder::run_streaming(
             inputs,
@@ -237,35 +240,8 @@ impl<H: GateHasher> CircuitBuilder<EvaluateMode<H>> {
                 live_wires_capacity,
                 S::from_u128(true_wire),
                 S::from_u128(false_wire),
-                ciphertext_receiver,
+                source,
             ),
-            f,
-        )
-    }
-}
-
-// Convenience impl for Blake3 (backward compatibility)
-impl CircuitBuilder<EvaluateModeBlake3> {
-    pub fn streaming_evaluation_blake3<I, F, O>(
-        inputs: I,
-        live_wires_capacity: usize,
-        true_wire: u128,
-        false_wire: u128,
-        ciphertext_receiver: channel::Receiver<(usize, S)>,
-        f: F,
-    ) -> StreamingResult<EvaluateModeBlake3, I, O>
-    where
-        I: CircuitInput + EncodeInput<EvaluateModeBlake3>,
-        O: CircuitOutput<EvaluateModeBlake3>,
-        O::WireRepr: Debug,
-        F: Fn(&mut StreamingMode<EvaluateModeBlake3>, &I::WireRepr) -> O::WireRepr,
-    {
-        Self::streaming_evaluation(
-            inputs,
-            live_wires_capacity,
-            true_wire,
-            false_wire,
-            ciphertext_receiver,
             f,
         )
     }
@@ -410,10 +386,10 @@ impl<H: GateHasher, CTH: CiphertextHandler> CircuitOutput<GarbleMode<H, CTH>> fo
     }
 }
 
-impl<H: GateHasher> CircuitOutput<EvaluateMode<H>> for EvaluatedWire {
+impl<H: GateHasher, SRC: CiphertextSource> CircuitOutput<EvaluateMode<H, SRC>> for EvaluatedWire {
     type WireRepr = WireId;
 
-    fn decode(wire: Self::WireRepr, cache: &mut EvaluateMode<H>) -> Self {
+    fn decode(wire: Self::WireRepr, cache: &mut EvaluateMode<H, SRC>) -> Self {
         cache
             .lookup_wire(wire)
             .unwrap_or_else(|| panic!("Can't find {wire:?}"))

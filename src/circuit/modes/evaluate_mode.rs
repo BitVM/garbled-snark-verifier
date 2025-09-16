@@ -1,18 +1,15 @@
 use std::num::NonZero;
 
-use crossbeam::channel;
+use tracing::error;
 
 use super::garble_mode::{GarbledWire, halfgates_garbling};
 use crate::{
     Gate, S, WireId,
-    circuit::{CircuitMode, FALSE_WIRE, TRUE_WIRE},
+    circuit::{CircuitMode, FALSE_WIRE, TRUE_WIRE, ciphertext_source::CiphertextSource},
     core::progress::maybe_log_progress,
-    hashers::{Blake3Hasher, GateHasher},
+    hashers::GateHasher,
     storage::{Credits, Storage},
 };
-
-/// Type alias for EvaluateMode with Blake3 hasher (default)
-pub type EvaluateModeBlake3 = EvaluateMode<Blake3Hasher>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EvaluatedWire {
@@ -58,13 +55,10 @@ pub struct OptionalEvaluatedWire {
     pub wire: Option<EvaluatedWire>,
 }
 
-/// Input type for ciphertext consumption - gate ID and ciphertext
-pub type CiphertextEntry = (usize, S);
-
-/// Evaluate mode - consumes garbled circuits with streaming ciphertext input
-pub struct EvaluateMode<H: GateHasher = Blake3Hasher> {
+/// Evaluate mode - consumes garbled circuits from a pluggable source.
+pub struct EvaluateMode<H: GateHasher, SRC: CiphertextSource> {
     gate_index: usize,
-    ciphertext_receiver: channel::Receiver<CiphertextEntry>,
+    source: SRC,
     storage: Storage<WireId, Option<EvaluatedWire>>,
     // Store the constant wires (provided externally)
     false_wire: S,
@@ -72,17 +66,12 @@ pub struct EvaluateMode<H: GateHasher = Blake3Hasher> {
     _hasher: std::marker::PhantomData<H>,
 }
 
-impl<H: GateHasher> EvaluateMode<H> {
-    pub fn new(
-        capacity: usize,
-        true_wire: S,
-        false_wire: S,
-        ciphertext_receiver: channel::Receiver<CiphertextEntry>,
-    ) -> Self {
+impl<H: GateHasher, SRC: CiphertextSource> EvaluateMode<H, SRC> {
+    pub fn new(capacity: usize, true_wire: S, false_wire: S, source: SRC) -> Self {
         Self {
             storage: Storage::new(capacity),
             gate_index: 0,
-            ciphertext_receiver,
+            source,
             false_wire,
             true_wire,
             _hasher: std::marker::PhantomData,
@@ -96,26 +85,30 @@ impl<H: GateHasher> EvaluateMode<H> {
     }
 
     fn consume_ciphertext(&mut self, gate_id: usize) -> Option<S> {
-        // Try to receive the ciphertext for this gate
-        match self.ciphertext_receiver.recv() {
-            Ok((received_gate_id, ciphertext)) => {
+        match self.source.recv() {
+            Some((received_gate_id, ciphertext)) => {
                 if received_gate_id == gate_id {
                     Some(ciphertext)
                 } else {
+                    error!(
+                        "Ciphertext gate ID mismatch: expected {}, got {}",
+                        gate_id, received_gate_id
+                    );
                     panic!(
                         "Ciphertext gate ID mismatch: expected {}, got {}",
                         gate_id, received_gate_id
                     );
                 }
             }
-            Err(channel::RecvError) => {
-                panic!("Ciphertext channel disconnected at gate {}", gate_id);
+            None => {
+                error!("Ciphertext source exhausted at gate {}", gate_id);
+                panic!("Ciphertext source exhausted at gate {}", gate_id)
             }
         }
     }
 }
 
-impl<H: GateHasher> std::fmt::Debug for EvaluateMode<H> {
+impl<H: GateHasher, SRC: CiphertextSource> std::fmt::Debug for EvaluateMode<H, SRC> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EvaluateMode")
             .field("gate_index", &self.gate_index)
@@ -123,7 +116,7 @@ impl<H: GateHasher> std::fmt::Debug for EvaluateMode<H> {
     }
 }
 
-impl<H: GateHasher> CircuitMode for EvaluateMode<H> {
+impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> {
     type WireValue = EvaluatedWire;
     // TODO #37 Add CiphertextHandler here and use it to single-thread acc check
     type CiphertextAcc = ();

@@ -210,7 +210,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
 
         let eval_start = Instant::now();
 
-        let evaluator_result: StreamingResult<EvaluateMode<H>, _, EvaluatedWire> =
+        let evaluator_result: StreamingResult<EvaluateMode<H, _>, _, EvaluatedWire> =
             CircuitBuilder::streaming_evaluation(
                 input_labels,
                 CAPACITY,
