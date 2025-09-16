@@ -4,7 +4,7 @@
 use std::thread;
 
 use garbled_snark_verifier::{
-    CiphertextHashAcc, EvaluatedWire, GarbledWire,
+    EvaluatedWire, GarbledWire,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::{
         CircuitBuilder, StreamingResult,
@@ -13,7 +13,7 @@ use garbled_snark_verifier::{
     garbled_groth16,
     hashers::{AesNiHasher, Blake3Hasher, GateHasher},
 };
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 // Simple multiplicative circuit for testing
@@ -78,113 +78,85 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
     let public_param = circuit.a.unwrap() * circuit.b.unwrap();
     let proof = garbled_groth16::Proof::new(proof, vec![public_param]);
 
+    // First pass to get initial values needed for evaluation
+    let inputs_for_initial = garbled_groth16::GarblerInput {
+        public_params_len: 1,
+        vk: vk.clone(),
+    };
+
     // Create channels for communication
-    let (ciphertext_to_evaluator_sender, ciphertext_to_evaluator_receiver) =
-        crossbeam::channel::unbounded();
+    let (ciphertext_sender, ciphertext_receiver) = crossbeam::channel::unbounded();
+
+    let mut preallocated_wires =
+        GarbleMode::<AesNiHasher, ()>::preallocate_input(garbling_seed, &inputs_for_initial);
+    let false_wire = preallocated_wires.remove(0);
+    let true_wire = preallocated_wires.remove(0);
 
     // Clone inputs for both threads
     let vk_garbler = vk.clone();
     let vk_evaluator = vk.clone();
     let proof_clone = proof.clone();
 
-    // Garbler thread - runs garbling and sends ciphertexts in real-time
+    // Garbler thread
     let garbler = thread::spawn(move || {
         let inputs = garbled_groth16::GarblerInput {
             public_params_len: 1,
             vk: vk_garbler,
         };
 
-        // Garbling with sender - this will stream ciphertexts as they're generated
         let garbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> =
             CircuitBuilder::streaming_garbling_with_sender(
                 inputs,
                 CAPACITY,
                 garbling_seed,
-                ciphertext_to_evaluator_sender,
+                ciphertext_sender,
                 garbled_groth16::verify,
             );
 
-        // Return garbling results for verification
-        (
-            garbling_result.output_labels().clone(),
-            garbling_result.input_wire_values.clone(),
-            garbling_result.true_wire_constant.clone(),
-            garbling_result.false_wire_constant.clone(),
-        )
+        garbling_result
     });
 
-    // Evaluator thread - starts evaluation immediately with streamed ciphertexts
+    // Evaluator thread
     let evaluator = thread::spawn(move || {
-        // Create proxy for ciphertext streaming and hash calculation
-        let (proxy_sender, proxy_receiver) = crossbeam::channel::unbounded();
-
-        // Hash calculation in separate thread
-        let hash_calculator = std::thread::spawn(move || {
-            let mut hasher = CiphertextHashAcc::default();
-            let mut count = 0;
-
-            while let Ok((index, ciphertext)) = ciphertext_to_evaluator_receiver.recv() {
-                proxy_sender.send((index, ciphertext)).unwrap();
-                hasher.update(ciphertext);
-                count += 1;
-            }
-
-            (hasher.finalize(), count)
-        });
-
-        // Wait for garbler to provide wire values and constants
-        // In a real scenario, this would be communicated separately
-        let (output_labels, input_values, true_wire_constant, false_wire_constant) =
-            garbler.join().unwrap();
-
-        let GarbledWire { label0, label1 } = *output_labels;
         let input_labels =
-            garbled_groth16::EvaluatorInput::new(proof_clone, vk_evaluator, input_values);
+            garbled_groth16::EvaluatorInput::new(proof_clone, vk_evaluator, preallocated_wires);
 
-        // Start evaluation with streaming ciphertexts
         let evaluator_result: StreamingResult<EvaluateMode<H, _>, _, EvaluatedWire> =
             CircuitBuilder::streaming_evaluation(
                 input_labels,
                 CAPACITY,
-                true_wire_constant.select(true).to_u128(),
-                false_wire_constant.select(false).to_u128(),
-                proxy_receiver,
+                true_wire.select(true).to_u128(),
+                false_wire.select(false).to_u128(),
+                ciphertext_receiver,
                 garbled_groth16::verify,
             );
 
-        let EvaluatedWire {
-            active_label: possible_secret,
-            value: is_proof_correct,
-        } = evaluator_result.output_value;
-
-        let (ciphertext_hash, ciphertext_count) = hash_calculator.join().unwrap();
-
-        // Verify results
-        let result_hash = hash(&possible_secret.to_bytes());
-        let output_label0_hash = hash(&label0.to_bytes());
-        let output_label1_hash = hash(&label1.to_bytes());
-
-        println!("Processed {} ciphertexts", ciphertext_count);
-        println!("Ciphertext hash: {:?}", ciphertext_hash);
-        println!("Proof verification: {}", is_proof_correct);
-
-        // Assertions
-        if is_proof_correct {
-            assert_eq!(result_hash, output_label1_hash);
-        } else {
-            assert_eq!(result_hash, output_label0_hash);
-        }
+        evaluator_result
     });
 
-    // Wait for evaluator to complete
-    evaluator.join().unwrap();
+    // Wait for both threads to complete
+    let garbling_result = garbler.join().unwrap();
+    let evaluator_result = evaluator.join().unwrap();
+
+    // Verify results
+    let GarbledWire { label0: _, label1 } = *garbling_result.output_labels();
+    let EvaluatedWire {
+        active_label: possible_secret,
+        value: is_proof_correct,
+    } = evaluator_result.output_value;
+
+    let result_hash = hash(&possible_secret.to_bytes());
+    let output_label1_hash = hash(&label1.to_bytes());
+
+    assert!(is_proof_correct);
+    assert_eq!(result_hash, output_label1_hash);
 }
 
 #[test]
 #[ignore]
 fn test_garbler_evaluator_connection_aes() {
     garbled_snark_verifier::init_tracing();
-    let garbling_seed: u64 = 42;
+    let garbling_seed: u64 = rand::thread_rng().r#gen();
     run_garbler_evaluator_test::<AesNiHasher>(garbling_seed);
 }
 
@@ -192,6 +164,6 @@ fn test_garbler_evaluator_connection_aes() {
 #[ignore]
 fn test_garbler_evaluator_connection_blake3() {
     garbled_snark_verifier::init_tracing();
-    let garbling_seed: u64 = 42;
+    let garbling_seed: u64 = rand::thread_rng().r#gen();
     run_garbler_evaluator_test::<Blake3Hasher>(garbling_seed);
 }
