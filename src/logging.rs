@@ -23,8 +23,9 @@ pub fn init_tracing() {
         let fmt_layer = fmt::layer()
             .with_timer(SystemTime)
             .with_target(false)
-            .with_thread_ids(cfg!(feature = "tracing_scopes"))
-            .with_thread_names(cfg!(feature = "tracing_scopes"))
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .with_ansi(false)
             .compact();
 
         let subscriber = tracing_subscriber::registry()

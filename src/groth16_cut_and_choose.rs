@@ -150,11 +150,15 @@ impl Garbler {
         let instances = pool.install(|| {
             seeds
                 .par_iter()
-                .map(|garbling_seed| {
+                .enumerate()
+                .map(|(index, garbling_seed)| {
                     let inputs = config.input.clone();
                     let hasher = CiphertextHashAcc::default();
 
-                    info!("Starting garbling of Groth16 verification circuit...");
+                    let span = tracing::info_span!("garble", instance = index);
+                    let _enter = span.enter();
+
+                    info!("Starting garbling of Groth16 verification circuit");
 
                     CircuitBuilder::streaming_garbling(
                         inputs,
@@ -326,7 +330,10 @@ impl Evaluator {
                 let inputs = self.config.input.clone();
                 let hasher = CiphertextHashAcc::default();
 
-                info!("Starting garbling of Groth16 verification circuit...");
+                let span = tracing::info_span!("regarble", instance = index);
+                let _enter = span.enter();
+
+                info!("Starting regarbling of Groth16 verification circuit");
 
                 let res: StreamingResult<
                     GarbleMode<AesNiHasher, _>,

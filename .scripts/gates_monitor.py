@@ -1,47 +1,47 @@
 #!/usr/bin/env python3
 """
-Tail a garbling log and live-report throughput + ETA.
+Tail a garbling log and live-report throughput + ETA with per-instance tracking.
 
 Usage:
     python gates_monitor.py /path/to/logfile
 
 Behavior:
 - Follows the file (tail -f style) and parses progress lines:
-    1) "[...Z ...] ... garbled: <NUM>[m|b]" (preferred) or legacy "processed:" / "executed:"
-    2) "[...Z ...] ... Process gate <INT>"
-- Prints latest count, elapsed, overall + window rate, ns/gate, and ETA.
+    "<TIMESTAMP> INFO <span>: garbled: <NUM>[m|b] instance=<ID>"
+- Tracks progress per instance and shows aggregate statistics
+- Prints per-instance progress, overall rates, and ETA
+- Target gates per instance: 11,174,708,821 (fixed for Groth16 verifier)
 
 Environment (optional):
     WINDOW_SEC   - sliding window length in seconds (default: 30)
-    TARGET_GATES - integer target gates for ETA   (default: 11000000000)
 """
 import argparse
 import os
 import re
 import sys
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 
+# New format: "2025-09-16T10:56:02.056992Z  INFO garble: garbled: 0 instance=4"
+# Only match "garble:" span, not "regarble:" to track only first phase
 PROCESSED_RE = re.compile(
-    r'^\[(?P<ts>[^\]]+)\].*?(?:garbled|processed|executed):\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
-)
-PROCESS_GATE_RE = re.compile(
-    r'^\[(?P<ts>[^\]]+)\].*?Process gate\s+(?P<count>\d+)\s*$'
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
 
 @dataclass
 class Sample:
     t: float        # epoch seconds (UTC)
     v: int          # gates processed (monotonic, in gates)
+    instance: int   # instance ID
 
 def parse_iso_utc(ts: str) -> float:
-    # Accept e.g. "2025-08-28T23:49:42Z ..." or "2025-08-28T23:49:42+00:00"
-    ts_token = ts.split()[0]
-    if ts_token.endswith('Z'):
-        ts_token = ts_token[:-1] + '+00:00'
-    dt = datetime.fromisoformat(ts_token)
+    # Accept e.g. "2025-09-16T10:56:02.056992Z"
+    if ts.endswith('Z'):
+        ts = ts[:-1] + '+00:00'
+    dt = datetime.fromisoformat(ts)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.timestamp()
@@ -52,23 +52,19 @@ def parse_line(line: str) -> Optional[Sample]:
         ts = parse_iso_utc(m.group('ts'))
         num = float(m.group('num'))
         unit = m.group('unit').lower() if m.group('unit') else ''
+        instance = int(m.group('instance'))
         if unit == 'b':
             v = int(num * 1_000_000_000)
         elif unit == 'm':
             v = int(num * 1_000_000)
         else:
             v = int(num)
-        return Sample(ts, v)
-    m = PROCESS_GATE_RE.match(line)
-    if m:
-        ts = parse_iso_utc(m.group('ts'))
-        v = int(m.group('count'))
-        return Sample(ts, v)
+        return Sample(ts, v, instance)
     return None
 
 def fmt_gates(v: int) -> str:
     if v >= 1_000_000_000:
-        return f"{v/1_000_000_000:.1f}b"
+        return f"{v/1_000_000_000:.2f}b"
     if v >= 1_000_000:
         return f"{v/1_000_000:.1f}m"
     return str(v)
@@ -92,50 +88,250 @@ def fmt_duration(secs: float) -> str:
         return f"{h}h {m}m {s}s"
     return f"{m}m {s}s"
 
-def compute_window_rate(samples: List[Sample], window_sec: float) -> float:
+def compute_window_rate_per_instance(samples: List[Sample], window_sec: float) -> Tuple[float, Dict[int, float]]:
     if len(samples) < 2:
-        return 0.0
-    last = samples[-1]
-    cutoff = last.t - window_sec
-    first_idx = len(samples) - 1
-    while first_idx > 0 and samples[first_idx-1].t >= cutoff:
-        first_idx -= 1
-    first = samples[first_idx]
-    dt = last.t - first.t
-    dv = last.v - first.v
-    if dt <= 0 or dv <= 0:
-        return 0.0
-    return dv / dt
+        return 0.0, {}
 
-def print_status(samples: List[Sample], target_gates: int, window_sec: float) -> None:
+    # Group samples by instance
+    by_instance = defaultdict(list)
+    for s in samples:
+        by_instance[s.instance].append(s)
+
+    # Calculate per-instance rates
+    instance_rates = {}
+    total_rate = 0.0
+
+    for inst_id, inst_samples in by_instance.items():
+        if len(inst_samples) < 2:
+            instance_rates[inst_id] = 0.0
+            continue
+
+        last = inst_samples[-1]
+        cutoff = last.t - window_sec
+        first_idx = len(inst_samples) - 1
+        while first_idx > 0 and inst_samples[first_idx-1].t >= cutoff:
+            first_idx -= 1
+        first = inst_samples[first_idx]
+
+        dt = last.t - first.t
+        dv = last.v - first.v
+        if dt <= 0 or dv <= 0:
+            instance_rates[inst_id] = 0.0
+        else:
+            rate = dv / dt
+            instance_rates[inst_id] = rate
+            total_rate += rate
+
+    return total_rate, instance_rates
+
+def print_status(samples: List[Sample], target_gates: int, window_sec: float, completed_instances: dict, instance_times: dict, expected_total: Optional[int] = None, max_instance_id: int = -1) -> None:
     if not samples:
         return
-    first = samples[0]
-    last = samples[-1]
-    elapsed = last.t - first.t
-    dv = last.v - first.v
-    overall = (dv / elapsed) if elapsed > 0 and dv > 0 else 0.0
-    window_rate = compute_window_rate(samples, window_sec)
+
+    # Group samples by instance
+    by_instance = defaultdict(list)
+    for s in samples:
+        by_instance[s.instance].append(s)
+
+    # Calculate aggregate stats
+    first_time = min(s.t for s in samples)
+    last_time = max(s.t for s in samples)
+    elapsed = last_time - first_time
+
+    # Get latest value for each instance and track completed
+    latest_per_instance = {}
+    active_instances = []
+    total_active_gates = 0
+
+    # Detect stalled instances (no updates for >10 seconds with high completion)
+    stall_threshold = 10.0  # seconds
+
+    for inst_id, inst_samples in sorted(by_instance.items()):
+        if inst_samples:
+            latest = inst_samples[-1].v
+            latest_time = inst_samples[-1].t
+            first_inst_time = inst_samples[0].t
+            latest_per_instance[inst_id] = latest
+
+            # Track instance timing
+            if inst_id not in instance_times:
+                instance_times[inst_id] = {'start': first_inst_time, 'end': None}
+
+            # Check if instance appears to be completed
+            time_since_update = last_time - latest_time
+            progress_pct = (latest / target_gates) * 100
+
+            # Mark as completed if:
+            # 1. Already marked as completed
+            # 2. Has reached 11.15b (the typical completion point)
+            # 3. Has >99.5% progress and hasn't updated recently
+            if inst_id in completed_instances:
+                pass  # Already completed
+            elif latest >= 11_150_000_000:  # 11.15b gates = typical completion
+                completed_instances[inst_id] = latest_time  # Store completion time
+                instance_times[inst_id]['end'] = latest_time
+            elif progress_pct >= 99.5 and time_since_update > stall_threshold:
+                completed_instances[inst_id] = latest_time  # Store completion time
+                instance_times[inst_id]['end'] = latest_time
+            elif inst_id not in completed_instances:
+                active_instances.append(inst_id)
+                total_active_gates += latest
+
+    # Calculate rates (only for active instances)
+    window_rate, instance_rates = compute_window_rate_per_instance(samples, window_sec)
+
+    # Overall rate based on active instances
+    if elapsed > 0 and total_active_gates > 0:
+        overall = total_active_gates / elapsed
+    else:
+        overall = 0.0
+
     nspg = ns_per_gate(overall)
     time_per_1b = (1_000_000_000 / overall) if overall > 0 else float('inf')
-    eta = None
-    if target_gates > last.v and overall > 0:
-        eta = (target_gates - last.v) / overall
 
-    print("="*72)
-    print(f"Progress: {fmt_gates(last.v)}  |  Elapsed: {fmt_duration(elapsed)}")
-    print(f"Overall:  {fmt_rate(overall)}  (~{nspg:.0f} ns/gate)" if nspg else f"Overall:  {fmt_rate(overall)}")
-    print(f"Window({int(window_sec)}s): {fmt_rate(window_rate)}")
-    print(f"Avg time per 1B @ overall: {fmt_duration(time_per_1b)}")
-    if eta is not None and eta != float('inf'):
-        from datetime import datetime, timezone
-        finish_ts = datetime.fromtimestamp(samples[-1].t + eta, tz=timezone.utc)
-        print(f"ETA to {fmt_gates(target_gates)}: {fmt_duration(eta)}  (finishes ~{finish_ts.isoformat()})")
+    # Determine total instances first
+    if expected_total is not None:
+        total_instances = expected_total
+    else:
+        # Use max instance ID + 1 as total (since instances are 0-indexed)
+        all_instance_ids = set(latest_per_instance.keys()) | set(completed_instances.keys())
+        if all_instance_ids:
+            total_instances = max(max(all_instance_ids), max_instance_id) + 1
+        else:
+            total_instances = 0
+
+    # ETA based on remaining work for all instances (including not started)
+    remaining_gates = 0
+
+    # Add remaining gates for active instances
+    for inst_id in active_instances:
+        remaining = target_gates - latest_per_instance.get(inst_id, 0)
+        if remaining > 0:
+            remaining_gates += remaining
+
+    # Add full gates for instances that haven't started yet
+    if total_instances > 0:
+        started_instances = len(latest_per_instance) + len(completed_instances) - len(set(latest_per_instance.keys()) & set(completed_instances.keys()))
+        not_started = max(0, total_instances - started_instances)
+        remaining_gates += not_started * target_gates
+
+    eta = None
+    if remaining_gates > 0 and window_rate > 0:
+        eta = remaining_gates / window_rate
+
+    # Clear screen for clean update
+    print("\033[2J\033[H")  # Clear screen and move to top
+    print("="*80)
+    print(f"GARBLING PHASE MONITOR - {len(active_instances)} active, {len(completed_instances)} completed, {total_instances} total")
+    print("="*80)
+
+    # Per-instance progress
+    print("\nPER-INSTANCE PROGRESS:")
+    print("-" * 75)
+
+    # Show active instances first
+    for inst_id in sorted(latest_per_instance.keys()):
+        gates = latest_per_instance[inst_id]
+        rate = instance_rates.get(inst_id, 0.0)
+
+        progress_pct = (gates / target_gates) * 100
+
+        if inst_id in completed_instances:
+            # Calculate instance duration
+            if inst_id in instance_times and instance_times[inst_id]['end']:
+                duration = instance_times[inst_id]['end'] - instance_times[inst_id]['start']
+                time_str = fmt_duration(duration)
+            else:
+                time_str = "N/A"
+            print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |   COMPLETED  |  Time: {time_str:>10s}")
+        else:
+            # Show current runtime for active instances
+            if inst_id in instance_times:
+                runtime = last_time - instance_times[inst_id]['start']
+                runtime_str = fmt_duration(runtime)
+            else:
+                runtime_str = "N/A"
+
+            # Check if likely completed (>99% and stalled)
+            time_since_update = last_time - by_instance[inst_id][-1].t
+            if progress_pct >= 99.0 and time_since_update > 10.0:
+                print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |   FINISHING  |  Time: {runtime_str:>10s}")
+            else:
+                status = f"{progress_pct:5.1f}%"
+                print(f"  Instance {inst_id:2d}: {fmt_gates(gates):>10s}  |  {status:>10s}  |  {fmt_rate(rate):>10s} ({runtime_str})")
+
+    # Aggregate stats
+    print("\n" + "="*70)
+    print(f"ACTIVE GATES: {fmt_gates(total_active_gates):>10s}  |  Elapsed: {fmt_duration(elapsed)}")
+    print(f"Overall Rate: {fmt_rate(overall):>10s}  (~{nspg:.0f} ns/gate)" if nspg else f"Overall Rate: {fmt_rate(overall):>10s}")
+    print(f"Window Rate({int(window_sec)}s): {fmt_rate(window_rate):>10s}")
+
+    if len(active_instances) > 0:
+        avg_progress = total_active_gates / len(active_instances) if active_instances else 0
+        avg_pct = (avg_progress / target_gates) * 100
+        print(f"Avg progress: {fmt_gates(int(avg_progress)):>10s}  ({avg_pct:.1f}%)")
+
+    # Calculate expected total time for all instances and progress
+    if total_instances > 0:
+        total_gates_all = total_instances * target_gates
+
+        # Calculate how much work is done
+        completed_gates = len(completed_instances) * target_gates + total_active_gates
+        progress_pct = (completed_gates / total_gates_all) * 100 if total_gates_all > 0 else 0
+
+        print(f"\n{'='*70}")
+        print(f"PROGRESS: {progress_pct:.1f}% complete ({len(completed_instances)}/{total_instances} instances done)")
+
+        # Calculate expected total time based on actual progress and elapsed time
+        if progress_pct > 0 and elapsed > 0:
+            # Project total time based on current progress
+            expected_total_time = elapsed / (progress_pct / 100)
+            print(f"Expected Total Time: {fmt_duration(expected_total_time)} (for all {total_instances} instances)")
+            print(f"Time Elapsed (actual): {fmt_duration(elapsed)}")
+
+            # Time remaining based on projection
+            time_remaining = expected_total_time - elapsed
+            if time_remaining > 0:
+                print(f"Time Remaining: {fmt_duration(time_remaining)}")
+
+                from datetime import datetime, timezone
+                finish_ts = datetime.fromtimestamp(last_time + time_remaining, tz=timezone.utc)
+                print(f"Est. completion: {finish_ts.isoformat()}")
+        elif window_rate > 0 and eta is not None and eta > 0:
+            # Fall back to window rate calculation if no progress yet
+            print(f"Time Remaining (est): {fmt_duration(eta)}")
+            from datetime import datetime, timezone
+            finish_ts = datetime.fromtimestamp(last_time + eta, tz=timezone.utc)
+            print(f"Est. completion: {finish_ts.isoformat()}")
+    elif len(active_instances) == 0 and len(completed_instances) > 0:
+        print(f"\nAll instances completed!")
+
+        # Calculate total time and average
+        total_duration = 0
+        valid_durations = 0
+        for inst_id in sorted(completed_instances.keys()):
+            if inst_id in instance_times and instance_times[inst_id]['end'] and instance_times[inst_id]['start']:
+                duration = instance_times[inst_id]['end'] - instance_times[inst_id]['start']
+                total_duration += duration
+                valid_durations += 1
+
+        if valid_durations > 0:
+            avg_duration = total_duration / valid_durations
+            print(f"\n{'='*70}")
+            print(f"FINAL SUMMARY:")
+            print(f"Total instances completed: {len(completed_instances)}")
+            print(f"Average time per instance: {fmt_duration(avg_duration)}")
+            print(f"Total processing time: {fmt_duration(elapsed)}")
+
     sys.stdout.flush()
 
 def tail_file(path: str, target_gates: int, window_sec: float) -> None:
     samples: List[Sample] = []
-    last_value: Optional[int] = None
+    last_value_per_instance: Dict[int, int] = {}
+    completed_instances: Dict[int, float] = {}  # instance_id -> completion_time
+    instance_times: Dict[int, dict] = {}  # instance_id -> {'start': time, 'end': time}
+    max_instance_id = -1  # Track highest instance ID seen
+    expected_total: Optional[int] = None
 
     def open_file():
         return open(path, 'r', encoding='utf-8', errors='ignore')
@@ -156,17 +352,37 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
         line = f.readline()
         if not line:
             break
+        if expected_total is None and "Starting cut-and-choose with" in line:
+            m = re.search(r'with (\d+) instances', line)
+            if m:
+                expected_total = int(m.group(1))
+                print(f"Detected {expected_total} total instances from log", file=sys.stderr)
         s = parse_line(line.strip())
         if s is None:
             continue
-        if last_value is not None and s.v <= last_value:
+
+        # Track first appearance time
+        if s.instance not in instance_times:
+            instance_times[s.instance] = {'start': s.t, 'end': None}
+
+        # Track max instance ID
+        max_instance_id = max(max_instance_id, s.instance)
+
+        # Check if this is progress for this instance (not going backwards)
+        last_val = last_value_per_instance.get(s.instance)
+        if last_val is not None and s.v <= last_val:
             continue
         samples.append(s)
-        last_value = s.v
+        last_value_per_instance[s.instance] = s.v
+
+        # Mark as completed if reached target
+        if s.v >= target_gates:
+            completed_instances[s.instance] = s.t
+            instance_times[s.instance]['end'] = s.t
 
     pos = f.tell()
     if samples:
-        print_status(samples, target_gates, window_sec)
+        print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
 
     # Live loop
     while True:
@@ -192,21 +408,40 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
             f_stat = os.fstat(f.fileno())
             inode = f_stat.st_ino
             samples.clear()
-            last_value = None
+            last_value_per_instance.clear()
+            completed_instances.clear()
+            instance_times.clear()
+            expected_total = None
+            max_instance_id = -1
             while True:
                 line = f.readline()
                 if not line:
                     break
+                if expected_total is None and "Starting cut-and-choose with" in line:
+                    m = re.search(r'with (\d+) instances', line)
+                    if m:
+                        expected_total = int(m.group(1))
+                        print(f"Detected {expected_total} total instances from log", file=sys.stderr)
                 s = parse_line(line.strip())
                 if s is None:
                     continue
-                if last_value is not None and s.v <= last_value:
+                last_val = last_value_per_instance.get(s.instance)
+                if last_val is not None and s.v <= last_val:
                     continue
                 samples.append(s)
-                last_value = s.v
+                last_value_per_instance[s.instance] = s.v
+                # Track instance timing
+                if s.instance not in instance_times:
+                    instance_times[s.instance] = {'start': s.t, 'end': None}
+                # Track max instance ID
+                max_instance_id = max(max_instance_id, s.instance)
+                # Mark as completed if reached target
+                if s.v >= target_gates:
+                    completed_instances[s.instance] = s.t
+                    instance_times[s.instance]['end'] = s.t
             pos = f.tell()
             if samples:
-                print_status(samples, target_gates, window_sec)
+                print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
             time.sleep(0.3)
             continue
 
@@ -216,19 +451,55 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
             time.sleep(0.3)
             continue
         pos = f.tell()
+        if expected_total is None and "Starting cut-and-choose with" in line:
+            m = re.search(r'with (\d+) instances', line)
+            if m:
+                expected_total = int(m.group(1))
+                print(f"Detected {expected_total} total instances from log", file=sys.stderr)
         s = parse_line(line.strip())
         if s is None:
             continue
-        if last_value is not None and s.v <= last_value:
-            continue
-        samples.append(s)
-        last_value = s.v
-        # Trim old samples (keep ~max(window*5, 5min))
-        cutoff = s.t - max(window_sec * 5, 300)
-        while len(samples) > 2 and samples[0].t < cutoff:
-            samples.pop(0)
 
-        print_status(samples, target_gates, window_sec)
+        # Track instance timing
+        if s.instance not in instance_times:
+            instance_times[s.instance] = {'start': s.t, 'end': None}
+
+        # Track max instance ID
+        max_instance_id = max(max_instance_id, s.instance)
+
+        # Handle instance restarts (when instance ID reappears with lower value)
+        last_val = last_value_per_instance.get(s.instance)
+        if last_val is not None and s.v < last_val:
+            # Instance restarted - remove from completed set if it was there
+            if s.instance in completed_instances:
+                del completed_instances[s.instance]
+            # Reset its timing
+            instance_times[s.instance] = {'start': s.t, 'end': None}
+            # Reset its last value
+            last_value_per_instance[s.instance] = s.v
+        else:
+            last_value_per_instance[s.instance] = s.v
+
+        samples.append(s)
+
+        # Mark as completed if reached target
+        if s.v >= target_gates:
+            completed_instances[s.instance] = s.t
+            instance_times[s.instance]['end'] = s.t
+
+        # Trim old samples but keep recent data for all active instances
+        if samples:
+            # Keep samples for active (non-completed) instances within window
+            active_samples = []
+            cutoff = max(s.t for s in samples[-100:]) - max(window_sec * 5, 300)
+
+            for s in samples:
+                # Keep if recent OR if it's for an active instance
+                if s.t >= cutoff or s.instance not in completed_instances:
+                    active_samples.append(s)
+            samples = active_samples
+
+        print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
 
 def main():
     parser = argparse.ArgumentParser(description="Live monitor for garbling logs")
@@ -236,15 +507,8 @@ def main():
     args = parser.parse_args()
 
     window_sec = float(os.environ.get("WINDOW_SEC", "30"))
-    target_gates_env = os.environ.get("TARGET_GATES", "").strip()
-    if target_gates_env:
-        try:
-            target_gates = int(float(target_gates_env))
-        except ValueError:
-            print(f"Invalid TARGET_GATES '{target_gates_env}', using default 11000000000", file=sys.stderr)
-            target_gates = 11_000_000_000
-    else:
-        target_gates = 11_000_000_000
+    # Fixed target: each Groth16 instance requires exactly this many gates
+    target_gates = 11_174_708_821
 
     try:
         tail_file(args.logfile, target_gates, window_sec)

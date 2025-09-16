@@ -1,4 +1,4 @@
-use std::{path::PathBuf, thread};
+use std::{path::PathBuf, thread, time::Instant};
 
 use crossbeam::channel;
 use garbled_snark_verifier::{self as gsv, OpenForInstance};
@@ -96,6 +96,19 @@ fn main() {
     let total = 16usize;
     let to_finalize = 1usize;
 
+    // Calculate and display total gates to process
+    const GATES_PER_INSTANCE: u64 = 11_174_708_821;
+    let total_gates = GATES_PER_INSTANCE * total as u64;
+    info!("Starting cut-and-choose with {} instances", total);
+    info!(
+        "Total gates to process in first stage: {:.2}B",
+        total_gates as f64 / 1_000_000_000.0
+    );
+    info!(
+        "Gates per instance: {:.2}B",
+        GATES_PER_INSTANCE as f64 / 1_000_000_000.0
+    );
+
     // Control-plane channels
     let (g2e_tx, g2e_rx) = channel::unbounded::<G2EMsg>();
     let (e2g_tx, e2g_rx) = channel::unbounded::<E2GMsg>();
@@ -105,6 +118,10 @@ fn main() {
     let garbler = thread::spawn(move || {
         let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
         let cfg = ccn::Config::new(total, to_finalize, g_input_g);
+        info!(
+            "Garbler: Creating {} instances ({} to finalize)",
+            total, to_finalize
+        );
         // Create garbler (uses optimized thread pool internally)
         let g = ccn::Garbler::create(&mut seed_rng, cfg);
 
