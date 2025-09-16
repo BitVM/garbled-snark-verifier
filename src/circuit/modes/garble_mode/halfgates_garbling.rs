@@ -23,7 +23,7 @@ pub fn garble_gate<H: GateHasher>(
                 (a_label0, a_label0 ^ delta)
             };
 
-            let (h_a0, h_a1) = H::hash_for_garbling(&selected_a, &other_a, gate_id);
+            let [h_a0, h_a1] = H::hash_with_gate(&[selected_a, other_a], gate_id);
 
             let b_sel = if alpha_b { b_label0 ^ delta } else { b_label0 };
 
@@ -54,7 +54,7 @@ pub fn degarble_gate<H: GateHasher>(
         }
         _ => {
             let ct = lazy_ciphertext();
-            let h_a = H::hash_for_degarbling(&a_active_label, gate_id);
+            let [h_a] = H::hash_with_gate(&[a_active_label], gate_id);
 
             let (alpha_a, _alpha_b, _alpha_c) = gate_type.alphas();
 

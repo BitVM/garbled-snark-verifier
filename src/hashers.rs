@@ -12,26 +12,33 @@ pub enum HasherKind {
 
 pub mod aes_ni;
 
-pub trait GateHasher: Clone + Send + Sync {
-    fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: usize) -> (S, S);
-    fn hash_for_degarbling(label: &S, gate_id: usize) -> S;
+pub trait GateHasher: HashWithGate<1> + HashWithGate<2> {}
+impl<H: HashWithGate<1> + HashWithGate<2>> GateHasher for H {}
+
+pub trait HashWithGate<const N: usize>: Clone + Send + Sync {
+    fn hash_with_gate(labels: &[S; N], gate_id: usize) -> [S; N];
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Blake3Hasher;
 
-impl GateHasher for Blake3Hasher {
-    fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: usize) -> (S, S) {
-        let h_selected = Self::hash_for_degarbling(selected_label, gate_id);
-        let h_other = Self::hash_for_degarbling(other_label, gate_id);
-        (h_selected, h_other)
-    }
+impl HashWithGate<2> for Blake3Hasher {
+    fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
+        let [selected_label, other_label] = labels;
 
-    fn hash_for_degarbling(label: &S, gate_id: usize) -> S {
+        let [h_selected] = Self::hash_with_gate(&[*selected_label], gate_id);
+        let [h_other] = Self::hash_with_gate(&[*other_label], gate_id);
+
+        [h_selected, h_other]
+    }
+}
+
+impl HashWithGate<1> for Blake3Hasher {
+    fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
         let mut result = [0u8; S_SIZE];
         let mut hasher = blake3::Hasher::new();
 
-        let b = label.to_bytes();
+        let b = label[0].to_bytes();
 
         hasher.update(&b);
         hasher.update(&gate_id.to_le_bytes());
@@ -39,7 +46,7 @@ impl GateHasher for Blake3Hasher {
         let hash = hasher.finalize();
         result.copy_from_slice(&hash.as_bytes()[0..S_SIZE]);
 
-        S::from_bytes(result)
+        [S::from_bytes(result)]
     }
 }
 
@@ -56,23 +63,26 @@ fn to_tweak(gate_id: usize) -> [u8; S_SIZE] {
     u64_to_mask(t0, t1)
 }
 
-impl GateHasher for AesNiHasher {
+impl HashWithGate<2> for AesNiHasher {
     #[inline(always)]
-    fn hash_for_garbling(selected_label: &S, other_label: &S, gate_id: usize) -> (S, S) {
+    fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
         let (c0, c1) = aes_ni::aes128_encrypt2_blocks_static_xor(
-            selected_label.to_bytes(),
-            other_label.to_bytes(),
+            labels[0].to_bytes(),
+            labels[1].to_bytes(),
             to_tweak(gate_id),
         )
         .expect("AES backend should be available (HW or software)");
-        (S::from_bytes(c0), S::from_bytes(c1))
-    }
 
+        [S::from_bytes(c0), S::from_bytes(c1)]
+    }
+}
+
+impl HashWithGate<1> for AesNiHasher {
     #[inline(always)]
-    fn hash_for_degarbling(label: &S, gate_id: usize) -> S {
-        let c = aes_ni::aes128_encrypt_block_static_xor(label.to_bytes(), to_tweak(gate_id))
+    fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
+        let c = aes_ni::aes128_encrypt_block_static_xor(label[0].to_bytes(), to_tweak(gate_id))
             .expect("AES backend should be available (HW or software)");
-        S::from_bytes(c)
+        [S::from_bytes(c)]
     }
 }
 
