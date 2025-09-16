@@ -8,10 +8,7 @@ use ark_ec::bn::BnConfig;
 use ark_ff::{BitIteratorBE, Field};
 use circuit_component_macro::component;
 
-use crate::{
-    CircuitContext,
-    gadgets::bn254::fq12::Fq12,
-};
+use crate::{CircuitContext, gadgets::bn254::fq12::Fq12};
 
 pub fn conjugate_native(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     ark_bn254::Fq12::new(f.c0, -f.c1)

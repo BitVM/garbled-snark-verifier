@@ -22,8 +22,8 @@ use crate::{
     CircuitContext, Fp254Impl,
     circuit::streaming::{FromWires, OffCircuitParam, WiresArity, WiresObject},
     gadgets::bn254::{
-        final_exponentiation::final_exponentiation_montgomery, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
-        g1::G1Projective, g2::G2Projective,
+        final_exponentiation::final_exponentiation_montgomery, fq::Fq, fq2::Fq2, fq6::Fq6,
+        fq12::Fq12, g1::G1Projective, g2::G2Projective,
     },
 };
 
