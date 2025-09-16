@@ -15,6 +15,11 @@ keywords = [
 ]
 description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusable gadgets and ergonomic circuit composition."
 
+[features]
+default = ["tracing_max_level", "tracing_scopes"]
+tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
+tracing_scopes = []
+
 [dependencies]
 aes = "0.8"
 ark-bn254 = "0.5.0"
@@ -31,7 +36,9 @@ circuit_component_macro = { path = "circuit_component_macro" }
 crossbeam = "0.8"
 digest = "0.10"
 itertools = "0.14.0"
-log = "0.4.27"
+tracing = { version = "0.1.41", features = ["attributes", "std"] }
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "registry"] }
+tracing-log = "0.2"
 num-bigint = { version = "0.4", features = ["rand"] }
 num-traits = "0.2"
 rand = "0.8" # using old version for consistency with ark
@@ -45,9 +52,8 @@ thiserror = "2.0.12"
 [dev-dependencies]
 ark-ec = "0.5.0"
 ark-relations = "0.5.0"
-env_logger = "0.11"
 serde_json = "1.0"
-test-log = "0.2.8"
+test-log = { version = "0.2.8", default-features = false, features = ["trace"] }
 
 # Install Git hooks via cargo-husky
 [dev-dependencies.cargo-husky]

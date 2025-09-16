@@ -1,5 +1,5 @@
 use circuit_component_macro::bn_component;
-use log::{debug, trace};
+use tracing::{debug, trace};
 
 use super::{BigIntWires, BigUint, add};
 use crate::{CircuitContext, Gate, GateType, WireId, circuit::FALSE_WIRE};

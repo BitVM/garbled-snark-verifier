@@ -13,9 +13,9 @@ use std::{
 
 use crossbeam::channel;
 use itertools::Itertools;
-use log::info;
 use rand::Rng;
 use rayon::{ThreadPool, ThreadPoolBuilder, iter::IntoParallelRefIterator, prelude::*};
+use tracing::{error, info};
 
 use crate::{
     AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, S,
@@ -297,7 +297,7 @@ impl Evaluator {
 
         // Ensure output directory exists
         if let Err(e) = fs::create_dir_all(folder_for_ciphertexts) {
-            log::error!(
+            error!(
                 "failed to create output dir {:?}: {e}",
                 folder_for_ciphertexts
             );

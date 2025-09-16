@@ -27,7 +27,7 @@
 use std::num::NonZero;
 
 use itertools::Itertools;
-use log::{debug, trace};
+use tracing::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,

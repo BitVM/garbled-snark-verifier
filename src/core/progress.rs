@@ -1,4 +1,4 @@
-use log::info;
+use tracing::info;
 
 /// Step for periodic gate progress logs.
 pub const GATE_LOG_STEP: usize = 50_000_000;

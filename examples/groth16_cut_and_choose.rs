@@ -7,9 +7,9 @@ use gsv::{
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     garbled_groth16, groth16_cut_and_choose as ccn,
 };
-use log::{error, info};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use tracing::{error, info};
 
 // Lightweight control-plane messages between parties.
 enum G2EMsg {
@@ -72,8 +72,7 @@ fn main() {
         );
     }
 
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .try_init();
+    gsv::init_tracing();
 
     // 1) Build and prove a tiny multiplicative circuit
     let k = 6; // 2^k constraints

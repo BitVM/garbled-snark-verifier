@@ -1,7 +1,7 @@
 use std::{array, fmt::Debug};
 
 use crossbeam::channel;
-use log::info;
+use tracing::info;
 
 use crate::{
     CiphertextHashAcc, EvaluatedWire, GarbledWire, S, WireId,

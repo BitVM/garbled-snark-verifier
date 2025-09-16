@@ -4,6 +4,7 @@ mod core;
 pub mod gadgets;
 pub mod hashers;
 mod hw;
+pub mod logging;
 mod math;
 pub mod storage;
 
@@ -32,6 +33,7 @@ pub use gadgets::{
     groth16_verify, groth16_verify_compressed,
 };
 pub use hw::{hardware_aes_available, warn_if_software_aes};
+pub use logging::init_tracing;
 pub use math::*;
 
 pub use crate::circuit::modes::GarbleMode;

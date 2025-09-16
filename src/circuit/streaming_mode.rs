@@ -1,6 +1,6 @@
 use std::{iter, num::NonZero};
 
-use log::{debug, trace};
+use tracing::{debug, trace};
 
 use crate::{
     CircuitContext, Gate, WireId,

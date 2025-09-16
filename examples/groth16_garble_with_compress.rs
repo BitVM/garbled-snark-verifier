@@ -16,9 +16,9 @@ use garbled_snark_verifier::{
     garbled_groth16,
     hashers::{AesNiHasher, Blake3Hasher, GateHasher},
 };
-use log::info;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
+use tracing::info;
 
 // Simple multiplicative circuit used to produce a valid Groth16 proof.
 #[derive(Copy, Clone)]
@@ -256,8 +256,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
 
 fn main() {
     // Initialize logging (default to info if RUST_LOG not set)
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .try_init();
+    garbled_snark_verifier::init_tracing();
 
     let garbling_seed: u64 = rand::thread_rng().r#gen();
 

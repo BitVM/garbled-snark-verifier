@@ -10,8 +10,8 @@
 
 use std::{fmt::Debug, marker::PhantomData, num::NonZero, ops::Deref};
 
-use log::{error, trace};
 use slab::Slab;
+use tracing::{error, trace};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Error {

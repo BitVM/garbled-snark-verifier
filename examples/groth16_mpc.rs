@@ -156,9 +156,8 @@ fn main() {
             "Warning: AES hardware acceleration not detected; using software AES (not constant-time)."
         );
     }
-    // Initialize logging (default to info if RUST_LOG not set)
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .try_init();
+    // Initialize tracing (default to info if RUST_LOG not set)
+    garbled_snark_verifier::init_tracing();
 
     // 1) Build and prove a tiny multiplicative circuit
     let k = 6; // 2^k constraints
