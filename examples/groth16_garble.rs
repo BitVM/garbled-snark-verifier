@@ -18,7 +18,7 @@ use garbled_snark_verifier::{
 };
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use tracing::info;
+use tracing::{info, info_span};
 
 // Simple multiplicative circuit used to produce a valid Groth16 proof.
 #[derive(Copy, Clone)]
@@ -107,14 +107,16 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     // Measure first garbling pass performance
     let garble_start = Instant::now();
 
-    let garbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> =
+    let garbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> = {
+        let _span = info_span!("garble").entered();
         CircuitBuilder::streaming_garbling(
             inputs.clone(),
             CAPACITY,
             garbling_seed,
             hasher,
             garbled_groth16::verify,
-        );
+        )
+    };
 
     info!("garbling: in {:.3}s", garble_start.elapsed().as_secs_f64());
 
@@ -167,14 +169,16 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
 
         let regarble_start = Instant::now();
 
-        let _regarbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> =
+        let _regarbling_result: StreamingResult<GarbleMode<H, _>, _, GarbledWire> = {
+            let _span = info_span!("regarble").entered();
             CircuitBuilder::streaming_garbling_with_sender(
                 inputs,
                 CAPACITY,
                 garbling_seed,
                 ciphertext_to_evaluator_sender,
                 garbled_groth16::verify,
-            );
+            )
+        };
 
         info!(
             "regarbling: in {:.3}s",
@@ -208,7 +212,8 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
 
         let eval_start = Instant::now();
 
-        let evaluator_result: StreamingResult<EvaluateMode<H, _>, _, EvaluatedWire> =
+        let evaluator_result: StreamingResult<EvaluateMode<H, _>, _, EvaluatedWire> = {
+            let _span = info_span!("evaluate").entered();
             CircuitBuilder::streaming_evaluation(
                 input_labels,
                 CAPACITY,
@@ -216,7 +221,8 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
                 false_wire,
                 proxy_receiver,
                 garbled_groth16::verify,
-            );
+            )
+        };
 
         info!("evaluation: in {:.3}s", eval_start.elapsed().as_secs_f64());
 

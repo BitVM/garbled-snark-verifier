@@ -208,6 +208,10 @@ impl Garbler {
                     let garbling_seed = *garbling_seed;
 
                     let garbling_thread = thread::spawn(move || {
+                        // Tag this second garbling stream to appear in logs as part of regarbling phase
+                        let span = tracing::info_span!("garble2evaluation", instance = index);
+                        let _enter = span.enter();
+                        info!("Starting garble2evaluation of Groth16 verification circuit");
                         let _: StreamingResult<
                             GarbleMode<AesNiHasher, _>,
                             garbled_groth16::GarblerCompressedInput,
