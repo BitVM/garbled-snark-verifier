@@ -139,8 +139,7 @@ fn test_evaluate_mode() {
         let mut rng = ChaChaRng::seed_from_u64(1);
         iter::repeat_with(move || S::random(&mut rng))
             .take(NON_FREE_GATE_COUNT)
-            .enumerate()
-            .for_each(|(i, ct)| sender.send((i, ct)).unwrap());
+            .for_each(|ct| sender.send(ct).unwrap());
     });
 
     let (true_wire, false_wire, inputs) = prepare();

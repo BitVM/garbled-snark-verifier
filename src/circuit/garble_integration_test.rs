@@ -82,9 +82,6 @@ mod tests {
         // Verify the circuit was garbled correctly
         // Only the AND gate should produce a table entry (XOR uses Free-XOR)
         assert_eq!(tables.len(), 1, "Only AND gate should produce table");
-
-        // The table entry should be from the AND gate (gate_id 0)
-        assert_eq!(tables[0].0, 0, "First table entry should be from gate 0");
     }
 
     #[test]

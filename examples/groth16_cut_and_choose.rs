@@ -276,7 +276,7 @@ fn run_evaluator(
     let mut senders = Vec::with_capacity(finalize);
 
     let eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits, &mut |index| {
-        let (tx, rx) = channel::unbounded::<(usize, S)>();
+        let (tx, rx) = channel::unbounded::<S>();
         senders.push((index, tx));
         rx
     });

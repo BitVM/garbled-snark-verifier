@@ -472,10 +472,9 @@ where
                 };
                 let mut w = BufWriter::with_capacity(buffer_size, file);
 
-                while let Some((gate_id, s)) = rx.recv() {
+                while let Some(s) = rx.recv() {
                     hasher.update(s);
-                    let gid = gate_id as u64;
-                    w.write_all(&gid.to_le_bytes()).unwrap();
+                    // Persist compact record: only the 16-byte ciphertext label
                     w.write_all(&s.to_bytes()).unwrap();
                 }
 
@@ -926,7 +925,7 @@ mod tests {
         // Evaluator chooses which instances to finalize
         let cfg_e = Config::new(total, finalize, OneBitGarblerInput);
         let evaluator = Evaluator::create(&mut rng, cfg_e, commits.clone(), &mut |index| {
-            let (tx, rx) = channel::unbounded::<(usize, S)>();
+            let (tx, rx) = channel::unbounded::<S>();
             senders.push((index, tx));
             rx
         });
@@ -993,27 +992,25 @@ mod tests {
             });
         }
 
-        let results_true =
-            Evaluator::<OneBitGarblerInput, channel::Receiver<(usize, S)>>::evaluate_from(
-                &out_dir,
-                cases_true,
-                64,
-                one_bit_circuit,
-            )
-            .expect("consistency checks should pass for true inputs");
+        let results_true = Evaluator::<OneBitGarblerInput, channel::Receiver<S>>::evaluate_from(
+            &out_dir,
+            cases_true,
+            64,
+            one_bit_circuit,
+        )
+        .expect("consistency checks should pass for true inputs");
 
         for (_idx, out) in results_true {
             assert!(out.value, "output should equal input (true)");
         }
 
-        let results_false =
-            Evaluator::<OneBitGarblerInput, channel::Receiver<(usize, S)>>::evaluate_from(
-                &out_dir,
-                cases_false,
-                64,
-                one_bit_circuit,
-            )
-            .expect("consistency checks should pass for false inputs");
+        let results_false = Evaluator::<OneBitGarblerInput, channel::Receiver<S>>::evaluate_from(
+            &out_dir,
+            cases_false,
+            64,
+            one_bit_circuit,
+        )
+        .expect("consistency checks should pass for false inputs");
 
         for (_idx, out) in results_false {
             assert!(!out.value, "output should equal input (false)");
@@ -1216,7 +1213,7 @@ mod tests {
         // Evaluator chooses to finalize 1 instance
         let cfg_e = Config::new(total, finalize, Fq12MulGInput);
         let evaluator = Evaluator::create(&mut rng, cfg_e, commits.clone(), &mut |index| {
-            let (tx, rx) = channel::unbounded::<(usize, S)>();
+            let (tx, rx) = channel::unbounded::<S>();
             senders.push((index, tx));
             rx
         });
@@ -1268,14 +1265,13 @@ mod tests {
         }
 
         // Evaluate true cases
-        let results_true =
-            Evaluator::<Fq12MulGInput, channel::Receiver<(usize, S)>>::evaluate_from(
-                &out_dir,
-                cases_true,
-                10_000,
-                builder_eval,
-            )
-            .unwrap();
+        let results_true = Evaluator::<Fq12MulGInput, channel::Receiver<S>>::evaluate_from(
+            &out_dir,
+            cases_true,
+            10_000,
+            builder_eval,
+        )
+        .unwrap();
 
         for (idx, out) in results_true {
             assert!(out.value, "a*b == prod_m should be true");
@@ -1307,14 +1303,13 @@ mod tests {
             });
         }
 
-        let results_false =
-            Evaluator::<Fq12MulGInput, channel::Receiver<(usize, S)>>::evaluate_from(
-                &out_dir,
-                cases_false,
-                10_000,
-                builder_eval,
-            )
-            .unwrap();
+        let results_false = Evaluator::<Fq12MulGInput, channel::Receiver<S>>::evaluate_from(
+            &out_dir,
+            cases_false,
+            10_000,
+            builder_eval,
+        )
+        .unwrap();
 
         for (idx, out) in results_false {
             assert!(!out.value, "a*b_alt == prod_m should be false");
