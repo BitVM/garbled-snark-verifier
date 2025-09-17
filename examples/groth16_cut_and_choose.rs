@@ -1,5 +1,6 @@
 use std::{path::PathBuf, thread};
 
+use ark_ff::AdditiveGroup;
 use crossbeam::channel;
 use garbled_snark_verifier::{
     EvaluatedWire, GarbledInstanceCommit, OpenForInstance, S,
@@ -20,6 +21,7 @@ const TOTAL_INSTANCES: usize = 3;
 const FINALIZE_INSTANCES: usize = 1;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 6; // 2^k constraints
+const IS_PROOF_CORRECT: bool = true;
 
 enum G2EMsg {
     // Garbler -> Evaluator: commitments for all instances
@@ -101,7 +103,11 @@ fn main() {
         num_constraints: 1 << k,
     };
     let (pk, vk) = ark::Groth16::<ark::Bn254>::setup(circuit, &mut rng).expect("setup");
-    let public_input = circuit.a.unwrap() * circuit.b.unwrap();
+    let public_input = if IS_PROOF_CORRECT {
+        circuit.a.unwrap() * circuit.b.unwrap()
+    } else {
+        ark::Fr::ZERO
+    };
 
     // Package inputs for garbling/evaluation gadgets
     let g_input = garbled_groth16::GarblerInput {
@@ -140,12 +146,17 @@ fn main() {
         );
     });
 
-    let evaluator = thread::spawn(move || {
-        run_evaluator(evaluator_cfg, out_dir, g2e_rx, e2g_tx);
-    });
+    let evaluator = thread::spawn(move || run_evaluator(evaluator_cfg, out_dir, g2e_rx, e2g_tx));
 
     garbler.join().unwrap();
-    evaluator.join().unwrap();
+    let evaluator = evaluator.join().unwrap();
+
+    let errors = evaluator
+        .iter()
+        .filter_map(|(i, ew)| (ew.value != IS_PROOF_CORRECT).then_some(i))
+        .collect::<Vec<_>>();
+
+    assert!(errors.is_empty(), "errors: {errors:?}")
 }
 
 fn run_garbler(
