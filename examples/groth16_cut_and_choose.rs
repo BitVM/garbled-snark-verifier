@@ -8,7 +8,7 @@ use garbled_snark_verifier::{
         self, Bn254, CircuitSpecificSetupSNARK, Groth16 as ArkGroth16, ProvingKey as ArkProvingKey,
         SNARK, UniformRand,
     },
-    circuit::{CiphertextHandler, CiphertextSender},
+    circuit::{CiphertextHandler, CiphertextSender, CircuitBuilder},
     garbled_groth16,
     groth16_cut_and_choose::{self as ccn, EvaluatorCaseInput},
 };
@@ -206,11 +206,50 @@ fn run_garbler(
         }
     });
 
-    let challenge_proof = garbled_groth16::Proof::new(
-        ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
-            .expect("prove"),
-        vec![public_input],
+    let ark_proof = ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
+        .expect("prove");
+
+    // Verify the proof is valid before garbling
+    let is_valid =
+        ArkGroth16::<Bn254>::verify(&cfg.input().vk, &[public_input], &ark_proof).expect("verify");
+
+    assert_eq!(
+        is_valid, IS_PROOF_CORRECT,
+        "Proof must be valid before garbling!"
     );
+
+    let challenge_proof = garbled_groth16::Proof::new(ark_proof, vec![public_input]);
+
+    let is_valid = ArkGroth16::<Bn254>::verify(
+        &cfg.input().vk,
+        &challenge_proof.public_inputs,
+        &challenge_proof.proof,
+    )
+    .expect("verify");
+
+    info!("Proof is_valid: {is_valid}");
+    assert_eq!(
+        is_valid, IS_PROOF_CORRECT,
+        "Proof must be {IS_PROOF_CORRECT} before garbling!"
+    );
+
+    // Test only
+    {
+        let streaming_result: garbled_snark_verifier::circuit::StreamingResult<_, _, bool> =
+            CircuitBuilder::streaming_execute(
+                garbled_groth16::Compressed(garbled_groth16::VerifierInput {
+                    proof: challenge_proof.clone(),
+                    vk: cfg.input().vk.clone(),
+                }),
+                150_000,
+                garbled_groth16::verify_compressed,
+            );
+
+        assert_eq!(
+            streaming_result.output_value, IS_PROOF_CORRECT,
+            "Streaming verification result should match IS_PROOF_CORRECT flag"
+        );
+    }
 
     let fin_inputs = g.prepare_input_labels(challenge_proof);
 
