@@ -118,8 +118,7 @@ impl<H: GateHasher, SRC: CiphertextSource> std::fmt::Debug for EvaluateMode<H, S
 
 impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> {
     type WireValue = EvaluatedWire;
-    // TODO #37 Add CiphertextHandler here and use it to single-thread acc check
-    type CiphertextAcc = ();
+    type CiphertextAcc = SRC::Result;
 
     fn false_value(&self) -> EvaluatedWire {
         EvaluatedWire {
@@ -205,6 +204,10 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> 
         for wire_id in wires {
             self.storage.add_credits(*wire_id, credits.get()).unwrap();
         }
+    }
+
+    fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
+        self.source.finalize()
     }
 }
 

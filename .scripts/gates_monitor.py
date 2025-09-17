@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
 """
-Tail a cut-and-choose log and live‑report throughput + ETA.
+Tail a cut-and-choose log and live-report throughput + ETA.
 
 Usage:
-    python gates_monitor.py [/path/to/logfile] [--regarbling | --evaluation]
+    python gates_monitor.py [/path/to/logfile]
+                               [--garbling | --regarbling | --evaluation]
 
 Modes:
-- Default (garbling):
+- Default (auto):
+    Detects the active phase on the fly (garbling → regarbling → evaluation)
+    and switches views automatically while tailing the live log.
+- --garbling:
     Parses lines like
       "<TS> INFO garble: garbled: <NUM>[m|b] instance=<ID>"
-    Tracks per‑instance progress for the first garbling phase.
+    Tracks per-instance progress for the first garbling phase only.
 - --regarbling:
     Parses lines like
       "<TS> INFO regarble: garbled: <NUM>[m|b] instance=<ID>"
+      "<TS> INFO regarble2send: garbled: <NUM>[m|b] instance=<ID>"
+      and the legacy spans
       "<TS> INFO garble2evaluation: garbled: <NUM>[m|b] instance=<ID>"
-      (also accepts "garble2evaluator" alias if present)
-    Tracks per‑instance progress for the entire regarbling stage, including
-    the evaluation‑garbling streams for finalized instances.
+      (and the common alias "garble2evaluator").
+    Tracks per-instance progress for the entire regarbling stage, including
+    the evaluation-garbling streams for finalized instances.
 - --evaluation:
     Parses lines like
       "<TS> INFO evaluated: <NUM>[m|b]"
-    Tracks single‑stream evaluation throughput and ETA.
+    Tracks single-stream evaluation throughput and ETA.
 
 Other behavior:
 - Follows the file (tail -f style) and shows aggregate stats + ETA.
@@ -35,9 +41,9 @@ import re
 import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, Tuple, List, Dict
+from typing import Dict, List, Optional, Tuple
 
 # Patterns configured per mode
 RE_GARBLE = re.compile(
@@ -45,6 +51,10 @@ RE_GARBLE = re.compile(
 )
 RE_REGARBLE = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+regarble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
+)
+# New span name used for regarble-to-send streaming garbling
+RE_REGARBLE2SEND = re.compile(
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+regarble2send:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
 # During regarbling, finalized instances are garbled again for evaluation
 # under a separate span name. Support both the canonical name and a common
@@ -59,14 +69,34 @@ RE_EVALUATED = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
 )
 
-# Selected mode (set in main)
-MODE = "garbling"  # one of: garbling, regarbling, evaluation
+# Selected mode (set in main). "auto" selects phases dynamically.
+MODE = "garbling"  # one of: auto, garbling, regarbling, evaluation
+
+# Phase ordering used for auto mode tie-breaking
+PHASES = ("garbling", "regarbling", "evaluation")
+PHASE_ORDER_INDEX = {phase: idx for idx, phase in enumerate(PHASES)}
+PHASE_LABELS = {
+    "garbling": "GARBLING",
+    "regarbling": "REGARBLING",
+    "evaluation": "EVALUATION",
+}
 
 @dataclass
 class Sample:
     t: float        # epoch seconds (UTC)
     v: int          # gates processed (monotonic, in gates)
     instance: int   # instance ID
+    phase: str      # phase label ('garbling', 'regarbling', 'evaluation')
+
+
+@dataclass
+class PhaseState:
+    samples: List[Sample] = field(default_factory=list)
+    last_value_per_instance: Dict[int, int] = field(default_factory=dict)
+    completed_instances: Dict[int, float] = field(default_factory=dict)
+    instance_times: Dict[int, dict] = field(default_factory=dict)
+    max_instance_id: int = -1
+    expected_total: Optional[int] = None
 
 def parse_iso_utc(ts: str) -> float:
     # Accept e.g. "2025-09-16T10:56:02.056992Z"
@@ -77,41 +107,69 @@ def parse_iso_utc(ts: str) -> float:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.timestamp()
 
+def to_gates(num_str: str, unit: Optional[str]) -> int:
+    unit_norm = (unit or '').lower()
+    num = float(num_str)
+    if unit_norm == 'b':
+        return int(num * 1_000_000_000)
+    if unit_norm == 'm':
+        return int(num * 1_000_000)
+    return int(num)
+
+def parse_line_auto(line: str) -> Optional[Sample]:
+    m = RE_GARBLE.match(line)
+    if m:
+        ts = parse_iso_utc(m.group('ts'))
+        v = to_gates(m.group('num'), m.group('unit'))
+        instance = int(m.group('instance'))
+        return Sample(ts, v, instance, 'garbling')
+
+    for pattern in (RE_REGARBLE, RE_REGARBLE2SEND, RE_G2EVAL, RE_G2EVALUATOR):
+        m = pattern.match(line)
+        if m:
+            ts = parse_iso_utc(m.group('ts'))
+            v = to_gates(m.group('num'), m.group('unit'))
+            instance = int(m.group('instance'))
+            return Sample(ts, v, instance, 'regarbling')
+
+    m = RE_EVALUATED.match(line)
+    if m:
+        ts = parse_iso_utc(m.group('ts'))
+        v = to_gates(m.group('num'), m.group('unit'))
+        return Sample(ts, v, 0, 'evaluation')
+
+    return None
+
 def parse_line(line: str) -> Optional[Sample]:
     global MODE
+    if MODE == "auto":
+        return parse_line_auto(line)
+
     if MODE == "evaluation":
         m = RE_EVALUATED.match(line)
         if not m:
             return None
         ts = parse_iso_utc(m.group('ts'))
-        num = float(m.group('num'))
-        unit = m.group('unit').lower() if m.group('unit') else ''
-        if unit == 'b':
-            v = int(num * 1_000_000_000)
-        elif unit == 'm':
-            v = int(num * 1_000_000)
-        else:
-            v = int(num)
+        v = to_gates(m.group('num'), m.group('unit'))
         # Single stream for evaluation mode; use instance 0
-        return Sample(ts, v, 0)
+        return Sample(ts, v, 0, 'evaluation')
     else:
         if MODE == "garbling":
             m = RE_GARBLE.match(line)
         else:  # regarbling stage may include multiple spans
-            m = RE_REGARBLE.match(line) or RE_G2EVAL.match(line) or RE_G2EVALUATOR.match(line)
+            m = (
+                RE_REGARBLE.match(line)
+                or RE_REGARBLE2SEND.match(line)
+                or RE_G2EVAL.match(line)
+                or RE_G2EVALUATOR.match(line)
+            )
 
         if m:
             ts = parse_iso_utc(m.group('ts'))
-            num = float(m.group('num'))
-            unit = m.group('unit').lower() if m.group('unit') else ''
             instance = int(m.group('instance'))
-            if unit == 'b':
-                v = int(num * 1_000_000_000)
-            elif unit == 'm':
-                v = int(num * 1_000_000)
-            else:
-                v = int(num)
-            return Sample(ts, v, instance)
+            v = to_gates(m.group('num'), m.group('unit'))
+            phase = 'garbling' if MODE == 'garbling' else 'regarbling'
+            return Sample(ts, v, instance, phase)
         return None
 
 def fmt_gates(v: int) -> str:
@@ -175,6 +233,308 @@ def compute_window_rate_per_instance(samples: List[Sample], window_sec: float) -
             total_rate += rate
 
     return total_rate, instance_rates
+
+def process_sample(state: PhaseState, sample: Sample, target_gates: int, *, ignore_non_increasing: bool) -> bool:
+    """Update per-phase state with a new sample.
+
+    Returns True if the sample was appended (i.e. new progress recorded).
+    """
+    last_val = state.last_value_per_instance.get(sample.instance)
+
+    if ignore_non_increasing and last_val is not None and sample.v <= last_val:
+        return False
+
+    if sample.instance not in state.instance_times:
+        state.instance_times[sample.instance] = {'start': sample.t, 'end': None}
+
+    # Keep track of highest instance index seen for total estimation
+    state.max_instance_id = max(state.max_instance_id, sample.instance)
+
+    # Handle instance restarts (value decreased) when not ignoring duplicates
+    if not ignore_non_increasing and last_val is not None and sample.v < last_val:
+        if sample.instance in state.completed_instances:
+            del state.completed_instances[sample.instance]
+        state.instance_times[sample.instance] = {'start': sample.t, 'end': None}
+
+    state.samples.append(sample)
+    state.last_value_per_instance[sample.instance] = sample.v
+
+    if sample.v >= target_gates:
+        state.completed_instances[sample.instance] = sample.t
+        state.instance_times[sample.instance]['end'] = sample.t
+
+    return True
+
+def trim_samples(state: PhaseState, window_sec: float) -> None:
+    if not state.samples:
+        return
+
+    recent_samples = state.samples[-min(len(state.samples), 100):]
+    if not recent_samples:
+        return
+
+    cutoff = recent_samples[-1].t - max(window_sec * 5, 300)
+
+    if cutoff <= 0:
+        return
+
+    filtered = []
+    for sample in state.samples:
+        if sample.t >= cutoff or sample.instance not in state.completed_instances:
+            filtered.append(sample)
+
+    state.samples = filtered
+
+def choose_active_phase(current_phase: str, last_activity: Dict[str, float]) -> str:
+    candidates = [
+        (last_activity.get(phase, 0.0), PHASE_ORDER_INDEX[phase], phase)
+        for phase in PHASES
+    ]
+    best_time, _, best_phase = max(candidates)
+    if best_time <= 0:
+        fallback = current_phase if last_activity.get(current_phase, 0.0) > 0 else 'garbling'
+        return fallback
+    return best_phase
+
+def build_phase_summary(phase: str, state: PhaseState, target_gates: int) -> str:
+    if not state.samples and not state.completed_instances:
+        return "pending"
+
+    if phase == 'evaluation':
+        if not state.samples:
+            return "pending"
+        latest = state.samples[-1]
+        return f"{fmt_gates(latest.v)} processed"
+
+    total_instances = state.expected_total
+    if total_instances is None and state.max_instance_id >= 0:
+        total_instances = state.max_instance_id + 1
+
+    completed = len(state.completed_instances)
+
+    if total_instances and completed >= total_instances:
+        return f"completed {completed}/{total_instances}"
+
+    if not state.samples:
+        if total_instances:
+            return f"{completed}/{total_instances} completed"
+        return f"{completed} completed"
+
+    latest = state.samples[-1]
+    progress_pct = (latest.v / target_gates) * 100 if target_gates else 0.0
+    inst_blurb = f"inst {latest.instance}: {progress_pct:5.1f}%"
+
+    if total_instances:
+        return f"{completed}/{total_instances} done · {inst_blurb}"
+    return f"{completed} done · {inst_blurb}"
+
+def print_auto_status(
+    active_phase: str,
+    phase_states: Dict[str, PhaseState],
+    target_gates: int,
+    window_sec: float,
+) -> None:
+    global MODE
+    state = phase_states[active_phase]
+
+    if state.samples:
+        previous_mode = MODE
+        MODE = active_phase
+        try:
+            print_status(
+                state.samples,
+                target_gates,
+                window_sec,
+                state.completed_instances,
+                state.instance_times,
+                state.expected_total,
+                state.max_instance_id,
+            )
+        finally:
+            MODE = previous_mode
+    else:
+        # No samples yet for the active phase; emit a lightweight placeholder.
+        print("\033[2J\033[H")
+        print("=" * 80)
+        print("CUT-AND-CHOOSE MONITOR (auto phase detection)")
+        print("=" * 80)
+        print(f"Awaiting data for {PHASE_LABELS[active_phase]} ...")
+
+    print("\n" + "=" * 70)
+    print("PHASE OVERVIEW:")
+    for phase in PHASES:
+        marker = "*" if phase == active_phase else " "
+        summary = build_phase_summary(phase, phase_states[phase], target_gates)
+        label = PHASE_LABELS[phase]
+        print(f" {marker} {label:12s} {summary}")
+
+    sys.stdout.flush()
+
+def tail_file_auto(path: str, target_gates: int, window_sec: float) -> None:
+    phase_states = {phase: PhaseState() for phase in PHASES}
+    last_activity = {phase: 0.0 for phase in PHASES}
+    active_phase = 'garbling'
+    detected_creating = False
+    detected_instances = False
+    detected_garbler_line = False
+
+    def open_file():
+        return open(path, 'r', encoding='utf-8', errors='ignore')
+
+    def reset_state():
+        nonlocal phase_states, last_activity, active_phase
+        nonlocal detected_creating, detected_instances, detected_garbler_line
+        phase_states = {phase: PhaseState() for phase in PHASES}
+        last_activity = {phase: 0.0 for phase in PHASES}
+        active_phase = 'garbling'
+        detected_creating = False
+        detected_instances = False
+        detected_garbler_line = False
+
+    def handle_metadata(line: str) -> bool:
+        nonlocal detected_creating, detected_instances, detected_garbler_line
+        updated = False
+
+        if "Garbler: Creating" in line:
+            m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
+            if m2:
+                total = int(m2.group(1))
+                to_finalize = int(m2.group(2))
+                for phase in ("garbling", "regarbling"):
+                    phase_states[phase].expected_total = total
+                if not detected_creating:
+                    print(
+                        f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}",
+                        file=sys.stderr,
+                    )
+                    detected_creating = True
+                updated = True
+
+        if "Garbler:" in line and not detected_garbler_line:
+            m3 = re.search(r'Garbler:\s+(\d+)\s*/\s*(\d+)', line)
+            if m3:
+                total = int(m3.group(1))
+                to_finalize = int(m3.group(2))
+                for phase in ("garbling", "regarbling"):
+                    phase_states[phase].expected_total = total
+                if phase_states['evaluation'].expected_total is None:
+                    phase_states['evaluation'].expected_total = total
+                print(
+                    f"Detected instances from 'Garbler:' line: total={total}, to_finalize={to_finalize}",
+                    file=sys.stderr,
+                )
+                detected_garbler_line = True
+                updated = True
+
+        if "Starting cut-and-choose with" in line and not detected_instances:
+            m = re.search(r'with\s+(\d+)\s+instances', line)
+            if m:
+                expected_total = int(m.group(1))
+                for phase in ("garbling", "regarbling"):
+                    if phase_states[phase].expected_total is None:
+                        phase_states[phase].expected_total = expected_total
+                phase_states['evaluation'].expected_total = expected_total
+                print(f"Detected {expected_total} total instances from log", file=sys.stderr)
+                detected_instances = True
+                updated = True
+
+        return updated
+
+    # Wait for file to exist
+    while True:
+        try:
+            f = open_file()
+            break
+        except FileNotFoundError:
+            time.sleep(0.5)
+
+    f_stat = os.fstat(f.fileno())
+    inode = f_stat.st_ino
+
+    # Preload existing content
+    while True:
+        line = f.readline()
+        if not line:
+            break
+        handle_metadata(line)
+        sample = parse_line(line.strip())
+        if sample is None:
+            continue
+        state = phase_states[sample.phase]
+        appended = process_sample(state, sample, target_gates, ignore_non_increasing=True)
+        if appended:
+            last_activity[sample.phase] = sample.t
+            active_phase = choose_active_phase(active_phase, last_activity)
+
+    pos = f.tell()
+    print_auto_status(active_phase, phase_states, target_gates, window_sec)
+
+    # Live monitoring loop
+    while True:
+        try:
+            cur_stat = os.stat(path)
+        except FileNotFoundError:
+            time.sleep(0.5)
+            continue
+
+        if cur_stat.st_ino != inode or cur_stat.st_size < pos:
+            try:
+                f.close()
+            except Exception:
+                pass
+
+            while True:
+                try:
+                    f = open_file()
+                    break
+                except FileNotFoundError:
+                    time.sleep(0.5)
+
+            f_stat = os.fstat(f.fileno())
+            inode = f_stat.st_ino
+            reset_state()
+
+            while True:
+                line = f.readline()
+                if not line:
+                    break
+                handle_metadata(line)
+                sample = parse_line(line.strip())
+                if sample is None:
+                    continue
+                state = phase_states[sample.phase]
+                appended = process_sample(state, sample, target_gates, ignore_non_increasing=True)
+                if appended:
+                    last_activity[sample.phase] = sample.t
+                    active_phase = choose_active_phase(active_phase, last_activity)
+
+            pos = f.tell()
+            print_auto_status(active_phase, phase_states, target_gates, window_sec)
+            time.sleep(0.3)
+            continue
+
+        line = f.readline()
+        if not line:
+            time.sleep(0.3)
+            continue
+
+        pos = f.tell()
+        metadata_changed = handle_metadata(line)
+        sample = parse_line(line.strip())
+        if sample is None:
+            if metadata_changed:
+                print_auto_status(active_phase, phase_states, target_gates, window_sec)
+            continue
+
+        state = phase_states[sample.phase]
+        appended = process_sample(state, sample, target_gates, ignore_non_increasing=False)
+        if appended:
+            last_activity[sample.phase] = sample.t
+            active_phase = choose_active_phase(active_phase, last_activity)
+            trim_samples(state, window_sec)
+
+        if appended or metadata_changed:
+            print_auto_status(active_phase, phase_states, target_gates, window_sec)
 
 def print_status(
     samples: List[Sample],
@@ -284,11 +644,7 @@ def print_status(
         eta = remaining_gates / window_rate
 
     # Clear screen for clean update
-    phase = {
-        "garbling": "GARBLING",
-        "regarbling": "REGARBLING",
-        "evaluation": "EVALUATION",
-    }[MODE]
+    phase = PHASE_LABELS.get(MODE, MODE.upper())
 
     print("\033[2J\033[H")  # Clear screen and move to top
     print("="*80)
@@ -412,15 +768,46 @@ def print_status(
     sys.stdout.flush()
 
 def tail_file(path: str, target_gates: int, window_sec: float) -> None:
-    samples: List[Sample] = []
-    last_value_per_instance: Dict[int, int] = {}
-    completed_instances: Dict[int, float] = {}  # instance_id -> completion_time
-    instance_times: Dict[int, dict] = {}  # instance_id -> {'start': time, 'end': time}
-    max_instance_id = -1  # Track highest instance ID seen
-    expected_total: Optional[int] = None
+    if MODE == "auto":
+        tail_file_auto(path, target_gates, window_sec)
+        return
+
+    state = PhaseState()
 
     def open_file():
         return open(path, 'r', encoding='utf-8', errors='ignore')
+
+    def handle_metadata(line: str) -> None:
+        if MODE == "evaluation":
+            return
+
+        if "Garbler: Creating" in line:
+            m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
+            if m2:
+                total = int(m2.group(1))
+                to_finalize = int(m2.group(2))
+                state.expected_total = total
+                print(
+                    f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={state.expected_total}",
+                    file=sys.stderr,
+                )
+
+        if state.expected_total is None and "Starting cut-and-choose with" in line:
+            m = re.search(r'with (\d+) instances', line)
+            if m:
+                state.expected_total = int(m.group(1))
+                print(f"Detected {state.expected_total} total instances from log", file=sys.stderr)
+
+        if state.expected_total is None and "Garbler:" in line:
+            m = re.search(r'Garbler:\s+(\d+)\s*/\s*(\d+)', line)
+            if m:
+                total = int(m.group(1))
+                to_finalize = int(m.group(2))
+                state.expected_total = total
+                print(
+                    f"Detected instances from 'Garbler:' line: total={total}, to_finalize={to_finalize}",
+                    file=sys.stderr,
+                )
 
     # Open and preload existing content using readline() to keep tell() valid
     while True:
@@ -438,49 +825,24 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
         line = f.readline()
         if not line:
             break
-        if MODE != "evaluation" and "Garbler: Creating" in line:
-            m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
-            if m2:
-                total = int(m2.group(1))
-                to_finalize = int(m2.group(2))
-                # In regarbling mode we now track both regarbling and garble2evaluation
-                # streams, so expected total equals the original total instances.
-                expected_total = total
-                print(
-                    f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
-                    file=sys.stderr,
-                )
-        if MODE != "evaluation" and expected_total is None and "Starting cut-and-choose with" in line:
-            m = re.search(r'with (\d+) instances', line)
-            if m:
-                expected_total = int(m.group(1))
-                print(f"Detected {expected_total} total instances from log", file=sys.stderr)
-        s = parse_line(line.strip())
-        if s is None:
+        handle_metadata(line)
+        sample = parse_line(line.strip())
+        if sample is None:
             continue
 
-        # Track first appearance time
-        if s.instance not in instance_times:
-            instance_times[s.instance] = {'start': s.t, 'end': None}
-
-        # Track max instance ID
-        max_instance_id = max(max_instance_id, s.instance)
-
-        # Check if this is progress for this instance (not going backwards)
-        last_val = last_value_per_instance.get(s.instance)
-        if last_val is not None and s.v <= last_val:
-            continue
-        samples.append(s)
-        last_value_per_instance[s.instance] = s.v
-
-        # Mark as completed if reached target
-        if s.v >= target_gates:
-            completed_instances[s.instance] = s.t
-            instance_times[s.instance]['end'] = s.t
+        process_sample(state, sample, target_gates, ignore_non_increasing=True)
 
     pos = f.tell()
-    if samples:
-        print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
+    if state.samples:
+        print_status(
+            state.samples,
+            target_gates,
+            window_sec,
+            state.completed_instances,
+            state.instance_times,
+            state.expected_total,
+            state.max_instance_id,
+        )
 
     # Live loop
     while True:
@@ -505,51 +867,27 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
                     time.sleep(0.5)
             f_stat = os.fstat(f.fileno())
             inode = f_stat.st_ino
-            samples.clear()
-            last_value_per_instance.clear()
-            completed_instances.clear()
-            instance_times.clear()
-            expected_total = None
-            max_instance_id = -1
+            state = PhaseState()
             while True:
                 line = f.readline()
                 if not line:
                     break
-                if MODE != "evaluation" and "Garbler: Creating" in line:
-                    m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
-                    if m2:
-                        total = int(m2.group(1))
-                        to_finalize = int(m2.group(2))
-                        expected_total = total
-                        print(
-                            f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
-                            file=sys.stderr,
-                        )
-                if MODE != "evaluation" and expected_total is None and "Starting cut-and-choose with" in line:
-                    m = re.search(r'with (\d+) instances', line)
-                    if m:
-                        expected_total = int(m.group(1))
-                        print(f"Detected {expected_total} total instances from log", file=sys.stderr)
-                s = parse_line(line.strip())
-                if s is None:
+                handle_metadata(line)
+                sample = parse_line(line.strip())
+                if sample is None:
                     continue
-                last_val = last_value_per_instance.get(s.instance)
-                if last_val is not None and s.v <= last_val:
-                    continue
-                samples.append(s)
-                last_value_per_instance[s.instance] = s.v
-                # Track instance timing
-                if s.instance not in instance_times:
-                    instance_times[s.instance] = {'start': s.t, 'end': None}
-                # Track max instance ID
-                max_instance_id = max(max_instance_id, s.instance)
-                # Mark as completed if reached target
-                if s.v >= target_gates:
-                    completed_instances[s.instance] = s.t
-                    instance_times[s.instance]['end'] = s.t
+                process_sample(state, sample, target_gates, ignore_non_increasing=True)
             pos = f.tell()
-            if samples:
-                print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
+            if state.samples:
+                print_status(
+                    state.samples,
+                    target_gates,
+                    window_sec,
+                    state.completed_instances,
+                    state.instance_times,
+                    state.expected_total,
+                    state.max_instance_id,
+                )
             time.sleep(0.3)
             continue
 
@@ -559,79 +897,68 @@ def tail_file(path: str, target_gates: int, window_sec: float) -> None:
             time.sleep(0.3)
             continue
         pos = f.tell()
-        if MODE != "evaluation" and "Garbler: Creating" in line:
-            m2 = re.search(r'Creating\s+(\d+)\s+instances\s*\((\d+)\s+to finalize\)', line)
-            if m2:
-                total = int(m2.group(1))
-                to_finalize = int(m2.group(2))
-                expected_total = total
-                print(
-                    f"Detected instances from 'Creating': total={total}, to_finalize={to_finalize}, expected_total={expected_total}",
-                    file=sys.stderr,
-                )
-        if MODE != "evaluation" and expected_total is None and "Starting cut-and-choose with" in line:
-            m = re.search(r'with (\d+) instances', line)
-            if m:
-                expected_total = int(m.group(1))
-                print(f"Detected {expected_total} total instances from log", file=sys.stderr)
-        s = parse_line(line.strip())
-        if s is None:
+        handle_metadata(line)
+        sample = parse_line(line.strip())
+        if sample is None:
             continue
 
-        # Track instance timing
-        if s.instance not in instance_times:
-            instance_times[s.instance] = {'start': s.t, 'end': None}
+        appended = process_sample(state, sample, target_gates, ignore_non_increasing=False)
+        if appended:
+            trim_samples(state, window_sec)
 
-        # Track max instance ID
-        max_instance_id = max(max_instance_id, s.instance)
-
-        # Handle instance restarts (when instance ID reappears with lower value)
-        last_val = last_value_per_instance.get(s.instance)
-        if last_val is not None and s.v < last_val:
-            # Instance restarted - remove from completed set if it was there
-            if s.instance in completed_instances:
-                del completed_instances[s.instance]
-            # Reset its timing
-            instance_times[s.instance] = {'start': s.t, 'end': None}
-            # Reset its last value
-            last_value_per_instance[s.instance] = s.v
-        else:
-            last_value_per_instance[s.instance] = s.v
-
-        samples.append(s)
-
-        # Mark as completed if reached target
-        if s.v >= target_gates:
-            completed_instances[s.instance] = s.t
-            instance_times[s.instance]['end'] = s.t
-
-        # Trim old samples but keep recent data for all active instances
-        if samples:
-            # Keep samples for active (non-completed) instances within window
-            active_samples = []
-            cutoff = max(s.t for s in samples[-100:]) - max(window_sec * 5, 300)
-
-            for s in samples:
-                # Keep if recent OR if it's for an active instance
-                if s.t >= cutoff or s.instance not in completed_instances:
-                    active_samples.append(s)
-            samples = active_samples
-
-        print_status(samples, target_gates, window_sec, completed_instances, instance_times, expected_total, max_instance_id)
+        if state.samples:
+            print_status(
+                state.samples,
+                target_gates,
+                window_sec,
+                state.completed_instances,
+                state.instance_times,
+                state.expected_total,
+                state.max_instance_id,
+            )
 
 def main():
     global MODE
-    parser = argparse.ArgumentParser(description="Live monitor for garbling/regarbling/evaluation logs")
-    parser.add_argument("logfile", nargs="?", default="2from3.log", help="Path to the log file to follow (default: 2from3.log)")
-    parser.add_argument("--regarbling", action="store_true", help="Track regarbling flow (match 'regarble: garbled: ...')")
-    parser.add_argument("--evaluation", action="store_true", help="Track evaluation throughput (match 'evaluated: ...')")
+    parser = argparse.ArgumentParser(
+        description="Live monitor for garbling/regarbling/evaluation logs"
+    )
+    parser.add_argument(
+        "logfile",
+        nargs="?",
+        default="2from3.log",
+        help="Path to the log file to follow (default: 2from3.log)",
+    )
+    parser.add_argument(
+        "--garbling",
+        action="store_true",
+        help="Track only the initial garbling phase (previous default)",
+    )
+    parser.add_argument(
+        "--regarbling",
+        action="store_true",
+        help="Track regarbling flow (match 'regarble: garbled: ...')",
+    )
+    parser.add_argument(
+        "--evaluation",
+        action="store_true",
+        help="Track evaluation throughput (match 'evaluated: ...')",
+    )
     args = parser.parse_args()
 
     # Determine mode (mutually exclusive flags)
-    if args.regarbling and args.evaluation:
-        print("Use only one of --regarbling or --evaluation", file=sys.stderr)
+    selected = sum(bool(x) for x in (args.garbling, args.regarbling, args.evaluation))
+    if selected > 1:
+        print("Use only one of --garbling, --regarbling, or --evaluation", file=sys.stderr)
         sys.exit(2)
-    MODE = "evaluation" if args.evaluation else ("regarbling" if args.regarbling else "garbling")
+
+    if args.evaluation:
+        MODE = "evaluation"
+    elif args.regarbling:
+        MODE = "regarbling"
+    elif args.garbling:
+        MODE = "garbling"
+    else:
+        MODE = "auto"
 
     window_sec = float(os.environ.get("WINDOW_SEC", "30"))
     # Fixed target: each Groth16 instance requires exactly this many gates

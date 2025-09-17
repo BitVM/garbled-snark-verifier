@@ -7,21 +7,27 @@ use std::{
 use crossbeam::channel;
 use tracing::error;
 
-use crate::S;
+use crate::{CiphertextHashAcc, S};
 
 /// Abstraction over a stream of ciphertexts keyed by gate id.
 /// Mirrors `CiphertextHandler` on the consumption side.
 pub trait CiphertextSource: Send {
+    type Result: Default;
+
     fn recv(&mut self) -> Option<(usize, S)>;
+    fn finalize(&self) -> Self::Result;
 }
 
 /// Channel-based source to preserve backward compatibility.
 pub type ChannelSource = channel::Receiver<(usize, S)>;
 
 impl CiphertextSource for ChannelSource {
+    type Result = ();
+
     fn recv(&mut self) -> Option<(usize, S)> {
         channel::Receiver::recv(self).ok()
     }
+    fn finalize(&self) {}
 }
 
 /// File-backed source that reads records directly from disk.
@@ -31,6 +37,8 @@ pub struct FileSource {
     // Scratch buffer for a single record (8 + 16)
     rec: [u8; 24],
     eof: bool,
+    // Optional hasher to accumulate ciphertext hash for verification
+    hasher: CiphertextHashAcc,
 }
 
 impl FileSource {
@@ -43,11 +51,13 @@ impl FileSource {
             reader,
             rec: [0u8; 24],
             eof: false,
+            hasher: CiphertextHashAcc::default(),
         })
     }
 }
 
 impl CiphertextSource for FileSource {
+    type Result = u128;
     fn recv(&mut self) -> Option<(usize, S)> {
         if self.eof {
             return None;
@@ -61,8 +71,9 @@ impl CiphertextSource for FileSource {
             match self.reader.read(&mut self.rec[read..]) {
                 Ok(0) => {
                     if read == 0 {
-                        // Clean EOF
+                        // Clean EOF - finalize hash if enabled
                         self.eof = true;
+
                         return None;
                     } else {
                         error!(
@@ -91,6 +102,11 @@ impl CiphertextSource for FileSource {
         s_bytes.copy_from_slice(&self.rec[8..]);
         let s = S::from_bytes(s_bytes);
 
+        self.hasher.update(s);
+
         Some((gate_id, s))
+    }
+    fn finalize(&self) -> Self::Result {
+        self.hasher.finalize()
     }
 }

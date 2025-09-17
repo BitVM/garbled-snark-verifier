@@ -157,6 +157,7 @@ impl CiphertextHandler for CiphertextHashAcc {
 }
 
 pub type CiphertextSender = channel::Sender<(usize, S)>;
+
 impl CiphertextHandler for CiphertextSender {
     type Result = ();
 

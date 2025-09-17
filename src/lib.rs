@@ -60,7 +60,7 @@ pub mod ark {
     pub use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, short_weierstrass::SWCurveConfig};
     pub use ark_ff::{PrimeField, UniformRand, fields::Field};
     // SNARK traits and Groth16 scheme
-    pub use ark_groth16::Groth16;
+    pub use ark_groth16::{Groth16, ProvingKey, VerifyingKey};
     // R1CS interfaces and lc! macro
     pub use ark_relations::{
         lc,

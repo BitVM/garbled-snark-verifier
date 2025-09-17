@@ -578,6 +578,14 @@ pub struct GarblerCompressedInput {
     inner: GarblerInput,
 }
 
+impl Deref for GarblerCompressedInput {
+    type Target = GarblerInput;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 impl CircuitInput for GarblerCompressedInput {
     type WireRepr = ProofCompressedWires;
 
