@@ -59,8 +59,42 @@ impl<I: CircuitInput> Config<I> {
     }
 }
 
-pub type GarbledInstance<I> =
-    StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>;
+pub struct GarbledInstance {
+    /// Constant to represent false wire constant
+    ///
+    /// Necessary to restart the scheme and consistency
+    pub false_wire_constant: GarbledWire,
+
+    /// Constant to represent true wire constant
+    ///
+    /// Necessary to restart the scheme and consistency
+    pub true_wire_constant: GarbledWire,
+
+    /// Output `WireId` in return order
+    pub output_wire_values: GarbledWire,
+
+    /// Values of the input Wires, which were fed to the circuit input
+    pub input_wire_values: Vec<GarbledWire>,
+
+    pub ciphertext_handler_result: u128,
+}
+
+impl<I: CircuitInput>
+    From<StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>>
+    for GarbledInstance
+{
+    fn from(
+        res: StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>,
+    ) -> Self {
+        GarbledInstance {
+            false_wire_constant: res.false_wire_constant,
+            true_wire_constant: res.true_wire_constant,
+            output_wire_values: res.output_value,
+            input_wire_values: res.input_wire_values,
+            ciphertext_handler_result: res.ciphertext_handler_result,
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GarbledInstanceCommit {
@@ -74,13 +108,15 @@ pub struct GarbledInstanceCommit {
 }
 
 impl GarbledInstanceCommit {
-    pub fn new<I: CircuitInput>(instance: &GarbledInstance<I>) -> Self {
+    pub fn new(instance: &GarbledInstance) -> Self {
         Self {
             ciphertext_commit: instance.ciphertext_handler_result,
-            input_labels_commit: Self::commit_garbled_wires(instance.input_labels()),
-            // Commit output labels separately for 1 and 0 selections
-            output_label1_commit: Self::commit_label1(&[instance.output_labels().clone()]),
-            output_label0_commit: Self::commit_label0(&[instance.output_labels().clone()]),
+            input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values),
+
+            output_label1_commit: Self::commit_label1(&instance.output_wire_values),
+
+            output_label0_commit: Self::commit_label0(&instance.output_wire_values),
+
             true_constant_commit: CiphertextHashAcc::digest(
                 instance.true_wire_constant.select(true),
             ),
@@ -99,20 +135,12 @@ impl GarbledInstanceCommit {
         h.finalize()
     }
 
-    fn commit_label1(inputs: &[GarbledWire]) -> Commit {
-        let mut h = CiphertextHashAcc::default();
-        for GarbledWire { label1, .. } in inputs.iter() {
-            h.update(*label1);
-        }
-        h.finalize()
+    fn commit_label1(input: &GarbledWire) -> Commit {
+        CiphertextHashAcc::digest(input.label1)
     }
 
-    fn commit_label0(inputs: &[GarbledWire]) -> Commit {
-        let mut h = CiphertextHashAcc::default();
-        for GarbledWire { label0, .. } in inputs.iter() {
-            h.update(*label0);
-        }
-        h.finalize()
+    fn commit_label0(input: &GarbledWire) -> Commit {
+        CiphertextHashAcc::digest(input.label0)
     }
 
     pub fn output_commit_label1(&self) -> Commit {
@@ -162,7 +190,7 @@ impl GarblerStage {
 
 pub struct Garbler<I: CircuitInput + Clone> {
     stage: GarblerStage,
-    instances: Vec<GarbledInstance<I>>,
+    instances: Vec<GarbledInstance>,
     config: Config<I>,
 }
 
@@ -201,13 +229,19 @@ where
 
                     info!("Starting garbling of circuit (cut-and-choose)");
 
-                    CircuitBuilder::streaming_garbling(
+                    let res: StreamingResult<
+                        GarbleMode<AesNiHasher, CiphertextHashAcc>,
+                        I,
+                        GarbledWire,
+                    > = CircuitBuilder::streaming_garbling(
                         inputs,
                         DEFAULT_CAPACITY,
                         *garbling_seed,
                         hasher,
                         builder,
-                    )
+                    );
+
+                    GarbledInstance::from(res)
                 })
                 .collect()
         });
@@ -464,7 +498,7 @@ where
                     builder,
                 );
 
-                let regarbling_commit = GarbledInstanceCommit::new(&res);
+                let regarbling_commit = GarbledInstanceCommit::new(&res.into());
                 let received_commit = &self.commits[*index];
 
                 &regarbling_commit == received_commit
