@@ -1,13 +1,12 @@
 use std::{array, marker::PhantomData, num::NonZero};
 
-use crossbeam::channel;
-use log::error;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    Delta, Gate, S, WireId,
-    circuit::{CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE},
+    Delta, Gate, GateHasher, S, WireId,
+    circuit::{CiphertextHandler, CircuitMode, EncodeInput, FALSE_WIRE, TRUE_WIRE},
     core::progress::maybe_log_progress,
     hashers,
     storage::{Credits, Storage},
@@ -18,7 +17,7 @@ use crate::{
 pub(crate) mod halfgates_garbling;
 
 // Public GarbledWire type colocated with garbling logic.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GarbledWire {
     pub label0: S,
     pub label1: S,
@@ -59,21 +58,16 @@ impl Default for GarbledWire {
     }
 }
 
-/// Type alias for GarbleMode with Blake3 hasher (default)
-pub type GarbleModeBlake3 = GarbleMode<hashers::Blake3Hasher>;
-
-// Note: We store only one label per wire (label0).
-// The complementary label (label1) is restored on demand as label0 ^ delta.
-
 /// Output type for garbled tables - only actual ciphertexts
 pub type GarbledTableEntry = (usize, S);
 
 /// Garble mode - generates garbled circuits with streaming output
-pub struct GarbleMode<H: hashers::GateHasher = hashers::Blake3Hasher> {
+pub struct GarbleMode<H: hashers::GateHasher, CTH: CiphertextHandler> {
     rng: ChaChaRng,
     delta: Delta,
     gate_index: usize,
-    output_sender: channel::Sender<GarbledTableEntry>,
+    // Handler for streaming ciphertexts (non-free gates only)
+    output_handler: CTH,
     // Store only label0 for each wire; reconstruct label1 as label0 ^ delta
     storage: Storage<WireId, Option<S>>,
     // Store the constant wires
@@ -82,12 +76,8 @@ pub struct GarbleMode<H: hashers::GateHasher = hashers::Blake3Hasher> {
     _hasher: std::marker::PhantomData<H>,
 }
 
-impl<H: hashers::GateHasher> GarbleMode<H> {
-    pub fn new(
-        capacity: usize,
-        seed: u64,
-        output_sender: channel::Sender<GarbledTableEntry>,
-    ) -> Self {
+impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
+    pub fn new(capacity: usize, seed: u64, output_handler: CTH) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seed);
         let delta = Delta::generate(&mut rng);
 
@@ -99,16 +89,19 @@ impl<H: hashers::GateHasher> GarbleMode<H> {
             rng,
             delta,
             gate_index: 0,
-            output_sender,
+            output_handler,
             false_wire,
             true_wire,
             _hasher: PhantomData,
         }
     }
 
-    pub fn preallocate_input<I: EncodeInput<Self>>(seed: u64, i: &I) -> Vec<GarbledWire> {
-        let (sender, _receiver) = channel::bounded(1);
-        let mut self_ = Self::new(3200, seed, sender);
+    pub fn preallocate_input<I: EncodeInput<GarbleMode<H, ()>>>(
+        seed: u64,
+        i: &I,
+    ) -> Vec<GarbledWire> {
+        // Use a no-op handler during preallocation
+        let mut self_ = GarbleMode::<H, ()>::new(3200, seed, ());
 
         let allocated = i.allocate(|| self_.allocate_wire(1));
         i.encode(&allocated, &mut self_);
@@ -134,14 +127,11 @@ impl<H: hashers::GateHasher> GarbleMode<H> {
         let Some(ciphertext) = entry else {
             return;
         };
-
-        if let Err(err) = self.output_sender.send((gate_id, ciphertext)) {
-            error!("Error while send gate_id {gate_id} ciphertext: {err}");
-        }
+        self.output_handler.handle(gate_id, ciphertext);
     }
 }
 
-impl<H: crate::hashers::GateHasher> std::fmt::Debug for GarbleMode<H> {
+impl<H: GateHasher, CTH: CiphertextHandler> std::fmt::Debug for GarbleMode<H, CTH> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GarbleMode")
             .field("gate_index", &self.gate_index)
@@ -150,8 +140,9 @@ impl<H: crate::hashers::GateHasher> std::fmt::Debug for GarbleMode<H> {
     }
 }
 
-impl<H: crate::hashers::GateHasher> CircuitMode for GarbleMode<H> {
+impl<H: GateHasher, CTH: CiphertextHandler> CircuitMode for GarbleMode<H, CTH> {
     type WireValue = GarbledWire;
+    type CiphertextAcc = CTH::Result;
 
     fn false_value(&self) -> GarbledWire {
         self.false_wire.clone()
@@ -198,7 +189,6 @@ impl<H: crate::hashers::GateHasher> CircuitMode for GarbleMode<H> {
                 Err(_) => panic!("Can't find wire_b {:?}", gate.wire_b),
             },
         };
-
         let gate_id = self.next_gate_index();
 
         // If C is unreachable, skip evaluation and do not advance gate index.
@@ -269,6 +259,10 @@ impl<H: crate::hashers::GateHasher> CircuitMode for GarbleMode<H> {
         for wire_id in wires {
             self.storage.add_credits(*wire_id, credits.get()).unwrap();
         }
+    }
+
+    fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
+        self.output_handler.finalize()
     }
 }
 

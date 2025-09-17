@@ -304,9 +304,9 @@ pub(super) mod tests {
     use std::{array, iter};
 
     use ark_ff::AdditiveGroup;
-    use log::trace;
     use rand::Rng;
     use test_log::test;
+    use tracing::trace;
 
     use super::*;
     use crate::{

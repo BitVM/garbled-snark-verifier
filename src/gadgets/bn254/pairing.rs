@@ -22,8 +22,8 @@ use crate::{
     CircuitContext, Fp254Impl,
     circuit::{FromWires, OffCircuitParam, WiresArity, WiresObject},
     gadgets::bn254::{
-        final_exponentiation::final_exponentiation, fq::Fq, fq2::Fq2, fq6::Fq6, fq12::Fq12,
-        g1::G1Projective, g2::G2Projective,
+        final_exponentiation::final_exponentiation_montgomery, fq::Fq, fq2::Fq2, fq6::Fq6,
+        fq12::Fq12, g1::G1Projective, g2::G2Projective,
     },
 };
 
@@ -885,7 +885,7 @@ pub fn pairing_const_q<C: CircuitContext>(
     q: &ark_bn254::G2Affine,
 ) -> Fq12 {
     let f = miller_loop_const_q(circuit, p, q);
-    final_exponentiation(circuit, &f)
+    final_exponentiation_montgomery(circuit, &f)
 }
 
 /// Multi-pairing aggregation with constant `Q_i` and variable `P_i`.
@@ -896,7 +896,7 @@ pub fn multi_pairing_const_q<C: CircuitContext>(
     qs: &[ark_bn254::G2Affine],
 ) -> Fq12 {
     let f = multi_miller_loop_const_q(circuit, ps, qs);
-    final_exponentiation(circuit, &f)
+    final_exponentiation_montgomery(circuit, &f)
 }
 
 impl OffCircuitParam for &ark_bn254::Fq6 {
@@ -1024,7 +1024,7 @@ mod tests {
         },
         gadgets::{
             bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
-            bn254::{final_exponentiation, fp254impl::Fp254Impl, g2::G2Projective as G2Wires},
+            bn254::{fp254impl::Fp254Impl, g2::G2Projective as G2Wires},
         },
     };
 
@@ -1791,7 +1791,7 @@ mod tests {
         let result = CircuitBuilder::streaming_execute::<_, _, FinalExpOutput>(
             input,
             10_000,
-            |ctx, input| final_exponentiation(ctx, &input.f),
+            |ctx, input| final_exponentiation_montgomery(ctx, &input.f),
         );
 
         assert_eq!(result.output_value.value, expected_m);
@@ -1882,7 +1882,7 @@ mod tests {
             10_000,
             |ctx, input| {
                 let f_ml = miller_loop_montgomery_fast(ctx, &input.p, &input.q);
-                final_exponentiation(ctx, &f_ml)
+                final_exponentiation_montgomery(ctx, &f_ml)
             },
         );
 

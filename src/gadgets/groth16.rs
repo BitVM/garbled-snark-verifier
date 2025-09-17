@@ -4,8 +4,10 @@
 //! e(A, B) * e(C, -delta) * e(msm, -gamma) == e(alpha, beta)
 //! where `msm = vk.gamma_abc_g1[0] + sum_i(public[i] * vk.gamma_abc_g1[i+1])`.
 
+use ark_bn254::Bn254;
 use ark_ec::{AffineRepr, CurveGroup, models::short_weierstrass::SWCurveConfig, pairing::Pairing};
 use ark_ff::{AdditiveGroup, Field};
+use ark_groth16::VerifyingKey;
 use circuit_component_macro::component;
 
 use crate::{
@@ -52,15 +54,18 @@ pub fn projective_to_affine_montgomery<C: CircuitContext>(
 /// - `vk`: verifying key with constant elements (host-provided arkworks types).
 ///
 /// Returns a boolean wire that is 1 iff the proof verifies.
-#[component(offcircuit_args = "vk")]
 pub fn groth16_verify<C: CircuitContext>(
     circuit: &mut C,
-    public: &[Fr],
-    proof_a: &G1Projective,
-    proof_b: &G2Projective,
-    proof_c: &G1Projective,
-    vk: &ark_groth16::VerifyingKey<ark_bn254::Bn254>,
+    input: &Groth16VerifyInputWires,
 ) -> WireId {
+    let Groth16VerifyInputWires {
+        public,
+        a,
+        b,
+        c,
+        vk,
+    } = input;
+
     // MSM: sum_i public[i] * gamma_abc_g1[i+1]
     let bases: Vec<ark_bn254::G1Projective> = vk
         .gamma_abc_g1
@@ -82,11 +87,11 @@ pub fn groth16_verify<C: CircuitContext>(
     let f = multi_miller_loop_groth16_evaluate_montgomery_fast(
         circuit,
         &msm_affine,  // p1
-        proof_c,      // p2
-        proof_a,      // p3
+        c,            // p2
+        a,            // p3
         -vk.gamma_g2, // q1
         -vk.delta_g2, // q2
-        proof_b,      // q2
+        b,            // q2
     );
 
     let alpha_beta = ark_bn254::Bn254::final_exponentiation(ark_bn254::Bn254::multi_miller_loop(
@@ -240,46 +245,54 @@ impl WiresObject for CompressedG2Wires {
 }
 
 /// Convenience wrapper: verify using compressed A and C (x, y_flag). B remains host-provided `G2Affine`.
-#[component(offcircuit_args = "vk")]
 pub fn groth16_verify_compressed<C: CircuitContext>(
     circuit: &mut C,
-    public: &[Fr],
-    compressed_a: &CompressedG1Wires,
-    compressed_b: &CompressedG2Wires,
-    compressed_c: &CompressedG1Wires,
-    vk: &ark_groth16::VerifyingKey<ark_bn254::Bn254>,
+    input: &Groth16VerifyCompressedInputWires,
 ) -> crate::WireId {
-    let a = decompress_g1_from_compressed(circuit, compressed_a);
-    let b = decompress_g2_from_compressed(circuit, compressed_b);
-    let c = decompress_g1_from_compressed(circuit, compressed_c);
+    let a = decompress_g1_from_compressed(circuit, &input.a);
+    let b = decompress_g2_from_compressed(circuit, &input.b);
+    let c = decompress_g1_from_compressed(circuit, &input.c);
 
-    groth16_verify(circuit, public, &a, &b, &c, vk)
+    groth16_verify(
+        circuit,
+        &Groth16VerifyInputWires {
+            public: input.public.clone(),
+            a,
+            b,
+            c,
+            vk: input.vk.clone(),
+        },
+    )
 }
 
 #[derive(Debug, Clone)]
-pub struct Groth16ExecInput {
+pub struct Groth16VerifyInput {
     pub public: Vec<ark_bn254::Fr>,
     pub a: ark_bn254::G1Projective,
     pub b: ark_bn254::G2Projective,
     pub c: ark_bn254::G1Projective,
+    pub vk: VerifyingKey<Bn254>,
 }
 
 #[derive(Debug)]
-pub struct Groth16ExecInputWires {
+pub struct Groth16VerifyInputWires {
     pub public: Vec<Fr>,
     pub a: G1Projective,
     pub b: G2Projective,
     pub c: G1Projective,
+    pub vk: VerifyingKey<Bn254>,
 }
 
-impl CircuitInput for Groth16ExecInput {
-    type WireRepr = Groth16ExecInputWires;
+impl CircuitInput for Groth16VerifyInput {
+    type WireRepr = Groth16VerifyInputWires;
+
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-        Groth16ExecInputWires {
+        Groth16VerifyInputWires {
             public: self.public.iter().map(|_| Fr::new(&mut issue)).collect(),
             a: G1Projective::new(&mut issue),
             b: G2Projective::new(&mut issue),
             c: G1Projective::new(issue),
+            vk: self.vk.clone(),
         }
     }
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
@@ -294,8 +307,8 @@ impl CircuitInput for Groth16ExecInput {
     }
 }
 
-impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ExecInput {
-    fn encode(&self, repr: &Groth16ExecInputWires, cache: &mut M) {
+impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16VerifyInput {
+    fn encode(&self, repr: &Groth16VerifyInputWires, cache: &mut M) {
         // Encode public scalars
         for (w, v) in repr.public.iter().zip(self.public.iter()) {
             let fr_fn = Fr::get_wire_bits_fn(w, v).unwrap();
@@ -353,25 +366,49 @@ impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ExecInput {
     }
 }
 
-pub struct Groth16ExecInputCompressed(pub Groth16ExecInput);
+impl Groth16VerifyInput {
+    pub fn compress(self) -> Groth16VerifyCompressedInput {
+        Groth16VerifyCompressedInput(self)
+    }
+}
+
+pub struct Groth16VerifyCompressedInput(pub Groth16VerifyInput);
 
 #[derive(Debug)]
-pub struct CompressedGroth16ExecInputWires {
+pub struct Groth16VerifyCompressedInputWires {
     pub public: Vec<Fr>,
     pub a: CompressedG1Wires,
     pub b: CompressedG2Wires,
     pub c: CompressedG1Wires,
+    pub vk: VerifyingKey<Bn254>,
 }
 
-impl CircuitInput for Groth16ExecInputCompressed {
-    type WireRepr = CompressedGroth16ExecInputWires;
+impl WiresObject for Groth16VerifyCompressedInputWires {
+    fn to_wires_vec(&self) -> Vec<WireId> {
+        Groth16VerifyCompressedInput::collect_wire_ids(self)
+    }
+
+    fn clone_from(&self, mut issue: &mut impl FnMut() -> WireId) -> Self {
+        Groth16VerifyCompressedInputWires {
+            public: self.public.iter().map(|_| Fr::new(&mut issue)).collect(),
+            a: CompressedG1Wires::new(&mut issue),
+            b: CompressedG2Wires::new(&mut issue),
+            c: CompressedG1Wires::new(&mut issue),
+            vk: self.vk.clone(),
+        }
+    }
+}
+
+impl CircuitInput for Groth16VerifyCompressedInput {
+    type WireRepr = Groth16VerifyCompressedInputWires;
 
     fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
-        CompressedGroth16ExecInputWires {
+        Groth16VerifyCompressedInputWires {
             public: self.0.public.iter().map(|_| Fr::new(&mut issue)).collect(),
             a: CompressedG1Wires::new(&mut issue),
             b: CompressedG2Wires::new(&mut issue),
             c: CompressedG1Wires::new(&mut issue),
+            vk: self.0.vk.clone(),
         }
     }
     fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
@@ -386,8 +423,8 @@ impl CircuitInput for Groth16ExecInputCompressed {
     }
 }
 
-impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16ExecInputCompressed {
-    fn encode(&self, repr: &CompressedGroth16ExecInputWires, cache: &mut M) {
+impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for Groth16VerifyCompressedInput {
+    fn encode(&self, repr: &Groth16VerifyCompressedInputWires, cache: &mut M) {
         // Encode public scalars
         for (w, v) in repr.public.iter().zip(self.0.public.iter()) {
             let fr_fn = Fr::get_wire_bits_fn(w, v).unwrap();
@@ -465,10 +502,10 @@ mod tests {
     use test_log::test;
 
     use super::*;
-    use crate::circuit::{CircuitBuilder, CircuitMode, EncodeInput};
+    use crate::circuit::{CircuitBuilder, CircuitMode, EncodeInput, StreamingResult};
 
     // Helper to reduce duplication across bitflip tests for A, B, and C
-    fn run_false_bitflip_test(seed: u64, mutate: impl FnOnce(&mut Groth16ExecInput)) {
+    fn run_false_bitflip_test(seed: u64, mutate: impl FnOnce(&mut Groth16VerifyInput)) {
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -481,23 +518,21 @@ mod tests {
         let c_val = circuit.a.unwrap() * circuit.b.unwrap();
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
-        let mut inputs = Groth16ExecInput {
+        let mut inputs = Groth16VerifyInput {
             public: vec![c_val],
             a: proof.a.into_group(),
             b: proof.b.into_group(),
             c: proof.c.into_group(),
+            vk,
         };
 
         // Apply caller-provided mutation to corrupt a component
         mutate(&mut inputs);
 
-        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
-                vec![ok]
-            });
+        let out: StreamingResult<_, _, bool> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, groth16_verify);
 
-        assert!(!out.output_value[0]);
+        assert!(!out.output_value);
     }
 
     #[derive(Copy, Clone)]
@@ -547,20 +582,18 @@ mod tests {
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
         // Build inputs for gadget (convert A,C to projective for wire encoding)
-        let inputs = Groth16ExecInput {
+        let inputs = Groth16VerifyInput {
             public: vec![c_val],
             a: proof.a.into_group(),
             b: proof.b.into_group(),
             c: proof.c.into_group(),
+            vk,
         };
 
-        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, input| {
-                let ok = groth16_verify(ctx, &input.public, &input.a, &input.b, &input.c, &vk);
-                vec![ok]
-            });
+        let out: StreamingResult<_, _, bool> =
+            CircuitBuilder::streaming_execute(inputs, 40_000, groth16_verify);
 
-        assert!(out.output_value[0]);
+        assert!(out.output_value);
     }
 
     #[test]
@@ -587,16 +620,8 @@ mod tests {
 
     #[test]
     fn test_groth16_verify_false_random() {
-        use rand::{Rng, SeedableRng};
+        use rand::SeedableRng;
         use rand_chacha::ChaCha20Rng;
-
-        fn rnd_fr<R: Rng>(rng: &mut R) -> ark_bn254::Fr {
-            let mut prng = ChaCha20Rng::seed_from_u64(rng.r#gen());
-            ark_bn254::Fr::rand(&mut prng)
-        }
-        fn random_g2_affine<R: Rng>(rng: &mut R) -> ark_bn254::G2Affine {
-            (ark_bn254::G2Projective::generator() * rnd_fr(rng)).into_affine()
-        }
 
         // Create a valid vk from a small circuit
         let k = 4;
@@ -610,24 +635,18 @@ mod tests {
         let (_pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
 
         // Random, unrelated inputs instead of a valid proof
-        let inputs = Groth16ExecInput {
+        let inputs = Groth16VerifyInput {
             public: vec![ark_bn254::Fr::rand(&mut rng)],
             a: (ark_bn254::G1Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
             b: (ark_bn254::G2Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
             c: (ark_bn254::G1Projective::generator() * ark_bn254::Fr::rand(&mut rng)),
+            vk,
         };
-        let b_rand = random_g2_affine(&mut rng);
-        let b_rand_proj = b_rand.into_group();
-        let b_rand_m = G2Projective::as_montgomery(b_rand_proj);
-        let b_rand_wires = G2Projective::new_constant(&b_rand_m).unwrap();
 
-        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 10_000, |ctx, wires| {
-                let ok = groth16_verify(ctx, &wires.public, &wires.a, &b_rand_wires, &wires.c, &vk);
-                vec![ok]
-            });
+        let out: crate::circuit::StreamingResult<_, _, bool> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, groth16_verify);
 
-        assert!(!out.output_value[0]);
+        assert!(!out.output_value);
     }
 
     // Minimal harnesses that allocate compressed wires and feed them directly
@@ -748,14 +767,15 @@ mod tests {
             num_variables: 8,
             num_constraints: 1 << k,
         };
-        let (pk, _vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
+        let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
-        let inputs = Groth16ExecInputCompressed(Groth16ExecInput {
+        let inputs = Groth16VerifyCompressedInput(Groth16VerifyInput {
             public: vec![ark_bn254::Fr::from(0u64)], // unused here
             a: proof.a.into_group(),
             b: proof.b.into_group(),
             c: proof.c.into_group(),
+            vk,
         });
 
         let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
@@ -805,27 +825,19 @@ mod tests {
         let c_val = circuit.a.unwrap() * circuit.b.unwrap();
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
-        let inputs = Groth16ExecInputCompressed(Groth16ExecInput {
+        let inputs = Groth16VerifyInput {
             public: vec![c_val],
             a: proof.a.into_group(),
             b: proof.b.into_group(),
             c: proof.c.into_group(),
-        });
+            vk,
+        }
+        .compress();
 
-        let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
-            CircuitBuilder::streaming_execute(inputs, 80_000, |ctx, wires| {
-                let ok = groth16_verify_compressed(
-                    ctx,
-                    &wires.public,
-                    &wires.a,
-                    &wires.b,
-                    &wires.c,
-                    &vk,
-                );
-                vec![ok]
-            });
+        let out: crate::circuit::StreamingResult<_, _, bool> =
+            CircuitBuilder::streaming_execute(inputs, 80_000, groth16_verify_compressed);
 
-        assert!(out.output_value[0]);
+        assert!(out.output_value);
     }
 
     // Unified small verifier runner to avoid duplication across flows and bitflips
@@ -838,7 +850,7 @@ mod tests {
     fn run_small_verify(
         flow: VerifyFlow,
         seed: u64,
-        mutate: impl FnOnce(&mut Groth16ExecInput),
+        mutate: impl FnOnce(&mut Groth16VerifyInput),
     ) -> bool {
         let k = 4; // small circuit to keep test fast
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
@@ -852,39 +864,30 @@ mod tests {
         let c_val = circuit.a.unwrap() * circuit.b.unwrap();
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
-        let mut inputs = Groth16ExecInput {
+        let mut inputs = Groth16VerifyInput {
             public: vec![c_val],
             a: proof.a.into_group(),
             b: proof.b.into_group(),
             c: proof.c.into_group(),
+            vk,
         };
         mutate(&mut inputs);
 
         match flow {
             VerifyFlow::Uncompressed => {
-                let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
-                    CircuitBuilder::streaming_execute(inputs, 40_000, |ctx, wires| {
-                        let ok =
-                            groth16_verify(ctx, &wires.public, &wires.a, &wires.b, &wires.c, &vk);
-                        vec![ok]
-                    });
-                out.output_value[0]
+                let out: StreamingResult<_, _, bool> =
+                    CircuitBuilder::streaming_execute(inputs, 40_000, groth16_verify);
+
+                out.output_value
             }
             VerifyFlow::Compressed => {
-                let inputs_c = Groth16ExecInputCompressed(inputs);
-                let out: crate::circuit::StreamingResult<_, _, Vec<bool>> =
-                    CircuitBuilder::streaming_execute(inputs_c, 80_000, |ctx, wires| {
-                        let ok = groth16_verify_compressed(
-                            ctx,
-                            &wires.public,
-                            &wires.a,
-                            &wires.b,
-                            &wires.c,
-                            &vk,
-                        );
-                        vec![ok]
-                    });
-                out.output_value[0]
+                let out: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
+                    inputs.compress(),
+                    80_000,
+                    groth16_verify_compressed,
+                );
+
+                out.output_value
             }
         }
     }

@@ -8,11 +8,12 @@ Gate counts are automatically measured for k=6 (64 constraints) on every push to
 ![Non-Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/nonfree.json)
 ![Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/free.json)
 
-⚡ Performance (local laptop with AES/SSE enabled)
-- ⏱️ Throughput: ~17,000,000 gates/s (≈ 68 ns/gate)
-- 🔐 Modes: garbling and evaluation each ≈ 11 minutes for the measured workload; evaluation matches garbling throughput because garbling is SIMD‑accelerated (AES‑NI/AVX2 half‑gates).
-- 💾 Memory: < 200 MB peak RSS
-- 🧪 Build flags: x86_64 with AES/SSE/AVX2/PCLMULQDQ enabled; see `.cargo/config.toml`
+⚡ Performance (cut‑and‑choose oriented; developer laptop, AES‑NI)
+- ⏱️ Per‑instance garbling: 11,174,708,821 gates in ~5m50s → ≈32M gates/s (≈31 ns/gate).
+- 🧩 16‑instance C&C on 8 physical cores: overall garbling finished in ~11m58s → ≈249M gates/s aggregate. Wall‑clock time ≈ ceil(total_instances / physical_cores) × per_instance_time.
+- 🔐 Focus: choose `total` (instances) for cut‑and‑choose soundness; runtime then scales as above. The monitor reports per‑instance progress and overall ETA.
+- 💾 Memory (per garbling task): typically < 200 MB peak RSS. Total memory ≈ per‑instance usage × number of concurrently active instances (≈ physical cores).
+- 🧪 Build flags: x86_64 with AES/SSE/AVX2/PCLMULQDQ enabled; see `.cargo/config.toml`. If AES‑NI is unavailable, prefer the BLAKE3 hasher in examples that allow selecting it.
 
 
 A streaming garbled-circuit implementation of a Groth16 verifier over BN254. It targets large, real‑world verifier circuits while keeping memory bounded via a two‑pass streaming architecture. The crate supports three execution modes: direct boolean execution, garbling, and evaluation (2PC/MPC‑style).
@@ -127,13 +128,22 @@ RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3
 - Prints a commit from the garbler with output label hashes and the ciphertext hash, and the evaluator verifies both the result label and ciphertext hash match.
 - Tip: tweak the example’s `k` (constraint count) and `CAPACITY` (channel buffer) constants in `examples/groth16_garble.rs` to scale workload and tune throughput.
 
-### Live Gate Monitor
-Two processes: (1) run example and log stderr, (2) run monitor.
+### Live Gate Monitor (Cut-and-Choose)
+Two processes: (1) run the cut-and-choose demo and log stderr, (2) run the monitor.
 
-- Process #1 (garble + log): `RUST_LOG=info cargo run --example groth16_garble --release 2> garble.log`
-  - BLAKE3: `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3 2> garble.log`
-- Process #2 (monitor): `python3 .scripts/gates_monitor.py garble.log`
-- Parses `garbled:` (preferred) and also `executed:` for execute mode. Tweak log frequency via `src/core/progress.rs::GATE_LOG_STEP`.
+- Process #1 (cut-and-choose + log): `RUST_LOG=info cargo run --example groth16_cut_and_choose --release 2> cc.log`
+- Process #2 (monitor): `python3 .scripts/gates_monitor.py cc.log`
+  - Follows `garble:` progress lines emitted during the first garbling pass and auto-detects the total instance count from `Starting cut-and-choose with <N> instances`.
+  - Tracks per-instance throughput, ETA, and completion timing. Adjust the sliding window with `WINDOW_SEC=<seconds>`.
+  - Ignores the `regarble:` stage so that only the initial garbling effort is measured.
+  - Tweak log frequency via `src/core/progress.rs::GATE_LOG_STEP`.
+  - The demo spins up a pinned Rayon pool sized to your physical core count (`num_cpus::get_physical()`), so parallelism is managed automatically. Adjust `total` only to change the cut-and-choose security parameter (number of candidate instances).
+- Example run (developer laptop, 16 instances ≈178.8B gates): ~5m50s per garbling pass, 11m58s cumulative (~249M gates/s sustained). Adjust `total` primarily to meet your cut-and-choose soundness target—the monitor helps confirm the resulting wall-clock cost.
+
+#### C&C Sizing (What matters)
+- Security parameter: `total` (number of candidate instances) — pick this first based on desired soundness; `to_finalize` is how many are kept private and fully evaluated (1 in our demo).
+- Parallelism: managed automatically by a pinned Rayon pool sized to physical cores; you don’t need to tune threads.
+- Back‑of‑the‑envelope ETA: `ceil(total / physical_cores) × T_instance` where `T_instance` is your per‑instance garbling time (≈5m50s in the example run). The monitor gives a real‑time view of this.
 
 #### Hasher selection
 - The garbling/evaluation PRF for half‑gates can be selected via `--hasher`:

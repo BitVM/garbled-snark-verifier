@@ -1,12 +1,12 @@
-use crate_lib::{
-    CircuitContext, Delta, EvaluatedWire, FqWire, GarbledWire, Gate, GateType, S, WireId,
+use crossbeam::channel;
+use garbled_snark_verifier::{
+    Blake3Hasher, CircuitContext, Delta, EvaluatedWire, FqWire, GarbleMode, GarbledWire, Gate,
+    GateHasher, GateType, S, WireId,
     circuit::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateModeBlake3 as EvaluateMode, GarbleModeBlake3 as GarbleMode},
+        CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, CircuitMode,
+        EncodeInput, StreamingResult, WiresObject, modes::EvaluateMode,
     },
 };
-use crossbeam::channel;
-use garbled_snark_verifier as crate_lib;
 use itertools::Itertools;
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -102,11 +102,11 @@ fn test_garble_evaluate_and_consistency() {
         };
         let (sender, receiver) = channel::unbounded();
 
-        let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(garble_inputs, 10, seed, sender, circuit_fn);
+        let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
         let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
-            CircuitBuilder::<EvaluateMode>::streaming_evaluation(
+            CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
                 eval_inputs,
                 10,
                 garble_result.true_wire_constant.select(true).to_u128(),
@@ -165,17 +165,14 @@ macro_rules! test_gate_consistency {
                 };
 
                 let (sender, receiver) = channel::unbounded();
-                let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-                    CircuitBuilder::streaming_garbling_blake3(
-                        garble_inputs,
-                        10,
-                        seed,
-                        sender,
-                        circuit_fn,
-                    );
+                let garble_result: StreamingResult<
+                    GarbleMode<Blake3Hasher, _>,
+                    _,
+                    Vec<GarbledWire>,
+                > = CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
                 let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
-                    CircuitBuilder::<EvaluateMode>::streaming_evaluation(
+                    CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
                         eval_inputs,
                         10,
                         garble_result.true_wire_constant.select(true).to_u128(),
@@ -291,11 +288,11 @@ fn test_not_garble_evaluate_consistency() {
         };
 
         let (sender, receiver) = channel::unbounded();
-        let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(garble_inputs, 10, seed, sender, circuit_fn);
+        let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
         let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
-            CircuitBuilder::<EvaluateMode>::streaming_evaluation(
+            CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
                 eval_inputs,
                 10,
                 garble_result.true_wire_constant.select(true).to_u128(),
@@ -359,8 +356,8 @@ impl CircuitInput for FqPairInputs {
     }
 }
 
-impl EncodeInput<GarbleMode> for FqPairInputs {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode) {
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for FqPairInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode<H, CTH>) {
         let mut rng = ChaChaRng::seed_from_u64(777);
         let delta = Delta::generate(&mut rng);
         for w in repr.a.0.iter().chain(repr.b.0.iter()) {
@@ -369,8 +366,8 @@ impl EncodeInput<GarbleMode> for FqPairInputs {
     }
 }
 
-impl EncodeInput<EvaluateMode> for FqPairInputs {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode) {
+impl<H: GateHasher, CIS: CiphertextSource> EncodeInput<EvaluateMode<H, CIS>> for FqPairInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode<H, CIS>) {
         let mut rng = ChaChaRng::seed_from_u64(777);
         let delta = Delta::generate(&mut rng);
 
@@ -411,8 +408,9 @@ fn test_bn254_fq_complex_chain_garble_eval() {
 
     // Garble to produce ciphertexts and obtain constants
     let (g_sender, g_receiver) = channel::unbounded();
-    let garble_res: StreamingResult<GarbleMode, _, Vec<GarbledWire>> =
-        CircuitBuilder::streaming_garbling_blake3(
+
+    let garble_res: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+        CircuitBuilder::streaming_garbling(
             inputs.clone(),
             100_000,
             99,
@@ -432,8 +430,8 @@ fn test_bn254_fq_complex_chain_garble_eval() {
     let true_s = garble_res.true_wire_constant.select(true);
     let false_s = garble_res.false_wire_constant.select(false);
 
-    let eval: StreamingResult<EvaluateMode, _, Vec<EvaluatedWire>> =
-        CircuitBuilder::<EvaluateMode>::streaming_evaluation(
+    let eval: StreamingResult<EvaluateMode<Blake3Hasher, _>, _, Vec<EvaluatedWire>> =
+        CircuitBuilder::streaming_evaluation(
             inputs,
             100_000,
             true_s.to_u128(),

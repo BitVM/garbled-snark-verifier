@@ -8,7 +8,7 @@ mod tests {
     use test_log::test;
 
     use crate::{
-        Delta, GarbledWire, Gate, WireId,
+        Blake3Hasher, Delta, GarbleMode, GarbledWire, Gate, WireId,
         circuit::{
             CircuitBuilder, CircuitContext, CircuitInput, CircuitMode, EncodeInput, FALSE_WIRE,
             StreamingResult, TRUE_WIRE,
@@ -61,8 +61,8 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = channel::unbounded();
 
-        let output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+        let output: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(
                 inputs,
                 10_000,
                 0, // seed
@@ -108,8 +108,8 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = channel::unbounded();
 
-        let _output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+        let _output: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(
                 inputs,
                 10_000,
                 0, // seed
@@ -150,8 +150,8 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = channel::unbounded();
 
-        let _output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+        let _output: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(
                 inputs,
                 10_000,
                 0, // seed
@@ -195,8 +195,8 @@ mod tests {
         let (sender, receiver) = channel::unbounded();
         thread::spawn(move || while receiver.recv().is_ok() {});
 
-        let output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+        let output: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(
                 inputs,
                 10_000,
                 0, // seed
@@ -247,8 +247,8 @@ mod tests {
         // Create channel for garbled tables
         let (sender, receiver) = channel::unbounded();
 
-        let _output: StreamingResult<_, _, Vec<GarbledWire>> =
-            CircuitBuilder::streaming_garbling_blake3(
+        let _output: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+            CircuitBuilder::streaming_garbling(
                 inputs,
                 10_000,
                 0, // seed

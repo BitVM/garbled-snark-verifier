@@ -8,10 +8,7 @@ use ark_ec::bn::BnConfig;
 use ark_ff::{BitIteratorBE, Field};
 use circuit_component_macro::component;
 
-use crate::{
-    CircuitContext,
-    gadgets::bn254::{fq::Fq, fq12::Fq12},
-};
+use crate::{CircuitContext, gadgets::bn254::fq12::Fq12};
 
 pub fn conjugate_native(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     ark_bn254::Fq12::new(f.c0, -f.c1)
@@ -65,102 +62,6 @@ pub fn final_exponentiation_native(f: ark_bn254::Fq12) -> ark_bn254::Fq12 {
     y19 * y17
 }
 
-#[component]
-fn exp_by_u_cyclotomic<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
-    use ark_ff::BitIteratorBE;
-
-    // Create a constant ONE in Montgomery form (same pattern as pairing.rs)
-    let one_mont = Fq12::as_montgomery(ark_bn254::Fq12::ONE);
-    let c0 = one_mont.c0;
-    let c1 = one_mont.c1;
-
-    // Convert each component to constant wires
-    let c0_fq6 = crate::gadgets::bn254::fq6::Fq6::from_components(
-        crate::gadgets::bn254::fq2::Fq2::from_components(
-            Fq::new_constant(&c0.c0.c0).unwrap(),
-            Fq::new_constant(&c0.c0.c1).unwrap(),
-        ),
-        crate::gadgets::bn254::fq2::Fq2::from_components(
-            Fq::new_constant(&c0.c1.c0).unwrap(),
-            Fq::new_constant(&c0.c1.c1).unwrap(),
-        ),
-        crate::gadgets::bn254::fq2::Fq2::from_components(
-            Fq::new_constant(&c0.c2.c0).unwrap(),
-            Fq::new_constant(&c0.c2.c1).unwrap(),
-        ),
-    );
-
-    let c1_fq6 = crate::gadgets::bn254::fq6::Fq6::from_components(
-        crate::gadgets::bn254::fq2::Fq2::from_components(
-            Fq::new_constant(&c1.c0.c0).unwrap(),
-            Fq::new_constant(&c1.c0.c1).unwrap(),
-        ),
-        crate::gadgets::bn254::fq2::Fq2::from_components(
-            Fq::new_constant(&c1.c1.c0).unwrap(),
-            Fq::new_constant(&c1.c1.c1).unwrap(),
-        ),
-        crate::gadgets::bn254::fq2::Fq2::from_components(
-            Fq::new_constant(&c1.c2.c0).unwrap(),
-            Fq::new_constant(&c1.c2.c1).unwrap(),
-        ),
-    );
-
-    let mut res = Fq12::from_components(c0_fq6, c1_fq6);
-
-    let mut found_nonzero = false;
-    for bit in BitIteratorBE::without_leading_zeros(ark_bn254::Config::X).map(|e| e as i8) {
-        if found_nonzero {
-            res = Fq12::cyclotomic_square_montgomery(circuit, &res);
-        }
-        if bit != 0 {
-            found_nonzero = true;
-            if bit > 0 {
-                res = Fq12::mul_montgomery(circuit, &res, a);
-            }
-        }
-    }
-    res
-}
-
-fn exp_by_neg_x<C: CircuitContext>(circuit: &mut C, a: &Fq12) -> Fq12 {
-    let e = exp_by_u_cyclotomic(circuit, a);
-    Fq12::conjugate(circuit, &e)
-}
-
-#[component]
-pub fn final_exponentiation<C: CircuitContext>(circuit: &mut C, f: &Fq12) -> Fq12 {
-    // Easy part
-    let f_inv = Fq12::inverse_montgomery(circuit, f);
-    let f_conj = Fq12::conjugate(circuit, f);
-    let u = Fq12::mul_montgomery(circuit, &f_inv, &f_conj);
-    let u_q2 = Fq12::frobenius_montgomery(circuit, &u, 2);
-    let r = Fq12::mul_montgomery(circuit, &u_q2, &u);
-
-    // Hard part (addition chain)
-    let y0 = exp_by_neg_x(circuit, &r);
-    let y1 = Fq12::square_montgomery(circuit, &y0);
-    let y2 = Fq12::square_montgomery(circuit, &y1);
-    let y3 = Fq12::mul_montgomery(circuit, &y2, &y1);
-    let y4 = exp_by_neg_x(circuit, &y3);
-    let y5 = Fq12::square_montgomery(circuit, &y4);
-    let y6 = exp_by_neg_x(circuit, &y5);
-    let y7 = Fq12::conjugate(circuit, &y3);
-    let y8 = Fq12::conjugate(circuit, &y6);
-    let y9 = Fq12::mul_montgomery(circuit, &y8, &y4);
-    let y10 = Fq12::mul_montgomery(circuit, &y9, &y7);
-    let y11 = Fq12::mul_montgomery(circuit, &y10, &y1);
-    let y12 = Fq12::mul_montgomery(circuit, &y10, &y4);
-    let y13 = Fq12::mul_montgomery(circuit, &y12, &r);
-    let y14 = Fq12::frobenius_montgomery(circuit, &y11, 1);
-    let y15 = Fq12::mul_montgomery(circuit, &y14, &y13);
-    let y16 = Fq12::frobenius_montgomery(circuit, &y10, 2);
-    let y17 = Fq12::mul_montgomery(circuit, &y16, &y15);
-    let r2 = Fq12::conjugate(circuit, &r);
-    let y18 = Fq12::mul_montgomery(circuit, &r2, &y11);
-    let y19 = Fq12::frobenius_montgomery(circuit, &y18, 3);
-    Fq12::mul_montgomery(circuit, &y19, &y17)
-}
-
 pub fn cyclotomic_exp_fast_inverse_montgomery_fast<C: CircuitContext>(
     circuit: &mut C,
     f: &Fq12,
@@ -174,7 +75,7 @@ pub fn cyclotomic_exp_fast_inverse_montgomery_fast<C: CircuitContext>(
         .rev()
     {
         if found_nonzero {
-            res = Fq12::square_montgomery(circuit, &res);
+            res = Fq12::cyclotomic_square_montgomery(circuit, &res);
         }
 
         if value != 0 {
@@ -408,7 +309,7 @@ mod tests {
         let input = In { f: f_ml };
         let result: StreamingResult<_, _, Out> =
             CircuitBuilder::streaming_execute(input, 10_000, |ctx, input| {
-                final_exponentiation(ctx, &input.f)
+                final_exponentiation_montgomery(ctx, &input.f)
             });
 
         assert_eq!(result.output_value.value, expected_m);

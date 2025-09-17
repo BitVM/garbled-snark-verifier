@@ -10,12 +10,12 @@ pub type Execute = crate::circuit::StreamingMode<ExecuteMode>;
 // Collapse thin wrappers; tests live in mode files.
 
 pub mod garble_mode;
-pub use garble_mode::{GarbleMode, GarbleModeBlake3, GarbledWire};
+pub use garble_mode::{GarbleMode, GarbledWire};
 
 // Collapse thin wrappers; tests live in mode files.
 
 mod evaluate_mode;
-pub use evaluate_mode::{EvaluateMode, EvaluateModeBlake3, EvaluatedWire, OptionalEvaluatedWire};
+pub use evaluate_mode::{EvaluateMode, EvaluatedWire, OptionalEvaluatedWire};
 
 /// Execution backends for the streaming circuit.
 ///
@@ -25,6 +25,7 @@ pub use evaluate_mode::{EvaluateMode, EvaluateModeBlake3, EvaluatedWire, Optiona
 ///   storage and reclaim it precisely when the final read occurs.
 pub trait CircuitMode: Sized + fmt::Debug {
     type WireValue: Clone;
+    type CiphertextAcc: Default;
 
     fn false_value(&self) -> Self::WireValue;
 
@@ -43,6 +44,10 @@ pub trait CircuitMode: Sized + fmt::Debug {
     fn feed_wire(&mut self, _wire: WireId, _value: Self::WireValue);
 
     fn add_credits(&mut self, wires: &[WireId], credits: NonZero<Credits>);
+
+    fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
+        Self::CiphertextAcc::default()
+    }
 }
 
 // Old Garble struct replaced by new streaming implementation in garble.rs and garble_mode.rs

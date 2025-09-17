@@ -15,6 +15,26 @@ pub enum GateType {
 }
 
 impl GateType {
+    /// Const mapping of α-parameters for odd-parity (non-free) 2-input gates.
+    /// For free gates (Xor, Xnor, Not) values are unused; returned values are placeholders.
+    pub const fn alphas_const(self) -> (bool, bool, bool) {
+        match self {
+            // AND-variant gates (odd parity): exact mapping
+            GateType::And => (false, false, false),
+            GateType::Nand => (false, false, true),
+            GateType::Nimp => (false, true, false),
+            GateType::Imp => (false, true, true),
+            GateType::Ncimp => (true, false, false),
+            GateType::Cimp => (true, false, true),
+            GateType::Nor => (true, true, false),
+            GateType::Or => (true, true, true),
+
+            // Free gates (even parity or unary semantics): not used by half-gates
+            GateType::Xor => (false, false, false),
+            GateType::Xnor => (false, false, false),
+            GateType::Not => (false, false, false),
+        }
+    }
     pub const fn f(&self) -> fn(bool, bool) -> bool {
         match self {
             GateType::And => |a, b| a & b,
@@ -224,6 +244,31 @@ mod tests {
         for gate in odd_parity_gates {
             let tt = gate.truth_table();
             assert_eq!(tt.count_ones() % 2, 1, "{gate:?} should have odd parity");
+        }
+    }
+
+    #[test]
+    fn test_alphas_const_consistency() {
+        // Test that alphas_const() matches alphas() for all odd-parity gates
+        let odd_parity_gates = [
+            GateType::And,
+            GateType::Nand,
+            GateType::Nimp,
+            GateType::Imp,
+            GateType::Ncimp,
+            GateType::Cimp,
+            GateType::Nor,
+            GateType::Or,
+        ];
+
+        for gate in odd_parity_gates {
+            let const_alphas = gate.alphas_const();
+            let computed_alphas = gate.alphas();
+
+            assert_eq!(
+                const_alphas, computed_alphas,
+                "{gate:?}: alphas_const() = {const_alphas:?} != alphas() = {computed_alphas:?}"
+            );
         }
     }
 }

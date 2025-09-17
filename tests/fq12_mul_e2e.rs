@@ -1,10 +1,10 @@
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    EvaluatedWire, GarbledWire, WireId,
+    Blake3Hasher, EvaluatedWire, GarbleMode, GarbledWire, GateHasher, WireId,
     ark::PrimeField,
     circuit::{
-        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, StreamingResult, WiresObject,
-        modes::{EvaluateModeBlake3, GarbleModeBlake3},
+        CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, CircuitMode,
+        EncodeInput, EvaluateMode, StreamingResult, WiresObject,
     },
     gadgets::{
         bigint::{BigUint as BigUintOutput, bits_from_biguint_with_len},
@@ -53,13 +53,17 @@ impl CircuitInput for Fq12MulInputs {
 }
 
 // Encode inputs for garbling: assign random labels to each bit wire
-impl EncodeInput<GarbleModeBlake3> for Fq12MulInputs {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleModeBlake3) {
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for Fq12MulInputs {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode<H, CTH>) {
         let a_m = Fq12::as_montgomery(self.a);
         let b_m = Fq12::as_montgomery(self.b);
 
         // Helper to feed all bits of an Fq6 into the cache
-        fn feed_fq6_bits(val: &ark_bn254::Fq6, wires: &Fq6, cache: &mut GarbleModeBlake3) {
+        fn feed_fq6_bits<H: GateHasher, CTH: CiphertextHandler>(
+            val: &ark_bn254::Fq6,
+            wires: &Fq6,
+            cache: &mut GarbleMode<H, CTH>,
+        ) {
             // For each Fq2(c0,c1) -> for each Fq limb (254 bits)
             let limbs = [val.c0, val.c1, val.c2];
             let wires_arr = [&wires.0[0], &wires.0[1], &wires.0[2]];
@@ -111,17 +115,19 @@ impl CircuitInput for EvaluateFq12MulInput {
 }
 
 // Encode inputs for evaluation: same labels but mark active label by bit value
-impl EncodeInput<EvaluateModeBlake3> for EvaluateFq12MulInput {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateModeBlake3) {
+impl<H: GateHasher, CIS: CiphertextSource> EncodeInput<EvaluateMode<H, CIS>>
+    for EvaluateFq12MulInput
+{
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode<H, CIS>) {
         let a_m = Fq12::as_montgomery(self.inner.a);
         let b_m = Fq12::as_montgomery(self.inner.b);
 
         // Helper to feed evaluated wires
-        fn feed_fq6_bits(
+        fn feed_fq6_bits<H: GateHasher, CIS: CiphertextSource>(
             val: &ark_bn254::Fq6,
             wires: &Fq6,
             labels: &mut impl Iterator<Item = GarbledWire>,
-            cache: &mut EvaluateModeBlake3,
+            cache: &mut EvaluateMode<H, CIS>,
         ) {
             let limbs = [val.c0, val.c1, val.c2];
             let wires_arr = [&wires.0[0], &wires.0[1], &wires.0[2]];
@@ -178,8 +184,8 @@ fn test_fq12_mul_montgomery_e2e() {
 
     // Garbling phase
     let (garbled_sender, garbled_receiver) = channel::unbounded();
-    let garble_result: StreamingResult<_, _, Vec<GarbledWire>> =
-        CircuitBuilder::streaming_garbling_blake3(
+    let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
+        CircuitBuilder::streaming_garbling(
             inputs.clone(),
             15_000,
             SEED,
@@ -196,10 +202,10 @@ fn test_fq12_mul_montgomery_e2e() {
     };
 
     let eval: garbled_snark_verifier::circuit::StreamingResult<
-        EvaluateModeBlake3,
+        EvaluateMode<Blake3Hasher, _>,
         _,
         Vec<EvaluatedWire>,
-    > = CircuitBuilder::<EvaluateModeBlake3>::streaming_evaluation(
+    > = CircuitBuilder::<EvaluateMode<_, _>>::streaming_evaluation(
         inputs,
         15_000,
         true_lbl,

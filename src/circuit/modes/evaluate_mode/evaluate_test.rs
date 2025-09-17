@@ -81,10 +81,10 @@ fn test_xor_evaluate_mode_basic() {
     let (true_wire, false_wire, inputs) = prepare();
 
     let result: crate::circuit::StreamingResult<
-        EvaluateMode<Blake3Hasher>,
+        EvaluateMode<Blake3Hasher, _>,
         TestEvalInputs,
         Vec<EvaluatedWire>,
-    > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
+    > = CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
         inputs,
         5,
         true_wire.to_u128(),
@@ -109,10 +109,10 @@ fn test_xor_evaluate_mode_with_constants() {
     let b = inputs.b.value;
 
     let result: crate::circuit::StreamingResult<
-        EvaluateMode<Blake3Hasher>,
+        EvaluateMode<Blake3Hasher, _>,
         TestEvalInputs,
         Vec<EvaluatedWire>,
-    > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
+    > = CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
         inputs,
         5,
         true_wire.to_u128(),
@@ -148,10 +148,10 @@ fn test_evaluate_mode() {
     let b = inputs.b.value;
 
     let result: crate::circuit::StreamingResult<
-        EvaluateMode<Blake3Hasher>,
+        EvaluateMode<Blake3Hasher, _>,
         TestEvalInputs,
         Vec<EvaluatedWire>,
-    > = CircuitBuilder::<EvaluateMode<Blake3Hasher>>::streaming_evaluation(
+    > = CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
         inputs,
         10,
         true_wire.to_u128(),
