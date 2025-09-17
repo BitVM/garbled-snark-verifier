@@ -2,6 +2,7 @@ use std::{array, marker::PhantomData, num::NonZero};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     Delta, Gate, GateHasher, S, WireId,
@@ -16,7 +17,7 @@ use crate::{
 pub(crate) mod halfgates_garbling;
 
 // Public GarbledWire type colocated with garbling logic.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GarbledWire {
     pub label0: S,
     pub label1: S,

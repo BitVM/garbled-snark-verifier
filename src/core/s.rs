@@ -5,11 +5,12 @@ use std::{
 
 use blake3::Hasher;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 /// Size of the S struct in bytes - optimized for performance and cache alignment
 pub const S_SIZE: usize = 16;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct S(u128);
 
 impl S {

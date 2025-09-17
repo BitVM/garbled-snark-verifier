@@ -175,8 +175,6 @@ fn run_garbler(
     let mut seeds = vec![];
     let mut threads = vec![];
 
-    let finalized_indices: Vec<usize> = finalize_senders.iter().map(|(i, _)| *i).collect();
-
     for commit in g.open_commit(finalize_senders) {
         match commit {
             OpenForInstance::Closed {
@@ -203,23 +201,7 @@ fn run_garbler(
         vec![public_input],
     );
 
-    let fin_inputs: Vec<EvaluatorCaseInput> = finalized_indices
-        .into_iter()
-        .map(|idx| {
-            let input = garbled_groth16::EvaluatorCompressedInput::new(
-                challenge_proof.clone(),
-                cfg.input().vk.clone(),
-                g.input_labels_for(idx),
-            );
-
-            EvaluatorCaseInput {
-                index: idx,
-                input,
-                true_constant_wire: g.true_wire_constant_for(idx),
-                false_constant_wire: g.false_wire_constant_for(idx),
-            }
-        })
-        .collect();
+    let fin_inputs = g.prepare_input_labels(challenge_proof);
 
     g2e_tx
         .send(G2EMsg::OpenLabels(fin_inputs))

@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
-pub use generic::{Commit, GarbledInstanceCommit, OpenForInstance, Seed};
 use rand::Rng;
 
+pub use crate::cut_and_choose::{GarbledInstanceCommit, OpenForInstance, Seed};
 use crate::{
     EvaluatedWire, GarbledWire,
     circuit::{CiphertextHandler, CiphertextSource, FileSource},
-    cut_and_choose::{self as generic, ConsistencyError, DEFAULT_CAPACITY},
+    cut_and_choose::{self as generic, ConsistencyError, DEFAULT_CAPACITY, GarblerStage},
     garbled_groth16,
 };
 
@@ -51,6 +51,36 @@ impl Garbler {
     /// Return a clone of the input garbled labels for a given instance.
     pub fn input_labels_for(&self, index: usize) -> Vec<GarbledWire> {
         self.inner.input_labels_for(index)
+    }
+
+    pub fn prepare_input_labels(
+        &self,
+        challenge_proof: garbled_groth16::Proof,
+    ) -> Vec<EvaluatorCaseInput> {
+        let finalized_indices = match self.inner.stage() {
+            GarblerStage::Generating { .. } => {
+                panic!("You can't prepere input labels for not finalized garbler")
+            }
+            GarblerStage::PreparedForEval { indexes_to_eval } => indexes_to_eval,
+        };
+
+        finalized_indices
+            .iter()
+            .map(|idx| {
+                let input = garbled_groth16::EvaluatorCompressedInput::new(
+                    challenge_proof.clone(),
+                    self.inner.config().input().vk.clone(),
+                    self.input_labels_for(*idx),
+                );
+
+                EvaluatorCaseInput {
+                    index: *idx,
+                    input,
+                    true_constant_wire: self.true_wire_constant_for(*idx),
+                    false_constant_wire: self.false_wire_constant_for(*idx),
+                }
+            })
+            .collect()
     }
 }
 

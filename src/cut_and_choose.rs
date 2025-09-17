@@ -30,7 +30,7 @@ pub type Seed = u64;
 pub type Commit = u128;
 
 /// Protocol configuration shared by Garbler/Evaluator.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config<I: CircuitInput> {
     total: usize,
     to_finalize: usize,
@@ -59,6 +59,7 @@ impl<I: CircuitInput> Config<I> {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct GarbledInstance {
     /// Constant to represent false wire constant
     ///
@@ -168,6 +169,7 @@ pub enum OpenForInstance {
     },
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum GarblerStage {
     Generating { seeds: Box<[Seed]> },
     PreparedForEval { indexes_to_eval: Box<[usize]> },
@@ -188,6 +190,7 @@ impl GarblerStage {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Garbler<I: CircuitInput + Clone> {
     stage: GarblerStage,
     instances: Vec<GarbledInstance>,
@@ -340,6 +343,14 @@ where
     /// Return a clone of the input garbled labels for a given instance.
     pub fn input_labels_for(&self, index: usize) -> Vec<GarbledWire> {
         self.instances[index].input_wire_values.clone()
+    }
+
+    pub fn config(&self) -> &Config<I> {
+        &self.config
+    }
+
+    pub fn stage(&self) -> &GarblerStage {
+        &self.stage
     }
 }
 
