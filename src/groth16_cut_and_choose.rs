@@ -59,7 +59,7 @@ impl Garbler {
     ) -> Vec<EvaluatorCaseInput> {
         let finalized_indices = match self.inner.stage() {
             GarblerStage::Generating { .. } => {
-                panic!("You can't prepere input labels for not finalized garbler")
+                panic!("You can't prepare `input labels` for not finalized garbler")
             }
             GarblerStage::PreparedForEval { indexes_to_eval } => indexes_to_eval,
         };
