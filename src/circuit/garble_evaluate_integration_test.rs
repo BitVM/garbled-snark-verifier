@@ -28,8 +28,8 @@ use crate::{
 };
 
 // Define the types locally since they're not exported
-type GarbledTableEntry = (usize, S);
-type CiphertextEntry = (usize, S);
+type GarbledTableEntry = S;
+type CiphertextEntry = S;
 
 /// Test inputs that work for both garbling and evaluation
 #[derive(Debug)]
@@ -216,8 +216,8 @@ fn test_garble_evaluate_connection() {
 
     // Convert garbled tables to ciphertext entries
     // In a real scenario, these would come from the garbler
-    for (gate_id, ciphertext) in &garbled_tables {
-        let ciphertext_entry: CiphertextEntry = (*gate_id, *ciphertext);
+    for ciphertext in &garbled_tables {
+        let ciphertext_entry: CiphertextEntry = *ciphertext;
         if eval_sender.send(ciphertext_entry).is_err() {
             break;
         }
@@ -366,8 +366,8 @@ fn test_multiple_input_combinations() {
         // Evaluation setup
         println!("\n--- EVALUATION SETUP ---");
         let (eval_sender, eval_receiver) = channel::unbounded();
-        for (gate_id, ciphertext) in garbled_tables {
-            let ciphertext_entry: CiphertextEntry = (gate_id, ciphertext);
+        for ciphertext in garbled_tables {
+            let ciphertext_entry: CiphertextEntry = ciphertext;
             if eval_sender.send(ciphertext_entry).is_err() {
                 break;
             }

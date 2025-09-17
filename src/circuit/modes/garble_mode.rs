@@ -59,7 +59,7 @@ impl Default for GarbledWire {
 }
 
 /// Output type for garbled tables - only actual ciphertexts
-pub type GarbledTableEntry = (usize, S);
+pub type GarbledTableEntry = S;
 
 /// Garble mode - generates garbled circuits with streaming output
 pub struct GarbleMode<H: hashers::GateHasher, CTH: CiphertextHandler> {
@@ -123,11 +123,11 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
         index
     }
 
-    fn stream_table_entry(&mut self, gate_id: usize, entry: Option<S>) {
+    fn stream_table_entry(&mut self, _gate_id: usize, entry: Option<S>) {
         let Some(ciphertext) = entry else {
             return;
         };
-        self.output_handler.handle(gate_id, ciphertext);
+        self.output_handler.handle(ciphertext);
     }
 }
 

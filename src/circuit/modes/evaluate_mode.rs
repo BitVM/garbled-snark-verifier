@@ -1,7 +1,5 @@
 use std::num::NonZero;
 
-use tracing::error;
-
 use super::garble_mode::{GarbledWire, halfgates_garbling};
 use crate::{
     Gate, S, WireId,
@@ -84,27 +82,8 @@ impl<H: GateHasher, SRC: CiphertextSource> EvaluateMode<H, SRC> {
         index
     }
 
-    fn consume_ciphertext(&mut self, gate_id: usize) -> Option<S> {
-        match self.source.recv() {
-            Some((received_gate_id, ciphertext)) => {
-                if received_gate_id == gate_id {
-                    Some(ciphertext)
-                } else {
-                    error!(
-                        "Ciphertext gate ID mismatch: expected {}, got {}",
-                        gate_id, received_gate_id
-                    );
-                    panic!(
-                        "Ciphertext gate ID mismatch: expected {}, got {}",
-                        gate_id, received_gate_id
-                    );
-                }
-            }
-            None => {
-                error!("Ciphertext source exhausted at gate {}", gate_id);
-                panic!("Ciphertext source exhausted at gate {}", gate_id)
-            }
-        }
+    fn consume_ciphertext(&mut self) -> Option<S> {
+        self.source.recv()
     }
 }
 
@@ -155,7 +134,10 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> 
 
         let expected_label = halfgates_garbling::degarble_gate::<H>(
             gate.gate_type,
-            || self.consume_ciphertext(gate_id).unwrap(),
+            || {
+                self.consume_ciphertext()
+                    .unwrap_or_else(|| panic!("Ciphertext source exhausted at gate {}", gate_id))
+            },
             a.active_label,
             a.value,
             b.active_label,
