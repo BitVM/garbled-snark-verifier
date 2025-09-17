@@ -3,6 +3,7 @@
 
 use std::env;
 
+use ark_ec::AffineRepr;
 use garbled_snark_verifier::{
     ark,
     ark::{CircuitSpecificSetupSNARK, SNARK, UniformRand},
@@ -94,27 +95,26 @@ fn main() {
     let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
     // Construct input once, then choose uncompressed vs compressed execution
-    let proof_input = garbled_groth16::Proof::new(proof, vec![c_val]);
     let verify = garbled_groth16::VerifierInput {
-        proof: proof_input,
+        public: vec![c_val],
+        a: proof.a.into_group(),
+        b: proof.b.into_group(),
+        c: proof.c.into_group(),
         vk: vk.clone(),
     };
 
     let (verified, gate_count) = if is_compressed {
         // Compressed path includes decompression gadgets; allocate more gates
         let result: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
-            garbled_groth16::Compressed(verify),
+            verify.compress(),
             160_000,
             garbled_groth16::verify_compressed,
         );
 
         (result.output_value, result.gate_count)
     } else {
-        let result: StreamingResult<_, _, bool> = CircuitBuilder::streaming_execute(
-            garbled_groth16::Uncompressed(verify),
-            160_000,
-            garbled_groth16::verify,
-        );
+        let result: StreamingResult<_, _, bool> =
+            CircuitBuilder::streaming_execute(verify, 160_000, garbled_groth16::verify);
 
         (result.output_value, result.gate_count)
     };

@@ -134,7 +134,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
     // NOTE If you want to break the proof, the easiest thing to do is just replace this value with whatever you want.
-    let public_param = circuit.a.unwrap() * circuit.b.unwrap();
+    let public_param = vec![circuit.a.unwrap() * circuit.b.unwrap()];
 
     info!(
         "[GARBLER]
@@ -145,9 +145,8 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         label0, label1
     );
 
-    let proof = garbled_groth16::Proof::new(proof, vec![public_param]);
-
-    let input_labels = garbled_groth16::EvaluatorInput::new(proof, vk.clone(), input_values);
+    let input_labels =
+        garbled_groth16::EvaluatorInput::new(public_param, proof, vk.clone(), input_values);
 
     let msg = G2EMsg::Commit {
         output_label0_hash: hash(&label0.to_bytes()),

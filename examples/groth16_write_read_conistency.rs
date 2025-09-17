@@ -10,7 +10,8 @@ use garbled_snark_verifier::{
     self as gsv, GarbledWire, S,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand, VerifyingKey},
     cut_and_choose::EvaluatorCaseInput,
-    garbled_groth16, groth16_cut_and_choose as ccn,
+    garbled_groth16::{self, PublicParams},
+    groth16_cut_and_choose as ccn,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -105,7 +106,8 @@ fn write_labels(path: &Path, labels: &[GarbledWire]) {
 
 #[derive(Clone)]
 struct SnarkMaterial {
-    proof: garbled_groth16::Proof,
+    public_params: PublicParams,
+    proof: garbled_groth16::SnarkProof,
     vk: VerifyingKey<ark::Bn254>,
     garbler_input: garbled_groth16::GarblerCompressedInput,
 }
@@ -119,20 +121,18 @@ fn build_snark_material() -> SnarkMaterial {
         num_constraints: 1 << 6,
     };
     let (pk, vk) = ark::Groth16::<ark::Bn254>::setup(circuit, &mut rng).expect("setup");
-    let c_val = circuit.a.unwrap() * circuit.b.unwrap();
+    let public_inputs = vec![circuit.a.unwrap() * circuit.b.unwrap()];
 
-    let proof = garbled_groth16::Proof::new(
-        ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove"),
-        vec![c_val],
-    );
+    let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
 
     let garbler_input = garbled_groth16::GarblerInput {
-        public_params_len: proof.public_inputs.len(),
+        public_params_len: public_inputs.len(),
         vk: vk.clone(),
     }
     .compress();
 
     SnarkMaterial {
+        public_params: public_inputs,
         proof,
         vk,
         garbler_input,
@@ -283,6 +283,7 @@ fn main() {
 
     // Build evaluator input
     let input = garbled_groth16::EvaluatorCompressedInput::new(
+        material.public_params.clone(),
         material.proof.clone(),
         material.vk.clone(),
         labels,

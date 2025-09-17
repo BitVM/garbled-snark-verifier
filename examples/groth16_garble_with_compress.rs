@@ -144,10 +144,12 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         label0, label1
     );
 
-    let proof = garbled_groth16::Proof::new(proof, vec![public_param]);
-
-    let input_labels =
-        garbled_groth16::EvaluatorCompressedInput::new(proof, vk.clone(), input_values);
+    let input_labels = garbled_groth16::EvaluatorCompressedInput::new(
+        vec![public_param],
+        proof,
+        vk.clone(),
+        input_values,
+    );
 
     let msg = G2EMsg::Commit {
         output_label0_hash: hash(&label0.to_bytes()),

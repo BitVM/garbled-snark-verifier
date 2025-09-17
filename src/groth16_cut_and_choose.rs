@@ -9,7 +9,7 @@ use crate::{
     EvaluatedWire, GarbledWire,
     circuit::{CiphertextHandler, CiphertextSource, FileSource},
     cut_and_choose::{self as generic, ConsistencyError, DEFAULT_CAPACITY, GarblerStage},
-    garbled_groth16,
+    garbled_groth16::{self, PublicParams},
 };
 
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
@@ -55,7 +55,8 @@ impl Garbler {
 
     pub fn prepare_input_labels(
         &self,
-        challenge_proof: garbled_groth16::Proof,
+        public_params: PublicParams,
+        challenge_proof: garbled_groth16::SnarkProof,
     ) -> Vec<EvaluatorCaseInput> {
         let finalized_indices = match self.inner.stage() {
             GarblerStage::Generating { .. } => {
@@ -68,6 +69,7 @@ impl Garbler {
             .iter()
             .map(|idx| {
                 let input = garbled_groth16::EvaluatorCompressedInput::new(
+                    public_params.clone(),
                     challenge_proof.clone(),
                     self.inner.config().input().vk.clone(),
                     self.input_labels_for(*idx),

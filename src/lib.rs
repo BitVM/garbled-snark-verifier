@@ -29,7 +29,7 @@ pub use gadgets::{
         Fp254Impl, fq::Fq as FqWire, fq2::Fq2 as Fq2Wire, fr::Fr as FrWire,
         g1::G1Projective as G1Wire, g2::G2Projective as G2Wire,
     },
-    groth16::{Groth16ExecInput, Groth16ExecInputWires},
+    groth16::{Groth16VerifyInput, Groth16VerifyInputWires},
     groth16_verify, groth16_verify_compressed,
 };
 pub use hw::{hardware_aes_available, warn_if_software_aes};

@@ -75,8 +75,7 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
 
     // Generate proof
     let proof = ark::Groth16::<ark::Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
-    let public_param = circuit.a.unwrap() * circuit.b.unwrap();
-    let proof = garbled_groth16::Proof::new(proof, vec![public_param]);
+    let public_param = vec![circuit.a.unwrap() * circuit.b.unwrap()];
 
     // First pass to get initial values needed for evaluation
     let inputs_for_initial = garbled_groth16::GarblerInput {
@@ -118,8 +117,12 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
 
     // Evaluator thread
     let evaluator = thread::spawn(move || {
-        let input_labels =
-            garbled_groth16::EvaluatorInput::new(proof_clone, vk_evaluator, preallocated_wires);
+        let input_labels = garbled_groth16::EvaluatorInput::new(
+            public_param,
+            proof_clone,
+            vk_evaluator,
+            preallocated_wires,
+        );
 
         let evaluator_result: StreamingResult<EvaluateMode<H, _>, _, EvaluatedWire> =
             CircuitBuilder::streaming_evaluation(

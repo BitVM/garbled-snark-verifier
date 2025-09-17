@@ -1,5 +1,6 @@
 use std::{path::PathBuf, thread};
 
+use ark_ec::AffineRepr;
 use ark_ff::AdditiveGroup;
 use crossbeam::channel;
 use garbled_snark_verifier::{
@@ -20,8 +21,9 @@ use tracing::{error, info};
 const TOTAL_INSTANCES: usize = 3;
 const FINALIZE_INSTANCES: usize = 1;
 const OUT_DIR: &str = "target/cut_and_choose";
-const K_CONSTRAINTS: u32 = 6; // 2^k constraints
+const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
+const IS_PRE_BOOLEAN_EXEC: bool = false;
 
 enum G2EMsg {
     // Garbler -> Evaluator: commitments for all instances
@@ -206,26 +208,21 @@ fn run_garbler(
         }
     });
 
-    let ark_proof = ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
-        .expect("prove");
+    let challenge_proof =
+        ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
+            .expect("prove");
 
     // Verify the proof is valid before garbling
-    let is_valid =
-        ArkGroth16::<Bn254>::verify(&cfg.input().vk, &[public_input], &ark_proof).expect("verify");
+    let is_valid = ArkGroth16::<Bn254>::verify(&cfg.input().vk, &[public_input], &challenge_proof)
+        .expect("verify");
 
     assert_eq!(
         is_valid, IS_PROOF_CORRECT,
         "Proof must be valid before garbling!"
     );
 
-    let challenge_proof = garbled_groth16::Proof::new(ark_proof, vec![public_input]);
-
-    let is_valid = ArkGroth16::<Bn254>::verify(
-        &cfg.input().vk,
-        &challenge_proof.public_inputs,
-        &challenge_proof.proof,
-    )
-    .expect("verify");
+    let is_valid = ArkGroth16::<Bn254>::verify(&cfg.input().vk, &[public_input], &challenge_proof)
+        .expect("verify");
 
     info!("Proof is_valid: {is_valid}");
     assert_eq!(
@@ -234,13 +231,17 @@ fn run_garbler(
     );
 
     // Test only
-    {
+    if IS_PRE_BOOLEAN_EXEC {
         let streaming_result: garbled_snark_verifier::circuit::StreamingResult<_, _, bool> =
             CircuitBuilder::streaming_execute(
-                garbled_groth16::Compressed(garbled_groth16::VerifierInput {
-                    proof: challenge_proof.clone(),
+                garbled_groth16::VerifierInput {
+                    public: vec![public_input],
+                    a: challenge_proof.a.into_group(),
+                    b: challenge_proof.b.into_group(),
+                    c: challenge_proof.c.into_group(),
                     vk: cfg.input().vk.clone(),
-                }),
+                }
+                .compress(),
                 150_000,
                 garbled_groth16::verify_compressed,
             );
@@ -251,7 +252,7 @@ fn run_garbler(
         );
     }
 
-    let fin_inputs = g.prepare_input_labels(challenge_proof);
+    let fin_inputs = g.prepare_input_labels(vec![public_input], challenge_proof);
 
     g2e_tx
         .send(G2EMsg::OpenLabels(fin_inputs))

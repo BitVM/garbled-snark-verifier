@@ -24,7 +24,7 @@ use crate::{
 };
 
 /// Default live wires capacity used for streaming garbling/evaluation.
-pub const DEFAULT_CAPACITY: usize = 160_000;
+pub const DEFAULT_CAPACITY: usize = 150_000;
 
 pub type Seed = u64;
 pub type Commit = u128;
