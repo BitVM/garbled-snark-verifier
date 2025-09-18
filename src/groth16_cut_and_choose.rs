@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 pub use crate::cut_and_choose::{GarbledInstanceCommit, OpenForInstance, Seed};
 use crate::{
@@ -16,6 +17,7 @@ pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
 
 /// Groth16-specific wrapper preserving the existing API while delegating
 /// to the generic cut-and-choose implementation.
+#[derive(Serialize, Deserialize)]
 pub struct Garbler {
     inner: generic::Garbler<garbled_groth16::GarblerCompressedInput>,
 }
@@ -86,6 +88,7 @@ impl Garbler {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Evaluator<CTS: CiphertextSource> {
     inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, CTS>,
 }

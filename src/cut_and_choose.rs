@@ -354,6 +354,7 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Evaluator<I: CircuitInput + Clone, CTS: CiphertextSource> {
     config: Config<I>,
     commits: Vec<GarbledInstanceCommit>,
