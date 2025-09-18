@@ -66,6 +66,7 @@ pub mod ark {
         lc,
         r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
     };
+    pub use ark_serialize;
     pub use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 }
 
