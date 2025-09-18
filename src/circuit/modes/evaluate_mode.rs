@@ -9,7 +9,7 @@ use crate::{
     storage::{Credits, Storage},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EvaluatedWire {
     pub active_label: S,
     pub value: bool,

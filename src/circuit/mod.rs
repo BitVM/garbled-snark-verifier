@@ -1,4 +1,7 @@
-use std::{array, fmt::Debug};
+use std::{
+    array,
+    fmt::{self, Debug},
+};
 
 use crossbeam::channel;
 use tracing::info;
@@ -65,6 +68,9 @@ pub mod modes;
 pub use modes::{CircuitMode, EvaluateMode, ExecuteMode, GarbleMode};
 
 pub mod ciphertext_source;
+
+pub mod ciphertext_file_handler;
+pub use ciphertext_file_handler::CiphertextFileHandler;
 pub use ciphertext_source::{ChannelSource, CiphertextSource, FileSource};
 
 pub mod component_meta;
@@ -138,7 +144,7 @@ impl CircuitBuilder<ExecuteMode> {
 }
 
 pub trait CiphertextHandler: Sized {
-    type Result: Default;
+    type Result: Default + fmt::Debug;
 
     /// Handle next ciphertext label in stream order.
     fn handle(&mut self, ct: S);

@@ -58,7 +58,7 @@ pub mod ark {
     pub use ark_bn254::{Bn254, Fq, Fq2, Fq12, Fr, G1Projective, G2Affine, G2Projective, g1, g2};
     // EC traits
     pub use ark_ec::{AffineRepr, CurveGroup, PrimeGroup, short_weierstrass::SWCurveConfig};
-    pub use ark_ff::{PrimeField, UniformRand, fields::Field};
+    pub use ark_ff::{AdditiveGroup, PrimeField, UniformRand, fields::Field};
     // SNARK traits and Groth16 scheme
     pub use ark_groth16::{Groth16, Proof, ProvingKey, VerifyingKey};
     // R1CS interfaces and lc! macro

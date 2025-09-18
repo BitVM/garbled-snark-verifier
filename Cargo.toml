@@ -15,10 +15,9 @@ keywords = [
 ]
 description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusable gadgets and ergonomic circuit composition."
 
-[features]
-default = ["tracing_max_level", "tracing_scopes"]
-tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
-tracing_scopes = []
+[[bin]]
+path = "bin/cut_and_choose_cli.rs"
+name = "cut_and_choose"
 
 [dependencies]
 aes = "0.8"
@@ -51,6 +50,8 @@ thiserror = "2.0.12"
 serde_json = "1.0"
 serde = { version = "1.0.225", features = ["derive"] }
 ark-serialize = "0.5.0"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
 
 [dev-dependencies]
 ark-ec = "0.5.0"

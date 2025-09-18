@@ -4,7 +4,7 @@ use ark_ec::AffineRepr;
 use ark_ff::AdditiveGroup;
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    EvaluatedWire, GarbledInstanceCommit, OpenForInstance, S,
+    EvaluatedWire, GarbledInstanceCommit, OpenForInstance,
     ark::{
         self, Bn254, CircuitSpecificSetupSNARK, Groth16 as ArkGroth16, ProvingKey as ArkProvingKey,
         SNARK, UniformRand,
@@ -273,15 +273,18 @@ fn run_evaluator(
         panic!("unexpected message; expected commits")
     };
 
-    let mut senders = Vec::with_capacity(finalize);
-
-    let eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits, &mut |index| {
-        let (tx, rx) = channel::unbounded::<S>();
-        senders.push((index, tx));
-        rx
-    });
+    let mut eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits);
 
     let finalize_indices: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
+
+    let (senders, receivers) = finalize_indices
+        .iter()
+        .copied()
+        .map(|index| {
+            let (tx, rx) = channel::unbounded();
+            ((index, tx), (index, rx))
+        })
+        .unzip();
 
     assert_eq!(
         finalize_indices.len(),
@@ -303,7 +306,7 @@ fn run_evaluator(
 
     info!("Output dir: {}", out_dir.display());
 
-    eval.run_regarbling(open_result, &out_dir)
+    eval.run_regarbling(open_result, &out_dir, Some(receivers))
         .expect("regarbling checks");
 
     let Ok(G2EMsg::OpenLabels(cases)) = g2e_rx.recv() else {

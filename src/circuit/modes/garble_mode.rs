@@ -67,7 +67,7 @@ pub struct GarbleMode<H: hashers::GateHasher, CTH: CiphertextHandler> {
     delta: Delta,
     gate_index: usize,
     // Handler for streaming ciphertexts (non-free gates only)
-    output_handler: CTH,
+    ciphertext_handler: CTH,
     // Store only label0 for each wire; reconstruct label1 as label0 ^ delta
     storage: Storage<WireId, Option<S>>,
     // Store the constant wires
@@ -89,7 +89,7 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
             rng,
             delta,
             gate_index: 0,
-            output_handler,
+            ciphertext_handler: output_handler,
             false_wire,
             true_wire,
             _hasher: PhantomData,
@@ -127,7 +127,7 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
         let Some(ciphertext) = entry else {
             return;
         };
-        self.output_handler.handle(ciphertext);
+        self.ciphertext_handler.handle(ciphertext);
     }
 }
 
@@ -262,7 +262,7 @@ impl<H: GateHasher, CTH: CiphertextHandler> CircuitMode for GarbleMode<H, CTH> {
     }
 
     fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
-        self.output_handler.finalize()
+        self.ciphertext_handler.finalize()
     }
 }
 

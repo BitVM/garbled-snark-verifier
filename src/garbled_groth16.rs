@@ -71,15 +71,30 @@ mod ark_canonical {
         point
             .serialize_compressed(&mut bytes)
             .map_err(serde::ser::Error::custom)?;
-        serializer.serialize_bytes(&bytes)
+
+        if serializer.is_human_readable() {
+            // For JSON, use hex encoding
+            serializer.serialize_str(&hex::encode(&bytes))
+        } else {
+            // For binary formats, use raw bytes
+            serializer.serialize_bytes(&bytes)
+        }
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<VerifyingKey<Bn254>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let bytes: &[u8] = serde::Deserialize::deserialize(deserializer)?;
-        VerifyingKey::deserialize_compressed(bytes).map_err(serde::de::Error::custom)
+        if deserializer.is_human_readable() {
+            // For JSON, expect hex string
+            let s: String = serde::Deserialize::deserialize(deserializer)?;
+            let bytes = hex::decode(&s).map_err(serde::de::Error::custom)?;
+            VerifyingKey::deserialize_compressed(&bytes[..]).map_err(serde::de::Error::custom)
+        } else {
+            // For binary formats, expect raw bytes
+            let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+            VerifyingKey::deserialize_compressed(&bytes[..]).map_err(serde::de::Error::custom)
+        }
     }
 }
 
@@ -168,7 +183,7 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for 
 // ============================================================================
 
 /// Bit-vector wrapper for field element wires evaluated against garbled labels.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatedFrWires(pub Vec<EvaluatedWire>);
 
 impl Deref for EvaluatedFrWires {
@@ -481,23 +496,26 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>>
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatedCompressedG1Wires {
     pub x: EvaluatedFrWires,
     pub y_flag: EvaluatedWire,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatedCompressedG2Wires {
     pub x: [EvaluatedFrWires; 2],
     pub y_flag: EvaluatedWire,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct EvaluatorCompressedInput {
     pub public: Vec<EvaluatedFrWires>,
     pub a: EvaluatedCompressedG1Wires,
     pub b: EvaluatedCompressedG2Wires,
     pub c: EvaluatedCompressedG1Wires,
+
+    #[serde(with = "ark_canonical")]
     pub vk: VerifyingKey<Bn254>,
 }
 

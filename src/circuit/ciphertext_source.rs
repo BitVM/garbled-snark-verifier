@@ -105,3 +105,13 @@ impl CiphertextSource for FileSource {
         self.hasher.finalize()
     }
 }
+
+impl CiphertextSource for () {
+    type Result = ();
+
+    fn recv(&mut self) -> Option<S> {
+        None
+    }
+
+    fn finalize(&self) -> Self::Result {}
+}
