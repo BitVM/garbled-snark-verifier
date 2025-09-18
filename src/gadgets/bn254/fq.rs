@@ -184,7 +184,7 @@ impl Fq {
 
         let neg_one_mont = Fq(BigIntWires::new_constant(
             Self::N_BITS,
-            &BigUint::from(-ark_bn254::Fq::ONE),
+            &BigUint::from(Fq::as_montgomery(-ark_bn254::Fq::ONE)),
         )
         .unwrap());
 
