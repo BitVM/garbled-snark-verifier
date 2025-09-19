@@ -40,12 +40,19 @@ rayon = "1.10.0"
 slab = "0.4.11"
 thiserror = "2.0.12"
 
+bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
+eyre = "0.6.12"
+k256 = "0.13.4"
+sha2 = "0.10.9"
+
 [dev-dependencies]
 ark-ec = "0.5.0"
 ark-relations = "0.5.0"
 env_logger = "0.11"
 serde_json = "1.0"
 test-log = "0.2.8"
+bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
+bitvm = { git = "https://github.com/BitVM/BitVM", branch = "main" }
 
 # Install Git hooks via cargo-husky
 [dev-dependencies.cargo-husky]
