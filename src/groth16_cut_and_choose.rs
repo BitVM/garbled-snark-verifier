@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-use std::path::Path;
-
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -10,12 +8,15 @@ use crate::{
     EvaluatedWire, GarbledWire,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
-        self as generic, CiphertextSourceProvider, ConsistencyError, DEFAULT_CAPACITY, GarblerStage,
+        self as generic, CiphertextHandlerProvider, CiphertextSourceProvider, Commit,
+        ConsistencyError, GarblerStage,
     },
     garbled_groth16::{self, PublicParams},
 };
 
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
+
+pub const DEFAULT_CAPACITY: usize = 150_000;
 
 /// Groth16-specific wrapper preserving the existing API while delegating
 /// to the generic cut-and-choose implementation.
@@ -25,7 +26,12 @@ pub struct Garbler {
 
 impl Garbler {
     pub fn create(rng: impl Rng, config: Config) -> Self {
-        let inner = generic::Garbler::create(rng, config, garbled_groth16::verify_compressed);
+        let inner = generic::Garbler::create(
+            rng,
+            config,
+            DEFAULT_CAPACITY,
+            garbled_groth16::verify_compressed,
+        );
         Self { inner }
     }
 
@@ -112,20 +118,23 @@ impl Evaluator {
     }
 
     #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling<CTS: CiphertextSource + 'static>(
+    pub fn run_regarbling<CSourceProvider, CHandlerProvider>(
         &self,
         seeds: Vec<(usize, Seed)>,
-        receivers: Vec<(usize, CTS)>,
-        folder_for_ciphertexts: &Path,
-    ) -> Result<(), ()> {
-        // Pre-allocate 48GB for Groth16 circuit ciphertext files
-        const GROTH16_CIPHERTEXT_SIZE: u64 = 48 * (1 << 30); // 48GB
-
+        ciphertext_sources_provider: &CSourceProvider,
+        ciphertext_sink_provider: &CHandlerProvider,
+    ) -> Result<(), ()>
+    where
+        CSourceProvider: CiphertextSourceProvider + Send + Sync,
+        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
+        CHandlerProvider::Handler: 'static,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<Commit>,
+    {
         self.inner.run_regarbling(
             seeds,
-            receivers,
-            folder_for_ciphertexts,
-            Some(GROTH16_CIPHERTEXT_SIZE),
+            ciphertext_sources_provider,
+            ciphertext_sink_provider,
+            DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         )
     }
