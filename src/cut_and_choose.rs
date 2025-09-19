@@ -1,31 +1,11 @@
 #![allow(dead_code)]
 
-use std::{
-    collections::HashMap,
-    error, fmt,
-    fs::{self, File},
-    io::{self, BufWriter, Write},
-    mem,
-    path::{Path, PathBuf},
-    sync::Arc,
-    thread::{self, JoinHandle},
-};
+use std::{error, sync::Arc};
 
-use rand::Rng;
-use rayon::{ThreadPool, ThreadPoolBuilder, iter::IntoParallelRefIterator, prelude::*};
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
 
-use crate::{
-    AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
-    circuit::{
-        CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
-        StreamingMode, StreamingResult, ciphertext_source, modes::EvaluateMode,
-    },
-};
-
-/// Default live wires capacity used for streaming garbling/evaluation.
-pub const DEFAULT_CAPACITY: usize = 150_000;
+use crate::circuit::CircuitInput;
 
 pub type Seed = u64;
 pub type Commit = u128;
@@ -60,645 +40,775 @@ impl<I: CircuitInput> Config<I> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct GarbledInstance {
-    /// Constant to represent false wire constant
-    ///
-    /// Necessary to restart the scheme and consistency
-    pub false_wire_constant: GarbledWire,
+pub mod garbler {
+    use std::{
+        mem,
+        thread::{self, JoinHandle},
+    };
 
-    /// Constant to represent true wire constant
-    ///
-    /// Necessary to restart the scheme and consistency
-    pub true_wire_constant: GarbledWire,
+    use rand::Rng;
+    use rayon::{iter::IntoParallelRefIterator, prelude::*};
+    use serde::{Deserialize, Serialize};
+    use tracing::info;
 
-    /// Output `WireId` in return order
-    pub output_wire_values: GarbledWire,
+    use crate::{
+        AesNiHasher, CiphertextHashAcc, GarbleMode, GarbledWire, WireId,
+        circuit::{
+            CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
+            StreamingResult,
+        },
+        cut_and_choose::{Commit, Config, Seed},
+    };
 
-    /// Values of the input Wires, which were fed to the circuit input
-    pub input_wire_values: Vec<GarbledWire>,
+    #[derive(Serialize, Deserialize)]
+    pub struct GarbledInstance {
+        /// Constant to represent false wire constant
+        ///
+        /// Necessary to restart the scheme and consistency
+        pub false_wire_constant: GarbledWire,
 
-    pub ciphertext_handler_result: u128,
-}
+        /// Constant to represent true wire constant
+        ///
+        /// Necessary to restart the scheme and consistency
+        pub true_wire_constant: GarbledWire,
 
-impl<I: CircuitInput>
-    From<StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>>
-    for GarbledInstance
-{
-    fn from(
-        res: StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>,
-    ) -> Self {
-        GarbledInstance {
-            false_wire_constant: res.false_wire_constant,
-            true_wire_constant: res.true_wire_constant,
-            output_wire_values: res.output_value,
-            input_wire_values: res.input_wire_values,
-            ciphertext_handler_result: res.ciphertext_handler_result,
-        }
+        /// Output `WireId` in return order
+        pub output_wire_values: GarbledWire,
+
+        /// Values of the input Wires, which were fed to the circuit input
+        pub input_wire_values: Vec<GarbledWire>,
+
+        pub ciphertext_handler_result: u128,
     }
-}
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GarbledInstanceCommit {
-    ciphertext_commit: Commit,
-    input_labels_commit: Commit,
-    // Separate commits for output labels: one for label1 and one for label0
-    output_label1_commit: Commit,
-    output_label0_commit: Commit,
-    true_constant_commit: Commit,
-    false_constant_commit: Commit,
-}
-
-impl GarbledInstanceCommit {
-    pub fn new(instance: &GarbledInstance) -> Self {
-        Self {
-            ciphertext_commit: instance.ciphertext_handler_result,
-            input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values),
-
-            output_label1_commit: Self::commit_label1(&instance.output_wire_values),
-
-            output_label0_commit: Self::commit_label0(&instance.output_wire_values),
-
-            true_constant_commit: CiphertextHashAcc::digest(
-                instance.true_wire_constant.select(true),
-            ),
-            false_constant_commit: CiphertextHashAcc::digest(
-                instance.false_wire_constant.select(false),
-            ),
+    impl<I: CircuitInput>
+        From<StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>>
+        for GarbledInstance
+    {
+        fn from(
+            res: StreamingResult<GarbleMode<AesNiHasher, CiphertextHashAcc>, I, GarbledWire>,
+        ) -> Self {
+            GarbledInstance {
+                false_wire_constant: res.false_wire_constant,
+                true_wire_constant: res.true_wire_constant,
+                output_wire_values: res.output_value,
+                input_wire_values: res.input_wire_values,
+                ciphertext_handler_result: res.ciphertext_handler_result,
+            }
         }
     }
 
-    pub fn commit_garbled_wires(inputs: &[GarbledWire]) -> Commit {
-        let mut h = CiphertextHashAcc::default();
-        inputs.iter().for_each(|GarbledWire { label0, label1 }| {
-            h.update(*label0);
-            h.update(*label1);
-        });
-        h.finalize()
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct GarbledInstanceCommit {
+        ciphertext_commit: Commit,
+        input_labels_commit: Commit,
+        // Separate commits for output labels: one for label1 and one for label0
+        output_label1_commit: Commit,
+        output_label0_commit: Commit,
+        true_constant_commit: Commit,
+        false_constant_commit: Commit,
     }
 
-    fn commit_label1(input: &GarbledWire) -> Commit {
-        CiphertextHashAcc::digest(input.label1)
-    }
+    impl GarbledInstanceCommit {
+        pub fn new(instance: &GarbledInstance) -> Self {
+            Self {
+                ciphertext_commit: instance.ciphertext_handler_result,
+                input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values),
 
-    fn commit_label0(input: &GarbledWire) -> Commit {
-        CiphertextHashAcc::digest(input.label0)
-    }
+                output_label1_commit: Self::commit_label1(&instance.output_wire_values),
 
-    pub fn output_commit_label1(&self) -> Commit {
-        self.output_label1_commit
-    }
+                output_label0_commit: Self::commit_label0(&instance.output_wire_values),
 
-    pub fn output_commit_label0(&self) -> Commit {
-        self.output_label0_commit
-    }
+                true_constant_commit: CiphertextHashAcc::digest(
+                    instance.true_wire_constant.select(true),
+                ),
+                false_constant_commit: CiphertextHashAcc::digest(
+                    instance.false_wire_constant.select(false),
+                ),
+            }
+        }
 
-    pub fn true_consatnt_wire_commit(&self) -> Commit {
-        self.true_constant_commit
-    }
+        pub fn commit_garbled_wires(inputs: &[GarbledWire]) -> Commit {
+            let mut h = CiphertextHashAcc::default();
+            inputs.iter().for_each(|GarbledWire { label0, label1 }| {
+                h.update(*label0);
+                h.update(*label1);
+            });
+            h.finalize()
+        }
 
-    pub fn false_consatnt_wire_commit(&self) -> Commit {
-        self.false_constant_commit
-    }
-}
+        fn commit_label1(input: &GarbledWire) -> Commit {
+            CiphertextHashAcc::digest(input.label1)
+        }
 
-pub enum OpenForInstance {
-    Open(usize, Seed),
-    Closed {
-        index: usize,
-        garbling_thread: JoinHandle<()>,
-    },
-}
+        fn commit_label0(input: &GarbledWire) -> Commit {
+            CiphertextHashAcc::digest(input.label0)
+        }
 
-#[derive(Serialize, Deserialize)]
-pub enum GarblerStage {
-    Generating { seeds: Box<[Seed]> },
-    PreparedForEval { indexes_to_eval: Box<[usize]> },
-}
+        pub fn output_label1_commit(&self) -> Commit {
+            self.output_label1_commit
+        }
 
-impl GarblerStage {
-    fn next_stage(&mut self, indexes_to_eval: Box<[usize]>) -> Box<[Seed]> {
-        assert!(matches!(self, Self::Generating { .. }));
+        pub fn output_label0_commit(&self) -> Commit {
+            self.output_label0_commit
+        }
 
-        let mut n = GarblerStage::PreparedForEval { indexes_to_eval };
+        pub fn true_consatnt_wire_commit(&self) -> Commit {
+            self.true_constant_commit
+        }
 
-        mem::swap(self, &mut n);
+        pub fn false_consatnt_wire_commit(&self) -> Commit {
+            self.false_constant_commit
+        }
 
-        match n {
-            Self::Generating { seeds } => seeds,
-            _ => unreachable!(),
+        pub fn ciphertext_commit(&self) -> Commit {
+            self.ciphertext_commit
         }
     }
-}
 
-#[derive(Serialize, Deserialize)]
-pub struct Garbler<I: CircuitInput + Clone> {
-    stage: GarblerStage,
-    instances: Vec<GarbledInstance>,
-    config: Config<I>,
-}
+    pub enum OpenForInstance {
+        Open(usize, Seed),
+        Closed {
+            index: usize,
+            garbling_thread: JoinHandle<()>,
+        },
+    }
 
-impl<I> Garbler<I>
-where
-    I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
-    <I as CircuitInput>::WireRepr: Send,
-    I: 'static,
-{
-    /// Create garbled instances in parallel using the provided circuit builder function.
-    pub fn create<F>(mut rng: impl Rng, config: Config<I>, builder: F) -> Self
+    #[derive(Serialize, Deserialize)]
+    pub enum GarblerStage {
+        Generating { seeds: Box<[Seed]> },
+        PreparedForEval { indexes_to_eval: Box<[usize]> },
+    }
+
+    impl GarblerStage {
+        fn next_stage(&mut self, indexes_to_eval: Box<[usize]>) -> Box<[Seed]> {
+            assert!(matches!(self, Self::Generating { .. }));
+
+            let mut n = GarblerStage::PreparedForEval { indexes_to_eval };
+
+            mem::swap(self, &mut n);
+
+            match n {
+                Self::Generating { seeds } => seeds,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    #[derive(Serialize, Deserialize)]
+    pub struct Garbler<I: CircuitInput + Clone> {
+        stage: GarblerStage,
+        instances: Vec<GarbledInstance>,
+        config: Config<I>,
+        live_capacity: usize,
+    }
+
+    impl<I> Garbler<I>
     where
-        F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
-                &I::WireRepr,
-            ) -> WireId
+        I: CircuitInput
+            + Clone
             + Send
             + Sync
-            + Copy,
+            + EncodeInput<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
+        <I as CircuitInput>::WireRepr: Send,
+        I: 'static,
     {
-        let seeds = (0..config.total)
-            .map(|_| rng.r#gen())
-            .collect::<Box<[Seed]>>();
+        /// Create garbled instances in parallel using the provided circuit builder function.
+        pub fn create<F>(
+            mut rng: impl Rng,
+            config: Config<I>,
+            live_capacity: usize,
+            builder: F,
+        ) -> Self
+        where
+            F: Fn(
+                    &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
+                    &I::WireRepr,
+                ) -> WireId
+                + Send
+                + Sync
+                + Copy,
+        {
+            let seeds = (0..config.total)
+                .map(|_| rng.r#gen())
+                .collect::<Box<[Seed]>>();
 
-        // Use optimized thread pool internally
-        let instances: Vec<_> = get_optimized_pool().install(|| {
+            // Use optimized thread pool internally
+            let instances: Vec<_> = super::get_optimized_pool().install(|| {
+                seeds
+                    .par_iter()
+                    .enumerate()
+                    .map(|(index, garbling_seed)| {
+                        let inputs = config.input.clone();
+                        let hasher = CiphertextHashAcc::default();
+
+                        let span = tracing::info_span!("garble", instance = index);
+                        let _enter = span.enter();
+
+                        info!("Starting garbling of circuit (cut-and-choose)");
+
+                        let res: StreamingResult<
+                            GarbleMode<AesNiHasher, CiphertextHashAcc>,
+                            I,
+                            GarbledWire,
+                        > = CircuitBuilder::streaming_garbling(
+                            inputs,
+                            live_capacity,
+                            *garbling_seed,
+                            hasher,
+                            builder,
+                        );
+
+                        GarbledInstance::from(res)
+                    })
+                    .collect()
+            });
+
+            Self {
+                stage: GarblerStage::Generating { seeds },
+                instances,
+                live_capacity,
+                config,
+            }
+        }
+
+        pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
+            // Build commits in parallel; independent per instance
+            self.instances
+                .iter()
+                .map(GarbledInstanceCommit::new)
+                .collect()
+        }
+
+        pub fn open_commit<F, CTH: 'static + Send + CiphertextHandler>(
+            &mut self,
+            mut indexes_to_finalize: Vec<(usize, CTH)>,
+            builder: F,
+        ) -> Vec<OpenForInstance>
+        where
+            F: 'static
+                + Fn(&mut StreamingMode<GarbleMode<AesNiHasher, CTH>>, &I::WireRepr) -> WireId
+                + Send
+                + Sync
+                + Copy,
+            I: EncodeInput<GarbleMode<AesNiHasher, CTH>>,
+        {
+            let seeds = self
+                .stage
+                .next_stage(indexes_to_finalize.iter().map(|(i, _)| *i).collect());
+
+            // TODO #37 Since at this point the number but finalization is no more than 7, we just run
+            // threads here, without rayon
             seeds
-                .par_iter()
+                .iter()
                 .enumerate()
                 .map(|(index, garbling_seed)| {
-                    let inputs = config.input.clone();
-                    let hasher = CiphertextHashAcc::default();
+                    let pos = indexes_to_finalize
+                        .iter()
+                        .position(|(index_to_eval, _sender)| index_to_eval.eq(&index));
 
-                    let span = tracing::info_span!("garble", instance = index);
-                    let _enter = span.enter();
+                    if let Some(pos) = pos {
+                        let sender = indexes_to_finalize.remove(pos).1;
 
-                    info!("Starting garbling of circuit (cut-and-choose)");
+                        let inputs = self.config.input.clone();
+                        let garbling_seed = *garbling_seed;
 
-                    let res: StreamingResult<
-                        GarbleMode<AesNiHasher, CiphertextHashAcc>,
-                        I,
-                        GarbledWire,
-                    > = CircuitBuilder::streaming_garbling(
-                        inputs,
-                        DEFAULT_CAPACITY,
-                        *garbling_seed,
-                        hasher,
-                        builder,
-                    );
+                        let live_capacity = self.live_capacity;
 
-                    GarbledInstance::from(res)
+                        let garbling_thread = thread::spawn(move || {
+                            let _span =
+                                tracing::info_span!("regarble2send", instance = index).entered();
+
+                            info!("Starting");
+
+                            let _: StreamingResult<_, I, GarbledWire> =
+                                CircuitBuilder::<GarbleMode<AesNiHasher, _>>::streaming_garbling(
+                                    inputs,
+                                    live_capacity,
+                                    garbling_seed,
+                                    sender,
+                                    builder,
+                                );
+                        });
+
+                        OpenForInstance::Closed {
+                            index,
+                            garbling_thread,
+                        }
+                    } else {
+                        OpenForInstance::Open(index, *garbling_seed)
+                    }
                 })
                 .collect()
-        });
+        }
 
-        Self {
-            stage: GarblerStage::Generating { seeds },
-            instances,
-            config,
+        /// Return the constant labels for true/false as u128 words for a given instance.
+        pub fn true_wire_constant_for(&self, index: usize) -> u128 {
+            self.instances[index]
+                .true_wire_constant
+                .select(true)
+                .to_u128()
+        }
+
+        /// Return the constant labels for true/false as u128 words for a given instance.
+        pub fn false_wire_constant_for(&self, index: usize) -> u128 {
+            self.instances[index]
+                .false_wire_constant
+                .select(false)
+                .to_u128()
+        }
+
+        /// Return a clone of the input garbled labels for a given instance.
+        pub fn input_labels_for(&self, index: usize) -> Vec<GarbledWire> {
+            self.instances[index].input_wire_values.clone()
+        }
+
+        pub fn config(&self) -> &Config<I> {
+            &self.config
+        }
+
+        pub fn stage(&self) -> &GarblerStage {
+            &self.stage
+        }
+    }
+}
+pub use garbler::*;
+
+pub mod ciphertext_repository {
+    use std::{
+        fmt,
+        fs::{self, File},
+        io::{self, BufWriter, Write},
+        path::PathBuf,
+    };
+
+    use crossbeam::channel;
+    use tracing::error;
+
+    use crate::{
+        CiphertextHashAcc, S,
+        circuit::{CiphertextHandler, ciphertext_source},
+        cut_and_choose::Commit,
+    };
+
+    pub trait CiphertextSourceProvider {
+        type Source: ciphertext_source::CiphertextSource;
+        type Error: fmt::Debug;
+
+        fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error>;
+    }
+
+    impl CiphertextSourceProvider for PathBuf {
+        type Source = ciphertext_source::FileSource;
+        type Error = io::Error;
+
+        fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
+            let path = self.join(format!("gc_{index}.bin"));
+            if !path.exists() {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("ciphertext file {path:?} not found"),
+                ));
+            }
+
+            ciphertext_source::FileSource::from_path(path)
         }
     }
 
-    pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
-        // Build commits in parallel; independent per instance
-        self.instances
-            .iter()
-            .map(GarbledInstanceCommit::new)
-            .collect()
+    impl CiphertextSourceProvider for Vec<(usize, channel::Receiver<S>)> {
+        type Source = channel::Receiver<S>;
+        type Error = ();
+
+        fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
+            self.iter()
+                .find_map(|(i, rx)| i.eq(&index).then_some(rx).cloned())
+                .ok_or(())
+        }
     }
 
-    pub fn open_commit<F, CTH: 'static + Send + CiphertextHandler>(
-        &mut self,
-        mut indexes_to_finalize: Vec<(usize, CTH)>,
-        builder: F,
-    ) -> Vec<OpenForInstance>
-    where
-        F: 'static
-            + Fn(&mut StreamingMode<GarbleMode<AesNiHasher, CTH>>, &I::WireRepr) -> WireId
-            + Send
-            + Sync
-            + Copy,
-        I: EncodeInput<GarbleMode<AesNiHasher, CTH>>,
-    {
-        let seeds = self
-            .stage
-            .next_stage(indexes_to_finalize.iter().map(|(i, _)| *i).collect());
+    pub trait CiphertextHandlerProvider {
+        type Handler: CiphertextHandler + Send;
+        type Error: fmt::Debug;
 
-        // TODO #37 Since at this point the number but finalization is no more than 7, we just run
-        // threads here, without rayon
-        seeds
-            .iter()
-            .enumerate()
-            .map(|(index, garbling_seed)| {
-                let pos = indexes_to_finalize
-                    .iter()
-                    .position(|(index_to_eval, _sender)| index_to_eval.eq(&index));
+        fn handler_for(&self, index: usize) -> Result<Self::Handler, Self::Error>;
+    }
 
-                if let Some(pos) = pos {
-                    let sender = indexes_to_finalize.remove(pos).1;
+    pub struct FileCiphertextHandler {
+        path: PathBuf,
+        writer: BufWriter<File>,
+        hasher: CiphertextHashAcc,
+    }
 
-                    let inputs = self.config.input.clone();
-                    let garbling_seed = *garbling_seed;
+    impl FileCiphertextHandler {
+        pub fn create(path: PathBuf, pre_allocate: Option<u64>) -> io::Result<Self> {
+            let file = File::create(&path)?;
 
-                    let garbling_thread = thread::spawn(move || {
-                        let _span =
-                            tracing::info_span!("regarble2send", instance = index).entered();
+            if let Some(size) = pre_allocate
+                && let Err(err) = file.set_len(size)
+            {
+                error!(path = %path.display(), ?err, "failed to pre-allocate ciphertext file");
+            }
 
-                        info!("Starting");
+            let buffer_size = if pre_allocate.unwrap_or(0) > 10 * (1 << 30) {
+                1 << 25 // 32MB buffer for files > 10GB
+            } else {
+                1 << 20 // 1MB buffer for smaller files
+            };
 
-                        let _: StreamingResult<_, I, GarbledWire> =
-                            CircuitBuilder::<GarbleMode<AesNiHasher, _>>::streaming_garbling(
-                                inputs,
-                                DEFAULT_CAPACITY,
-                                garbling_seed,
-                                sender,
-                                builder,
-                            );
-                    });
-
-                    OpenForInstance::Closed {
-                        index,
-                        garbling_thread,
-                    }
-                } else {
-                    OpenForInstance::Open(index, *garbling_seed)
-                }
+            Ok(Self {
+                path,
+                writer: BufWriter::with_capacity(buffer_size, file),
+                hasher: CiphertextHashAcc::default(),
             })
-            .collect()
-    }
-
-    /// Return the constant labels for true/false as u128 words for a given instance.
-    pub fn true_wire_constant_for(&self, index: usize) -> u128 {
-        self.instances[index]
-            .true_wire_constant
-            .select(true)
-            .to_u128()
-    }
-
-    /// Return the constant labels for true/false as u128 words for a given instance.
-    pub fn false_wire_constant_for(&self, index: usize) -> u128 {
-        self.instances[index]
-            .false_wire_constant
-            .select(false)
-            .to_u128()
-    }
-
-    /// Return a clone of the input garbled labels for a given instance.
-    pub fn input_labels_for(&self, index: usize) -> Vec<GarbledWire> {
-        self.instances[index].input_wire_values.clone()
-    }
-
-    pub fn config(&self) -> &Config<I> {
-        &self.config
-    }
-
-    pub fn stage(&self) -> &GarblerStage {
-        &self.stage
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Evaluator<I: CircuitInput + Clone> {
-    config: Config<I>,
-    commits: Vec<GarbledInstanceCommit>,
-    to_finalize: Box<[usize]>,
-}
-
-impl<I> Evaluator<I>
-where
-    I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
-    <I as CircuitInput>::WireRepr: Send + Sync,
-{
-    // Generate `to_finalize` with `rng` based on data on `Config`
-    pub fn create(
-        mut rng: impl Rng,
-        config: Config<I>,
-        commits: Vec<GarbledInstanceCommit>,
-    ) -> Self {
-        assert!(
-            config.to_finalize <= config.total,
-            "to_finalize must be <= total"
-        );
-
-        // Sample without replacement: shuffle 0..total and take first `to_finalize`
-        let mut idxs: Vec<usize> = (0..config.total).collect();
-        // Fisher-Yates with unbiased rng
-        for i in (1..idxs.len()).rev() {
-            let j = rng.gen_range(0..=i);
-            idxs.swap(i, j);
-        }
-        idxs.truncate(config.to_finalize);
-        idxs.sort_unstable();
-
-        Self {
-            commits,
-            to_finalize: idxs.into_boxed_slice(),
-            config,
         }
     }
 
-    pub fn get_indexes_to_finalize(&self) -> &[usize] {
-        &self.to_finalize
-    }
+    impl CiphertextHandler for FileCiphertextHandler {
+        type Result = Commit;
 
-    pub fn finalized_indexes(&self) -> &[usize] {
-        &self.to_finalize
-    }
+        fn handle(&mut self, ct: S) {
+            self.hasher.update(ct);
 
-    // 1. Check that `OpenForInstance` matches the ones stored in `self.to_finalize`.
-    // 2. For `Open` run `streaming_garbling` via rayon, where at the end it checks for a match with saved commits
-    #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling<CTS, F>(
-        &self,
-        seeds: Vec<(usize, Seed)>,
-        receivers: Vec<(usize, CTS)>,
-        folder_for_ciphertexts: &Path,
-        pre_alloc_size: Option<u64>,
-        builder: F,
-    ) -> Result<(), ()>
-    where
-        CTS: CiphertextSource + 'static,
-        F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
-                &I::WireRepr,
-            ) -> WireId
-            + Send
-            + Sync
-            + Copy,
-    {
-        let receivers: HashMap<usize, CTS> = receivers.into_iter().collect();
-
-        // Ensure output directory exists
-        if let Err(e) = fs::create_dir_all(folder_for_ciphertexts) {
-            error!(
-                "failed to create output dir {:?}: {e}",
-                folder_for_ciphertexts
-            );
-            return Err(());
-        }
-
-        // Use optimized thread pool for parallel regarbling
-        let pool = get_optimized_pool();
-
-        for (index, mut rx) in receivers.into_iter() {
-            let path: PathBuf = folder_for_ciphertexts.join(format!("gc_{}.bin", index));
-            let ciphertext_commit = self.commits[index].ciphertext_commit;
-
-            let pre_alloc = pre_alloc_size;
-
-            pool.spawn(move || {
-                let mut writer =
-                    FileCiphertextWriter::create(path, pre_alloc).expect("create ciphertext file");
-
-                while let Some(s) = rx.recv() {
-                    writer.handle(s);
-                }
-
-                let computed_commit = writer.finalize();
-                if computed_commit == ciphertext_commit {
-                    writer.flush().expect("flush ciphertext file");
-                } else {
-                    todo!("ciphertext corrupted: delete file");
-                }
+            self.writer.write_all(&ct.to_bytes()).unwrap_or_else(|err| {
+                panic!(
+                    "failed to write ciphertext to {}: {err}",
+                    self.path.display()
+                )
             });
         }
 
-        let all_ok = pool.install(|| {
-            seeds.par_iter().all(|(index, garbling_seed)| {
-                let inputs = self.config.input.clone();
-                let hasher = CiphertextHashAcc::default();
-
-                let span = tracing::info_span!("regarble", instance = index);
-                let _enter = span.enter();
-
-                info!("Starting regarbling of circuit (cut-and-choose)");
-
-                let res: StreamingResult<
-                    GarbleMode<AesNiHasher, CiphertextHashAcc>,
-                    I,
-                    GarbledWire,
-                > = CircuitBuilder::streaming_garbling(
-                    inputs.clone(),
-                    DEFAULT_CAPACITY,
-                    *garbling_seed,
-                    hasher,
-                    builder,
-                );
-
-                let regarbling_commit = GarbledInstanceCommit::new(&res.into());
-                let received_commit = &self.commits[*index];
-
-                &regarbling_commit == received_commit
-            })
-        });
-
-        if all_ok { Ok(()) } else { Err(()) }
+        fn finalize(&self) -> Self::Result {
+            self.hasher.finalize()
+        }
     }
-}
 
-pub struct EvaluatorCaseInput<I> {
-    pub index: usize,
-    pub input: I,
-    pub true_constant_wire: u128,
-    pub false_constant_wire: u128,
-}
+    #[derive(Clone, Debug)]
+    pub struct FileCiphertextHandlerProvider {
+        root: PathBuf,
+        pre_allocate: Option<u64>,
+    }
 
-/// Errors that can occur during consistency checking.
-#[derive(Debug)]
-pub enum ConsistencyError {
-    CommitFileNotFound(usize),
-    CommitFileInvalid(usize, String),
-    TrueConstantMismatch {
-        index: usize,
-        expected: u128,
-        actual: u128,
-    },
-    FalseConstantMismatch {
-        index: usize,
-        expected: u128,
-        actual: u128,
-    },
-    CiphertextMismatch {
-        index: usize,
-        expected: u128,
-        actual: u128,
-    },
-    InputLabelsMismatch {
-        index: usize,
-        expected: u128,
-        actual: u128,
-    },
-    OutputLabelMismatch {
-        index: usize,
-        expected: u128,
-        actual: u128,
-    },
-    MissingCiphertextHash(usize),
-}
+    impl FileCiphertextHandlerProvider {
+        pub fn new(root: impl Into<PathBuf>, pre_allocate: Option<u64>) -> io::Result<Self> {
+            let root = root.into();
+            fs::create_dir_all(&root)?;
+            Ok(Self { root, pre_allocate })
+        }
+    }
 
-impl std::fmt::Display for ConsistencyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::CommitFileNotFound(idx) => {
-                write!(f, "Commit file not found for instance {}", idx)
-            }
-            Self::CommitFileInvalid(idx, err) => {
-                write!(f, "Invalid commit file for instance {}: {}", idx, err)
-            }
-            Self::TrueConstantMismatch {
-                index,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "True constant hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
-            Self::FalseConstantMismatch {
-                index,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "False constant hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
-            Self::CiphertextMismatch {
-                index,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "Ciphertext hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
-            Self::InputLabelsMismatch {
-                index,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "Input labels hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
-            Self::OutputLabelMismatch {
-                index,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "Output label hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
-            Self::MissingCiphertextHash(idx) => {
-                write!(f, "Missing ciphertext hash for instance {}", idx)
-            }
+    impl CiphertextHandlerProvider for FileCiphertextHandlerProvider {
+        type Handler = FileCiphertextHandler;
+        type Error = io::Error;
+
+        fn handler_for(&self, index: usize) -> Result<Self::Handler, Self::Error> {
+            let path = self.root.join(format!("gc_{}.bin", index));
+            FileCiphertextHandler::create(path, self.pre_allocate)
         }
     }
 }
 
-impl error::Error for ConsistencyError {}
+pub mod evaluator {
+    use rand::Rng;
+    use rayon::{iter::IntoParallelRefIterator, prelude::*};
+    use serde::{Deserialize, Serialize};
+    use tracing::{error, info};
 
-pub trait CiphertextSourceProvider {
-    type Source: CiphertextSource;
-    type Error: fmt::Debug;
+    use super::{Config, garbler::GarbledInstanceCommit};
+    use crate::{
+        AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
+        circuit::{
+            CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
+            StreamingMode, StreamingResult, modes::EvaluateMode,
+        },
+        cut_and_choose::{CiphertextHandlerProvider, CiphertextSourceProvider, Commit, Seed},
+    };
 
-    fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error>;
-}
-
-impl CiphertextSourceProvider for PathBuf {
-    type Source = ciphertext_source::FileSource;
-    type Error = io::Error;
-
-    fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
-        let path = self.join(format!("gc_{index}.bin"));
-        if !path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("ciphertext file {path:?} not found"),
-            ));
-        }
-
-        ciphertext_source::FileSource::from_path(path)
-    }
-}
-
-struct FileCiphertextWriter {
-    path: PathBuf,
-    writer: BufWriter<File>,
-    hasher: CiphertextHashAcc,
-}
-
-impl FileCiphertextWriter {
-    fn create(path: PathBuf, pre_allocate: Option<u64>) -> io::Result<Self> {
-        let file = File::create(&path)?;
-
-        if let Some(size) = pre_allocate
-            && let Err(err) = file.set_len(size)
-        {
-            error!(path = %path.display(), ?err, "failed to pre-allocate ciphertext file");
-        }
-
-        let buffer_size = if pre_allocate.unwrap_or(0) > 10 * (1 << 30) {
-            1 << 25 // 32MB buffer for files > 10GB
-        } else {
-            1 << 20 // 1MB buffer for smaller files
-        };
-
-        Ok(Self {
-            path,
-            writer: BufWriter::with_capacity(buffer_size, file),
-            hasher: CiphertextHashAcc::default(),
-        })
+    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Evaluator<I: CircuitInput + Clone> {
+        config: Config<I>,
+        commits: Vec<GarbledInstanceCommit>,
+        to_finalize: Box<[usize]>,
     }
 
-    fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-}
-
-impl CiphertextHandler for FileCiphertextWriter {
-    type Result = Commit;
-
-    fn handle(&mut self, ct: S) {
-        self.hasher.update(ct);
-        self.writer.write_all(&ct.to_bytes()).unwrap_or_else(|err| {
-            panic!(
-                "failed to write ciphertext to {}: {err}",
-                self.path.display()
-            )
-        });
-    }
-
-    fn finalize(&self) -> Self::Result {
-        self.hasher.finalize()
-    }
-}
-
-impl<I> Evaluator<I>
-where
-    I: CircuitInput + Clone + Send + Sync,
-{
-    /// Evaluate all finalized instances from saved ciphertext files in `folder`.
-    /// Returns `(index, EvaluatedWire)` pairs.
-    ///
-    /// **Note**: This method does NOT perform consistency checking. Use `evaluate_from_saved_all_with_consistency`
-    /// for evaluation with commit verification.
-    pub fn evaluate_from<E, F, CR>(
-        &self,
-        ciphertext_repo: &CR,
-        input_cases: Vec<EvaluatorCaseInput<E>>,
-        capacity: usize,
-        builder: F,
-    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
+    impl<I> Evaluator<I>
     where
-        CR: 'static + CiphertextSourceProvider + Sync,
-        <CR::Source as CiphertextSource>::Result: Into<u128>,
-        E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>>,
-        F: Fn(&mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>, &E::WireRepr) -> WireId
+        I: CircuitInput
+            + Clone
             + Send
             + Sync
-            + Copy,
+            + EncodeInput<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
+        <I as CircuitInput>::WireRepr: Send + Sync,
     {
-        get_optimized_pool().install(|| {
+        // Generate `to_finalize` with `rng` based on data on `Config`
+        pub fn create(
+            mut rng: impl Rng,
+            config: Config<I>,
+            commits: Vec<GarbledInstanceCommit>,
+        ) -> Self {
+            assert!(
+                config.to_finalize <= config.total,
+                "to_finalize must be <= total"
+            );
+
+            // Sample without replacement: shuffle 0..total and take first `to_finalize`
+            let mut idxs: Vec<usize> = (0..config.total).collect();
+            // Fisher-Yates with unbiased rng
+            for i in (1..idxs.len()).rev() {
+                let j = rng.gen_range(0..=i);
+                idxs.swap(i, j);
+            }
+            idxs.truncate(config.to_finalize);
+            idxs.sort_unstable();
+
+            Self {
+                commits,
+                to_finalize: idxs.into_boxed_slice(),
+                config,
+            }
+        }
+
+        pub fn get_indexes_to_finalize(&self) -> &[usize] {
+            &self.to_finalize
+        }
+
+        pub fn finalized_indexes(&self) -> &[usize] {
+            &self.to_finalize
+        }
+
+        // 1. Check that `OpenForInstance` matches the ones stored in `self.to_finalize`.
+        // 2. For `Open` run `streaming_garbling` via rayon, where at the end it checks for a match with saved commits
+        #[allow(clippy::result_unit_err)]
+        pub fn run_regarbling<CSourceProvider, CHandlerProvider, F>(
+            &self,
+            seeds: Vec<(usize, Seed)>,
+            ciphertext_sources_provider: &CSourceProvider,
+            ciphertext_handler_provider: &CHandlerProvider,
+            live_capacity: usize,
+            builder: F,
+        ) -> Result<(), ()>
+        where
+            CSourceProvider: CiphertextSourceProvider + Send + Sync,
+            CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
+            CHandlerProvider::Handler: 'static,
+            <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<Commit>,
+            F: Fn(
+                    &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
+                    &I::WireRepr,
+                ) -> WireId
+                + Send
+                + Sync
+                + Copy,
+        {
+            super::get_optimized_pool().install(|| {
+                self.commits
+                    .par_iter()
+                    .enumerate()
+                    .map(|(index, commit)| {
+                        if self.to_finalize.contains(&index) {
+                            let mut source = match ciphertext_sources_provider.source_for(index) {
+                                Ok(source) => source,
+                                Err(err) => {
+                                    error!(index, ?err, "failed to get ciphertext source");
+                                    return Err(());
+                                }
+                            };
+
+                            let mut handler = match ciphertext_handler_provider.handler_for(index) {
+                                Ok(sink) => sink,
+                                Err(err) => {
+                                    error!(index, ?err, "failed to create ciphertext sink");
+                                    return Err(());
+                                }
+                            };
+
+                            while let Some(s) = source.recv() {
+                                handler.handle(s);
+                            }
+
+                            let computed_commit: Commit = handler.finalize().into();
+
+                            if computed_commit != commit.ciphertext_commit() {
+                                error!("ciphertext corrupted");
+                                return Err(());
+                            }
+
+                            Ok(())
+                        } else {
+                            let Some(garbling_seed) = seeds
+                                .iter()
+                                .find_map(|(i, seed)| (i == &index).then_some(seed))
+                            else {
+                                error!("failed to find seed");
+                                return Err(());
+                            };
+
+                            let inputs = self.config.input.clone();
+                            let hasher = CiphertextHashAcc::default();
+
+                            let span = tracing::info_span!("regarble", instance = index);
+                            let _enter = span.enter();
+
+                            info!("Starting regarbling of circuit (cut-and-choose)");
+
+                            let res: StreamingResult<
+                                GarbleMode<AesNiHasher, CiphertextHashAcc>,
+                                I,
+                                GarbledWire,
+                            > = CircuitBuilder::streaming_garbling(
+                                inputs.clone(),
+                                live_capacity,
+                                *garbling_seed,
+                                hasher,
+                                builder,
+                            );
+
+                            let regarbling_commit = GarbledInstanceCommit::new(&res.into());
+
+                            if &regarbling_commit != commit {
+                                error!("regarbling failed");
+                                return Err(());
+                            }
+
+                            Ok(())
+                        }
+                    })
+                    .collect::<Result<Vec<()>, ()>>()
+            })?;
+
+            Ok(())
+        }
+    }
+
+    pub struct EvaluatorCaseInput<I> {
+        pub index: usize,
+        pub input: I,
+        pub true_constant_wire: u128,
+        pub false_constant_wire: u128,
+    }
+
+    /// Errors that can occur during consistency checking.
+    #[derive(Debug)]
+    pub enum ConsistencyError {
+        CommitFileNotFound(usize),
+        CommitFileInvalid(usize, String),
+        TrueConstantMismatch {
+            index: usize,
+            expected: u128,
+            actual: u128,
+        },
+        FalseConstantMismatch {
+            index: usize,
+            expected: u128,
+            actual: u128,
+        },
+        CiphertextMismatch {
+            index: usize,
+            expected: u128,
+            actual: u128,
+        },
+        InputLabelsMismatch {
+            index: usize,
+            expected: u128,
+            actual: u128,
+        },
+        OutputLabelMismatch {
+            index: usize,
+            expected: u128,
+            actual: u128,
+        },
+        MissingCiphertextHash(usize),
+    }
+
+    impl std::fmt::Display for ConsistencyError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::CommitFileNotFound(idx) => {
+                    write!(f, "Commit file not found for instance {}", idx)
+                }
+                Self::CommitFileInvalid(idx, err) => {
+                    write!(f, "Invalid commit file for instance {}: {}", idx, err)
+                }
+                Self::TrueConstantMismatch {
+                    index,
+                    expected,
+                    actual,
+                } => write!(
+                    f,
+                    "True constant hash mismatch for instance {}: expected {:#x}, got {:#x}",
+                    index, expected, actual
+                ),
+                Self::FalseConstantMismatch {
+                    index,
+                    expected,
+                    actual,
+                } => write!(
+                    f,
+                    "False constant hash mismatch for instance {}: expected {:#x}, got {:#x}",
+                    index, expected, actual
+                ),
+                Self::CiphertextMismatch {
+                    index,
+                    expected,
+                    actual,
+                } => write!(
+                    f,
+                    "Ciphertext hash mismatch for instance {}: expected {:#x}, got {:#x}",
+                    index, expected, actual
+                ),
+                Self::InputLabelsMismatch {
+                    index,
+                    expected,
+                    actual,
+                } => write!(
+                    f,
+                    "Input labels hash mismatch for instance {}: expected {:#x}, got {:#x}",
+                    index, expected, actual
+                ),
+                Self::OutputLabelMismatch {
+                    index,
+                    expected,
+                    actual,
+                } => write!(
+                    f,
+                    "Output label hash mismatch for instance {}: expected {:#x}, got {:#x}",
+                    index, expected, actual
+                ),
+                Self::MissingCiphertextHash(idx) => {
+                    write!(f, "Missing ciphertext hash for instance {}", idx)
+                }
+            }
+        }
+    }
+
+    impl<I> Evaluator<I>
+    where
+        I: CircuitInput + Clone + Send + Sync,
+    {
+        /// Evaluate all finalized instances from saved ciphertext files in `folder`.
+        /// Returns `(index, EvaluatedWire)` pairs.
+        ///
+        /// **Note**: This method does NOT perform consistency checking. Use `evaluate_from_saved_all_with_consistency`
+        /// for evaluation with commit verification.
+        pub fn evaluate_from<E, F, CR>(
+            &self,
+            ciphertext_repo: &CR,
+            input_cases: Vec<EvaluatorCaseInput<E>>,
+            capacity: usize,
+            builder: F,
+        ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
+        where
+            CR: 'static + CiphertextSourceProvider + Sync,
+            <CR::Source as CiphertextSource>::Result: Into<u128>,
+            E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>>,
+            F: Fn(
+                    &mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>,
+                    &E::WireRepr,
+                ) -> WireId
+                + Send
+                + Sync
+                + Copy,
+        {
+            super::get_optimized_pool().install(|| {
             input_cases
                 .into_par_iter()
                 .map(|case| {
@@ -757,10 +867,10 @@ where
                         );
 
                     let new_ciphertext_commit = result.ciphertext_handler_result.into();
-                    if new_ciphertext_commit != commit.ciphertext_commit {
+                    if new_ciphertext_commit != commit.ciphertext_commit() {
                         return Err(ConsistencyError::CiphertextMismatch {
                             index,
-                            expected: commit.ciphertext_commit,
+                            expected: commit.ciphertext_commit(),
                             actual: new_ciphertext_commit,
                         });
                     }
@@ -768,9 +878,9 @@ where
                     let output_hash = CiphertextHashAcc::digest(result.output_value.active_label);
 
                     let expected_output_hash = if result.output_value.value {
-                        commit.output_label1_commit
+                        commit.output_label1_commit()
                     } else {
-                        commit.output_label0_commit
+                        commit.output_label0_commit()
                     };
 
                     if output_hash != expected_output_hash {
@@ -785,14 +895,19 @@ where
                 })
                 .collect()
         })
+        }
     }
 }
+pub use evaluator::*;
+
+impl error::Error for ConsistencyError {}
 
 // ============================================================================
 // Threading utilities - isolated CPU affinity optimization (internal use only)
 // ============================================================================
-
 use std::sync::OnceLock;
+
+pub use ciphertext_repository::*;
 
 static OPTIMIZED_POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
 
@@ -851,22 +966,20 @@ fn select_cores_for_affinity(n: usize) -> Vec<core_affinity::CoreId> {
     }
 }
 
-// ============================================================================
-// Tests: simple one-bit circuit exercising cut-and-choose end-to-end
-// ============================================================================
-
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use crossbeam::channel;
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
 
     use super::*;
     use crate::{
-        CiphertextHashAcc, Gate, WireId, ark,
+        CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, Gate, S, WireId, ark,
         circuit::{
-            CiphertextHandler, CircuitContext, EncodeInput, FALSE_WIRE, TRUE_WIRE,
-            modes::CircuitMode,
+            CiphertextHandler, CircuitContext, EncodeInput, EvaluateMode, FALSE_WIRE, TRUE_WIRE,
+            ciphertext_source, modes::CircuitMode,
         },
         gadgets::bn254::fq6::Fq6,
         hashers::GateHasher,
@@ -953,6 +1066,7 @@ mod tests {
     ///   active output label’s commit equals the appropriate committed output label (0 or 1).
     #[test_log::test]
     fn cut_and_choose_one_bit_e2e() {
+        const CAPACITY: usize = 1000;
         // Deterministic RNG for reproducibility
         let mut rng = ChaCha20Rng::seed_from_u64(1234);
 
@@ -961,7 +1075,7 @@ mod tests {
 
         // Garbler creates all instances
         let cfg_g = Config::new(total, finalize, OneBitGarblerInput);
-        let mut garbler = Garbler::create(&mut rng, cfg_g, one_bit_circuit);
+        let mut garbler = Garbler::create(&mut rng, cfg_g, CAPACITY, one_bit_circuit);
         let commits = garbler.commit();
 
         // Evaluator chooses which instances to finalize
@@ -995,8 +1109,16 @@ mod tests {
 
         // Run regarbling checks and persist ciphertexts
         let out_dir = PathBuf::from("target/cut_and_choose_test_simple");
+        let handler_provider = FileCiphertextHandlerProvider::new(out_dir.clone(), None)
+            .expect("create sink provider");
         evaluator
-            .run_regarbling(seeds, receivers, &out_dir, None, one_bit_circuit)
+            .run_regarbling(
+                seeds,
+                &receivers,
+                &handler_provider,
+                CAPACITY,
+                one_bit_circuit,
+            )
             .expect("regarbling ok");
 
         for j in join_handles {
@@ -1041,7 +1163,7 @@ mod tests {
         }
 
         let results_true = evaluator
-            .evaluate_from(&out_dir, cases_true, 64, one_bit_circuit)
+            .evaluate_from(&out_dir, cases_true, CAPACITY, one_bit_circuit)
             .expect("consistency checks should pass for true inputs");
 
         for (_idx, out) in results_true {
@@ -1049,7 +1171,7 @@ mod tests {
         }
 
         let results_false = evaluator
-            .evaluate_from(&out_dir, cases_false, 64, one_bit_circuit)
+            .evaluate_from(&out_dir, cases_false, CAPACITY, one_bit_circuit)
             .expect("consistency checks should pass for false inputs");
 
         for (_idx, out) in results_false {
@@ -1083,25 +1205,33 @@ mod tests {
     /// The test keeps `total=1` and `to_finalize=1` to minimize runtime while exercising the full flow.
     #[test_log::test]
     fn cut_and_choose_fq12_mul_e2e() {
+        const CAPACITY: usize = 16_000;
         use crate::{circuit::WiresObject, gadgets::bn254::fq12::Fq12 as Fq12Wire};
 
-        // Garbler-side input: two Fq12 operands
-        #[derive(Clone)]
-        struct Fq12MulGInput;
+        // Evaluator-side input: bit values for (a, b) + corresponding garbled labels
+        #[derive(Clone, Default)]
+        struct Fq12MulInput {
+            a_m: ark_bn254::Fq12,
+            b_m: ark_bn254::Fq12,
+            prod_m: ark_bn254::Fq12,
+            labels: Vec<GarbledWire>,
+        }
 
         #[derive(Clone)]
         struct Fq12MulWires {
             a: Fq12Wire,
             b: Fq12Wire,
+            prod_m: ark_bn254::Fq12,
         }
 
-        impl CircuitInput for Fq12MulGInput {
+        impl CircuitInput for Fq12MulInput {
             type WireRepr = Fq12MulWires;
 
             fn allocate(&self, mut issue: impl FnMut() -> crate::WireId) -> Self::WireRepr {
                 Fq12MulWires {
                     a: Fq12Wire::new(&mut issue),
                     b: Fq12Wire::new(issue),
+                    prod_m: self.prod_m,
                 }
             }
 
@@ -1112,7 +1242,7 @@ mod tests {
             }
         }
 
-        impl<H: GateHasher, CTH> EncodeInput<GarbleMode<H, CTH>> for Fq12MulGInput
+        impl<H: GateHasher, CTH> EncodeInput<GarbleMode<H, CTH>> for Fq12MulInput
         where
             CTH: CiphertextHandler,
         {
@@ -1129,33 +1259,8 @@ mod tests {
             }
         }
 
-        // Evaluator-side input: bit values for (a, b) + corresponding garbled labels
-        #[derive(Clone)]
-        struct Fq12MulEInput {
-            a_m: ark_bn254::Fq12,
-            b_m: ark_bn254::Fq12,
-            labels: Vec<GarbledWire>,
-        }
-
-        impl CircuitInput for Fq12MulEInput {
-            type WireRepr = Fq12MulWires;
-
-            fn allocate(&self, mut issue: impl FnMut() -> crate::WireId) -> Self::WireRepr {
-                Fq12MulWires {
-                    a: Fq12Wire::new(&mut issue),
-                    b: Fq12Wire::new(issue),
-                }
-            }
-
-            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<crate::WireId> {
-                let mut v = repr.a.to_wires_vec();
-                v.extend(repr.b.to_wires_vec());
-                v
-            }
-        }
-
         impl<H: GateHasher, SRC: ciphertext_source::CiphertextSource>
-            EncodeInput<EvaluateMode<H, SRC>> for Fq12MulEInput
+            EncodeInput<EvaluateMode<H, SRC>> for Fq12MulInput
         {
             fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode<H, SRC>) {
                 // Flatten Fq12 bits in allocation order: a.c0 || a.c1 || b.c0 || b.c1
@@ -1195,6 +1300,16 @@ mod tests {
             }
         }
 
+        // Circuit builder: multiply (a, b) then check equality to prod_m.
+        // Provide three typed closures for the different modes we use.
+        fn build_fq12_mul_eq_const<C: CircuitContext>(
+            ctx: &mut C,
+            inputs: &Fq12MulWires,
+        ) -> WireId {
+            let prod = Fq12Wire::mul_montgomery(ctx, &inputs.a, &inputs.b);
+            Fq12Wire::equal_constant(ctx, &prod, &inputs.prod_m)
+        }
+
         // Deterministic inputs
         let mut rng = ChaCha20Rng::seed_from_u64(42);
 
@@ -1203,53 +1318,25 @@ mod tests {
 
         let a_m = Fq12Wire::as_montgomery(a12_std);
         let b_m = Fq12Wire::as_montgomery(b12_std);
-        let prod_m = Fq12Wire::as_montgomery(a12_std * b12_std);
 
-        // Circuit builder: multiply (a, b) then check equality to prod_m.
-        // Provide three typed closures for the different modes we use.
-        fn build_fq12_mul_eq_const<C: CircuitContext>(
-            ctx: &mut C,
-            inputs: &Fq12MulWires,
-            prod_m: &ark_bn254::Fq12,
-        ) -> WireId {
-            let prod = Fq12Wire::mul_montgomery(ctx, &inputs.a, &inputs.b);
-            Fq12Wire::equal_constant(ctx, &prod, prod_m)
-        }
-
-        let builder_garble_hash =
-            move |ctx: &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
-                  inputs: &Fq12MulWires| {
-                build_fq12_mul_eq_const(ctx, inputs, &prod_m)
-            };
-
-        let builder_garble_send = move |ctx: &mut crate::circuit::StreamingMode<
-            crate::circuit::modes::GarbleMode<
-                crate::hashers::AesNiHasher,
-                crate::circuit::CiphertextSender,
-            >,
-        >,
-                                        inputs: &Fq12MulWires| {
-            build_fq12_mul_eq_const(ctx, inputs, &prod_m)
-        };
-
-        let builder_eval = move |ctx: &mut StreamingMode<
-            EvaluateMode<AesNiHasher, ciphertext_source::FileSource>,
-        >,
-                                 inputs: &Fq12MulWires| {
-            build_fq12_mul_eq_const(ctx, inputs, &prod_m)
+        let input = Fq12MulInput {
+            a_m,
+            b_m,
+            prod_m: Fq12Wire::as_montgomery(a12_std * b12_std),
+            labels: vec![],
         };
 
         let total = 5usize;
         let finalize = 2usize;
 
         // Garbler flow
-        let cfg_g = Config::new(total, finalize, Fq12MulGInput);
-        let mut garbler = Garbler::create(&mut rng, cfg_g, builder_garble_hash);
+        let cfg_g = Config::new(total, finalize, input.clone());
+        let mut garbler = Garbler::create(&mut rng, cfg_g, CAPACITY, build_fq12_mul_eq_const);
         let commits = garbler.commit();
 
         // Evaluator chooses to finalize instances
-        let cfg_e = Config::new(total, finalize, Fq12MulGInput);
-        let evaluator: Evaluator<Fq12MulGInput> =
+        let cfg_e = Config::new(total, finalize, input.clone());
+        let evaluator: Evaluator<Fq12MulInput> =
             Evaluator::create(&mut rng, cfg_e, commits.clone());
         let to_finalize = evaluator.finalized_indexes().to_vec().into_boxed_slice();
 
@@ -1262,7 +1349,7 @@ mod tests {
             })
             .unzip();
 
-        let open_info = garbler.open_commit(senders, builder_garble_send);
+        let open_info = garbler.open_commit(senders, build_fq12_mul_eq_const);
 
         // Seeds + join handles
         let mut seeds = Vec::new();
@@ -1278,8 +1365,18 @@ mod tests {
 
         let out_dir = PathBuf::from("target/cut_and_choose_test_fq12_mul");
 
+        // TODO Change to in-memory HandlerProvider
+        let sink_provider = FileCiphertextHandlerProvider::new(out_dir.clone(), None)
+            .expect("create sink provider");
+
         evaluator
-            .run_regarbling(seeds, receivers, &out_dir, None, builder_garble_hash)
+            .run_regarbling(
+                seeds,
+                &receivers,
+                &sink_provider,
+                CAPACITY,
+                build_fq12_mul_eq_const,
+            )
             .expect("regarbling ok");
 
         for j in join_handles {
@@ -1297,10 +1394,9 @@ mod tests {
 
             cases_true.push(EvaluatorCaseInput {
                 index: idx,
-                input: Fq12MulEInput {
-                    a_m,
-                    b_m,
+                input: Fq12MulInput {
                     labels: labels.clone(),
+                    ..input
                 },
                 true_constant_wire: t,
                 false_constant_wire: f,
@@ -1309,32 +1405,31 @@ mod tests {
 
         // Evaluate true cases
         let results_true = evaluator
-            .evaluate_from(&out_dir, cases_true, 10_000, builder_eval)
+            .evaluate_from(&out_dir, cases_true, CAPACITY, build_fq12_mul_eq_const)
             .unwrap();
 
         for (idx, out) in results_true {
             assert!(out.value, "a*b == prod_m should be true");
-            let mut h = CiphertextHashAcc::default();
-            h.update(out.active_label);
-            assert_eq!(h.finalize(), commits[idx].output_commit_label1());
+            assert_eq!(
+                CiphertextHashAcc::digest(out.active_label),
+                commits[idx].output_label1_commit()
+            );
         }
 
-        // False cases: flip b to a different value
-        let b_alt_std = ark_bn254::Fq12::new(
-            crate::gadgets::bn254::fq6::Fq6::random(&mut rng),
-            crate::gadgets::bn254::fq6::Fq6::random(&mut rng),
-        );
-
-        let b_alt_m = Fq12Wire::as_montgomery(b_alt_std);
+        let b_alt_m = Fq12Wire::as_montgomery(ark_bn254::Fq12::new(
+            Fq6::random(&mut rng),
+            Fq6::random(&mut rng),
+        ));
 
         let mut cases_false = Vec::new();
 
         for idx in to_finalize.iter().copied() {
             cases_false.push(EvaluatorCaseInput {
                 index: idx,
-                input: Fq12MulEInput {
-                    a_m,
+                input: Fq12MulInput {
+                    a_m: input.a_m,
                     b_m: b_alt_m,
+                    prod_m: input.prod_m,
                     labels: garbler.input_labels_for(idx),
                 },
                 true_constant_wire: garbler.true_wire_constant_for(idx),
@@ -1343,14 +1438,15 @@ mod tests {
         }
 
         let results_false = evaluator
-            .evaluate_from(&out_dir, cases_false, 10_000, builder_eval)
+            .evaluate_from(&out_dir, cases_false, CAPACITY, build_fq12_mul_eq_const)
             .unwrap();
 
         for (idx, out) in results_false {
             assert!(!out.value, "a*b_alt == prod_m should be false");
-            let mut h = CiphertextHashAcc::default();
-            h.update(out.active_label);
-            assert_eq!(h.finalize(), commits[idx].output_commit_label0());
+            assert_eq!(
+                CiphertextHashAcc::digest(out.active_label),
+                commits[idx].output_label0_commit()
+            );
         }
     }
 }

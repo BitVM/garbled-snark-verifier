@@ -10,6 +10,7 @@ use garbled_snark_verifier::{
         SNARK, UniformRand,
     },
     circuit::{CiphertextHandler, CiphertextSender, CircuitBuilder},
+    cut_and_choose::FileCiphertextHandlerProvider,
     garbled_groth16,
     groth16_cut_and_choose::{self as ccn, EvaluatorCaseInput},
 };
@@ -306,8 +307,12 @@ fn run_evaluator(
 
     info!("Output dir: {}", out_dir.display());
 
-    eval.run_regarbling(open_result, receivers, &out_dir)
-        .expect("regarbling checks");
+    eval.run_regarbling(
+        open_result,
+        &receivers,
+        &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),
+    )
+    .expect("regarbling checks");
 
     let Ok(G2EMsg::OpenLabels(cases)) = g2e_rx.recv() else {
         panic!("unexpected message; expected finalized inputs")
