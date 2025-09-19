@@ -2,8 +2,9 @@
 
 use std::{
     collections::HashMap,
+    error, fmt,
     fs::{self, File},
-    io::{BufWriter, Write},
+    io::{self, BufWriter, Write},
     mem,
     path::{Path, PathBuf},
     sync::Arc,
@@ -30,7 +31,7 @@ pub type Seed = u64;
 pub type Commit = u128;
 
 /// Protocol configuration shared by Garbler/Evaluator.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config<I: CircuitInput> {
     total: usize,
     to_finalize: usize,
@@ -354,15 +355,14 @@ where
     }
 }
 
-pub struct Evaluator<I: CircuitInput + Clone, CTS: CiphertextSource> {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Evaluator<I: CircuitInput + Clone> {
     config: Config<I>,
     commits: Vec<GarbledInstanceCommit>,
     to_finalize: Box<[usize]>,
-    /// Receivers for ciphertext streams keyed by instance index
-    receivers: HashMap<usize, CTS>,
 }
 
-impl<I, CTS: CiphertextSource> Evaluator<I, CTS>
+impl<I> Evaluator<I>
 where
     I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
     <I as CircuitInput>::WireRepr: Send + Sync,
@@ -372,7 +372,6 @@ where
         mut rng: impl Rng,
         config: Config<I>,
         commits: Vec<GarbledInstanceCommit>,
-        receiver_fn: &mut impl FnMut(usize) -> CTS,
     ) -> Self {
         assert!(
             config.to_finalize <= config.total,
@@ -391,11 +390,6 @@ where
 
         Self {
             commits,
-            receivers: idxs
-                .iter()
-                .copied()
-                .map(|index| (index, receiver_fn(index)))
-                .collect(),
             to_finalize: idxs.into_boxed_slice(),
             config,
         }
@@ -405,17 +399,23 @@ where
         &self.to_finalize
     }
 
+    pub fn finalized_indexes(&self) -> &[usize] {
+        &self.to_finalize
+    }
+
     // 1. Check that `OpenForInstance` matches the ones stored in `self.to_finalize`.
     // 2. For `Open` run `streaming_garbling` via rayon, where at the end it checks for a match with saved commits
     #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling<F>(
-        mut self,
+    pub fn run_regarbling<CTS, F>(
+        &self,
         seeds: Vec<(usize, Seed)>,
+        receivers: Vec<(usize, CTS)>,
         folder_for_ciphertexts: &Path,
         pre_alloc_size: Option<u64>,
         builder: F,
     ) -> Result<(), ()>
     where
+        CTS: CiphertextSource + 'static,
         F: Fn(
                 &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
                 &I::WireRepr,
@@ -423,9 +423,8 @@ where
             + Send
             + Sync
             + Copy,
-        CTS: 'static,
     {
-        let receivers = mem::take(&mut self.receivers);
+        let receivers: HashMap<usize, CTS> = receivers.into_iter().collect();
 
         // Ensure output directory exists
         if let Err(e) = fs::create_dir_all(folder_for_ciphertexts) {
@@ -441,47 +440,23 @@ where
 
         for (index, mut rx) in receivers.into_iter() {
             let path: PathBuf = folder_for_ciphertexts.join(format!("gc_{}.bin", index));
-            let commit_path = folder_for_ciphertexts.join(format!("gc_{}_commit.json", index));
-
-            serde_json::to_writer(
-                File::create(commit_path).expect("failed to create commit file"),
-                &self.commits[index],
-            )
-            .unwrap();
-
             let ciphertext_commit = self.commits[index].ciphertext_commit;
 
             let pre_alloc = pre_alloc_size;
 
             pool.spawn(move || {
-                let file = File::create(&path).expect("create ciphertext file");
-                let mut hasher = CiphertextHashAcc::default();
-
-                // Pre-allocate file size if specified
-                if let Some(size) = pre_alloc
-                    && let Err(e) = file.set_len(size)
-                {
-                    error!("Failed to pre-allocate file size: {e}");
-                }
-
-                // Use larger buffer for large files (32MB for 48GB workloads)
-                let buffer_size = if pre_alloc.unwrap_or(0) > 10 * (1 << 30) {
-                    1 << 25 // 32MB buffer for files > 10GB
-                } else {
-                    1 << 20 // 1MB buffer for smaller files
-                };
-                let mut w = BufWriter::with_capacity(buffer_size, file);
+                let mut writer =
+                    FileCiphertextWriter::create(path, pre_alloc).expect("create ciphertext file");
 
                 while let Some(s) = rx.recv() {
-                    hasher.update(s);
-                    // Persist compact record: only the 16-byte ciphertext label
-                    w.write_all(&s.to_bytes()).unwrap();
+                    writer.handle(s);
                 }
 
-                if hasher.finalize() == ciphertext_commit {
-                    w.flush().unwrap();
+                let computed_commit = writer.finalize();
+                if computed_commit == ciphertext_commit {
+                    writer.flush().expect("flush ciphertext file");
                 } else {
-                    todo!("ciphertext corrupted: delete file & delete commit file");
+                    todo!("ciphertext corrupted: delete file");
                 }
             });
         }
@@ -620,9 +595,85 @@ impl std::fmt::Display for ConsistencyError {
     }
 }
 
-impl std::error::Error for ConsistencyError {}
+impl error::Error for ConsistencyError {}
 
-impl<I, CTS: CiphertextSource> Evaluator<I, CTS>
+pub trait CiphertextSourceProvider {
+    type Source: CiphertextSource;
+    type Error: fmt::Debug;
+
+    fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error>;
+}
+
+impl CiphertextSourceProvider for PathBuf {
+    type Source = ciphertext_source::FileSource;
+    type Error = io::Error;
+
+    fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
+        let path = self.join(format!("gc_{index}.bin"));
+        if !path.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("ciphertext file {path:?} not found"),
+            ));
+        }
+
+        ciphertext_source::FileSource::from_path(path)
+    }
+}
+
+struct FileCiphertextWriter {
+    path: PathBuf,
+    writer: BufWriter<File>,
+    hasher: CiphertextHashAcc,
+}
+
+impl FileCiphertextWriter {
+    fn create(path: PathBuf, pre_allocate: Option<u64>) -> io::Result<Self> {
+        let file = File::create(&path)?;
+
+        if let Some(size) = pre_allocate
+            && let Err(err) = file.set_len(size)
+        {
+            error!(path = %path.display(), ?err, "failed to pre-allocate ciphertext file");
+        }
+
+        let buffer_size = if pre_allocate.unwrap_or(0) > 10 * (1 << 30) {
+            1 << 25 // 32MB buffer for files > 10GB
+        } else {
+            1 << 20 // 1MB buffer for smaller files
+        };
+
+        Ok(Self {
+            path,
+            writer: BufWriter::with_capacity(buffer_size, file),
+            hasher: CiphertextHashAcc::default(),
+        })
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+impl CiphertextHandler for FileCiphertextWriter {
+    type Result = Commit;
+
+    fn handle(&mut self, ct: S) {
+        self.hasher.update(ct);
+        self.writer.write_all(&ct.to_bytes()).unwrap_or_else(|err| {
+            panic!(
+                "failed to write ciphertext to {}: {err}",
+                self.path.display()
+            )
+        });
+    }
+
+    fn finalize(&self) -> Self::Result {
+        self.hasher.finalize()
+    }
+}
+
+impl<I> Evaluator<I>
 where
     I: CircuitInput + Clone + Send + Sync,
 {
@@ -631,20 +682,18 @@ where
     ///
     /// **Note**: This method does NOT perform consistency checking. Use `evaluate_from_saved_all_with_consistency`
     /// for evaluation with commit verification.
-    pub fn evaluate_from<E, F>(
-        folder: &Path,
+    pub fn evaluate_from<E, F, CR>(
+        &self,
+        ciphertext_repo: &CR,
         input_cases: Vec<EvaluatorCaseInput<E>>,
         capacity: usize,
         builder: F,
     ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
     where
-        E: CircuitInput
-            + Send
-            + EncodeInput<EvaluateMode<AesNiHasher, ciphertext_source::FileSource>>,
-        F: Fn(
-                &mut StreamingMode<EvaluateMode<AesNiHasher, ciphertext_source::FileSource>>,
-                &E::WireRepr,
-            ) -> WireId
+        CR: 'static + CiphertextSourceProvider + Sync,
+        <CR::Source as CiphertextSource>::Result: Into<u128>,
+        E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>>,
+        F: Fn(&mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>, &E::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -660,14 +709,7 @@ where
                         false_constant_wire,
                     } = case;
 
-                    // Load the commit file
-                    let commit_path = folder.join(format!("gc_{}_commit.json", index));
-
-                    let commit_file = File::open(&commit_path)
-                        .map_err(|_| ConsistencyError::CommitFileNotFound(index))?;
-
-                    let commit: GarbledInstanceCommit = serde_json::from_reader(commit_file)
-                        .map_err(|e| ConsistencyError::CommitFileInvalid(index, e.to_string()))?;
+                    let commit = &self.commits[index];
 
                     let true_consatnt_wire_hash =
                         CiphertextHashAcc::digest(S::from_u128(true_constant_wire));
@@ -693,13 +735,15 @@ where
 
                     // TODO #37 Check input labels consistency [soldering]
 
-                    // Use FileSource with tracked hashing
-                    let file_path = folder.join(format!("gc_{}.bin", index));
-                    let source = ciphertext_source::FileSource::from_path(file_path)
-                        .expect("open ciphertext file");
+                    let source = match ciphertext_repo.source_for(index) {
+                        Ok(src) => src,
+                        Err(_) => {
+                            return Err(ConsistencyError::MissingCiphertextHash(index));
+                        }
+                    };
 
                     let result =
-                        CircuitBuilder::<EvaluateMode<AesNiHasher, _>>::streaming_evaluation::<
+                        CircuitBuilder::<EvaluateMode<AesNiHasher, CR::Source>>::streaming_evaluation::<
                             _,
                             _,
                             EvaluatedWire,
@@ -712,11 +756,12 @@ where
                             builder,
                         );
 
-                    if result.ciphertext_handler_result != commit.ciphertext_commit {
+                    let new_ciphertext_commit = result.ciphertext_handler_result.into();
+                    if new_ciphertext_commit != commit.ciphertext_commit {
                         return Err(ConsistencyError::CiphertextMismatch {
                             index,
                             expected: commit.ciphertext_commit,
-                            actual: result.ciphertext_handler_result,
+                            actual: new_ciphertext_commit,
                         });
                     }
 
@@ -919,17 +964,20 @@ mod tests {
         let mut garbler = Garbler::create(&mut rng, cfg_g, one_bit_circuit);
         let commits = garbler.commit();
 
-        // Evaluator prepares receivers for ciphertexts of finalized instances
-        let mut senders = Vec::with_capacity(finalize);
-
         // Evaluator chooses which instances to finalize
         let cfg_e = Config::new(total, finalize, OneBitGarblerInput);
-        let evaluator = Evaluator::create(&mut rng, cfg_e, commits.clone(), &mut |index| {
-            let (tx, rx) = channel::unbounded::<S>();
-            senders.push((index, tx));
-            rx
-        });
-        let finalize_indices: Vec<usize> = evaluator.get_indexes_to_finalize().to_vec();
+        let evaluator: Evaluator<OneBitGarblerInput> =
+            Evaluator::create(&mut rng, cfg_e, commits.clone());
+        let finalize_indices: Vec<usize> = evaluator.finalized_indexes().to_vec();
+
+        // Build channels for finalized instances using iterator + unzip
+        let (senders, receivers): (Vec<_>, Vec<_>) = finalize_indices
+            .iter()
+            .map(|&index| {
+                let (tx, rx) = channel::unbounded::<S>();
+                ((index, tx), (index, rx))
+            })
+            .unzip();
 
         let open_info = garbler.open_commit(senders, one_bit_circuit);
 
@@ -948,7 +996,7 @@ mod tests {
         // Run regarbling checks and persist ciphertexts
         let out_dir = PathBuf::from("target/cut_and_choose_test_simple");
         evaluator
-            .run_regarbling(seeds, &out_dir, None, one_bit_circuit)
+            .run_regarbling(seeds, receivers, &out_dir, None, one_bit_circuit)
             .expect("regarbling ok");
 
         for j in join_handles {
@@ -992,25 +1040,17 @@ mod tests {
             });
         }
 
-        let results_true = Evaluator::<OneBitGarblerInput, channel::Receiver<S>>::evaluate_from(
-            &out_dir,
-            cases_true,
-            64,
-            one_bit_circuit,
-        )
-        .expect("consistency checks should pass for true inputs");
+        let results_true = evaluator
+            .evaluate_from(&out_dir, cases_true, 64, one_bit_circuit)
+            .expect("consistency checks should pass for true inputs");
 
         for (_idx, out) in results_true {
             assert!(out.value, "output should equal input (true)");
         }
 
-        let results_false = Evaluator::<OneBitGarblerInput, channel::Receiver<S>>::evaluate_from(
-            &out_dir,
-            cases_false,
-            64,
-            one_bit_circuit,
-        )
-        .expect("consistency checks should pass for false inputs");
+        let results_false = evaluator
+            .evaluate_from(&out_dir, cases_false, 64, one_bit_circuit)
+            .expect("consistency checks should pass for false inputs");
 
         for (_idx, out) in results_false {
             assert!(!out.value, "output should equal input (false)");
@@ -1207,17 +1247,20 @@ mod tests {
         let mut garbler = Garbler::create(&mut rng, cfg_g, builder_garble_hash);
         let commits = garbler.commit();
 
-        // Evaluator prepares channels for finalized instances
-        let mut senders = Vec::with_capacity(finalize);
-
-        // Evaluator chooses to finalize 1 instance
+        // Evaluator chooses to finalize instances
         let cfg_e = Config::new(total, finalize, Fq12MulGInput);
-        let evaluator = Evaluator::create(&mut rng, cfg_e, commits.clone(), &mut |index| {
-            let (tx, rx) = channel::unbounded::<S>();
-            senders.push((index, tx));
-            rx
-        });
-        let to_finalize = evaluator.to_finalize.clone();
+        let evaluator: Evaluator<Fq12MulGInput> =
+            Evaluator::create(&mut rng, cfg_e, commits.clone());
+        let to_finalize = evaluator.finalized_indexes().to_vec().into_boxed_slice();
+
+        // Prepare channels for finalized instances using iterator + unzip
+        let (senders, receivers): (Vec<_>, Vec<_>) = to_finalize
+            .iter()
+            .map(|&index| {
+                let (tx, rx) = channel::unbounded::<S>();
+                ((index, tx), (index, rx))
+            })
+            .unzip();
 
         let open_info = garbler.open_commit(senders, builder_garble_send);
 
@@ -1236,7 +1279,7 @@ mod tests {
         let out_dir = PathBuf::from("target/cut_and_choose_test_fq12_mul");
 
         evaluator
-            .run_regarbling(seeds, &out_dir, None, builder_garble_hash)
+            .run_regarbling(seeds, receivers, &out_dir, None, builder_garble_hash)
             .expect("regarbling ok");
 
         for j in join_handles {
@@ -1265,13 +1308,9 @@ mod tests {
         }
 
         // Evaluate true cases
-        let results_true = Evaluator::<Fq12MulGInput, channel::Receiver<S>>::evaluate_from(
-            &out_dir,
-            cases_true,
-            10_000,
-            builder_eval,
-        )
-        .unwrap();
+        let results_true = evaluator
+            .evaluate_from(&out_dir, cases_true, 10_000, builder_eval)
+            .unwrap();
 
         for (idx, out) in results_true {
             assert!(out.value, "a*b == prod_m should be true");
@@ -1303,13 +1342,9 @@ mod tests {
             });
         }
 
-        let results_false = Evaluator::<Fq12MulGInput, channel::Receiver<S>>::evaluate_from(
-            &out_dir,
-            cases_false,
-            10_000,
-            builder_eval,
-        )
-        .unwrap();
+        let results_false = evaluator
+            .evaluate_from(&out_dir, cases_false, 10_000, builder_eval)
+            .unwrap();
 
         for (idx, out) in results_false {
             assert!(!out.value, "a*b_alt == prod_m should be false");
