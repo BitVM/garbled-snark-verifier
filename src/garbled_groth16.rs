@@ -8,6 +8,7 @@ use ark_ff::{AdditiveGroup, Field, PrimeField};
 use ark_groth16::VerifyingKey;
 use itertools::Itertools;
 use num_bigint::BigUint;
+use serde::{Deserialize, Serialize};
 
 pub type PublicParams = Vec<Fr>;
 pub type SnarkProof = ark_groth16::Proof<Bn254>;
@@ -44,13 +45,41 @@ pub type Compressed = Groth16VerifyCompressedInput;
 
 pub use gadgets::groth16_verify_compressed as verify_compressed;
 
+mod ark_canonical {
+    use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+    use serde::{Deserializer, Serializer};
+
+    use super::*;
+
+    pub fn serialize<S>(point: &VerifyingKey<Bn254>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = Vec::new();
+        point
+            .serialize_compressed(&mut bytes)
+            .map_err(serde::ser::Error::custom)?;
+
+        serializer.serialize_bytes(&bytes)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<VerifyingKey<Bn254>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+        VerifyingKey::deserialize_compressed(&bytes[..]).map_err(serde::de::Error::custom)
+    }
+}
+
 // ============================================================================
 // Garbling helpers (deterministic allocation/encoding of input labels)
 // ============================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GarblerInput {
     pub public_params_len: usize,
+    #[serde(with = "ark_canonical")]
     pub vk: VerifyingKey<Bn254>,
 }
 
@@ -372,7 +401,7 @@ impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorInpu
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GarblerCompressedInput {
     inner: GarblerInput,
 }

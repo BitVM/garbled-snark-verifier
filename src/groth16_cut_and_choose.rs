@@ -1,18 +1,22 @@
 #![allow(dead_code)]
 
-use std::path::Path;
-
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 pub use crate::cut_and_choose::{GarbledInstanceCommit, OpenForInstance, Seed};
 use crate::{
     EvaluatedWire, GarbledWire,
-    circuit::{CiphertextHandler, CiphertextSource, FileSource},
-    cut_and_choose::{self as generic, ConsistencyError, DEFAULT_CAPACITY, GarblerStage},
+    circuit::{CiphertextHandler, CiphertextSource},
+    cut_and_choose::{
+        self as generic, CiphertextHandlerProvider, CiphertextSourceProvider, Commit,
+        ConsistencyError, GarblerStage,
+    },
     garbled_groth16::{self, PublicParams},
 };
 
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
+
+pub const DEFAULT_CAPACITY: usize = 150_000;
 
 /// Groth16-specific wrapper preserving the existing API while delegating
 /// to the generic cut-and-choose implementation.
@@ -22,7 +26,12 @@ pub struct Garbler {
 
 impl Garbler {
     pub fn create(rng: impl Rng, config: Config) -> Self {
-        let inner = generic::Garbler::create(rng, config, garbled_groth16::verify_compressed);
+        let inner = generic::Garbler::create(
+            rng,
+            config,
+            DEFAULT_CAPACITY,
+            garbled_groth16::verify_compressed,
+        );
         Self { inner }
     }
 
@@ -86,19 +95,17 @@ impl Garbler {
     }
 }
 
-pub struct Evaluator<CTS: CiphertextSource> {
-    inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, CTS>,
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Evaluator {
+    inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput>,
 }
 
-impl<CTS: CiphertextSource> Evaluator<CTS> {
+impl Evaluator {
     // Generate `to_finalize` with `rng` based on data on `Config`
-    pub fn create(
-        rng: impl Rng,
-        config: Config,
-        commits: Vec<GarbledInstanceCommit>,
-        receiver_fn: &mut impl FnMut(usize) -> CTS,
-    ) -> Self {
-        let inner = generic::Evaluator::create(rng, config, commits, receiver_fn);
+    pub fn create(rng: impl Rng, config: Config, commits: Vec<GarbledInstanceCommit>) -> Self {
+        let inner = generic::Evaluator::<garbled_groth16::GarblerCompressedInput>::create(
+            rng, config, commits,
+        );
         Self { inner }
     }
 
@@ -106,22 +113,28 @@ impl<CTS: CiphertextSource> Evaluator<CTS> {
         self.inner.get_indexes_to_finalize()
     }
 
+    pub fn finalized_indexes(&self) -> &[usize] {
+        self.inner.finalized_indexes()
+    }
+
     #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling(
-        self,
+    pub fn run_regarbling<CSourceProvider, CHandlerProvider>(
+        &self,
         seeds: Vec<(usize, Seed)>,
-        folder_for_ciphertexts: &Path,
+        ciphertext_sources_provider: &CSourceProvider,
+        ciphertext_sink_provider: &CHandlerProvider,
     ) -> Result<(), ()>
     where
-        CTS: 'static,
+        CSourceProvider: CiphertextSourceProvider + Send + Sync,
+        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
+        CHandlerProvider::Handler: 'static,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<Commit>,
     {
-        // Pre-allocate 48GB for Groth16 circuit ciphertext files
-        const GROTH16_CIPHERTEXT_SIZE: u64 = 48 * (1 << 30); // 48GB
-
         self.inner.run_regarbling(
             seeds,
-            folder_for_ciphertexts,
-            Some(GROTH16_CIPHERTEXT_SIZE),
+            ciphertext_sources_provider,
+            ciphertext_sink_provider,
+            DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         )
     }
@@ -130,7 +143,7 @@ impl<CTS: CiphertextSource> Evaluator<CTS> {
 pub type EvaluatorCaseInput =
     generic::EvaluatorCaseInput<garbled_groth16::EvaluatorCompressedInput>;
 
-impl Evaluator<FileSource> {
+impl Evaluator {
     /// Evaluate all finalized instances from saved ciphertext files with consistency checking.
     ///
     /// This method performs three consistency checks:
@@ -139,12 +152,16 @@ impl Evaluator<FileSource> {
     /// 3. Verifies output label matches the appropriate commit (label0/label1)
     ///
     /// Returns `Ok(Vec<(index, EvaluatedWire)>)` if all checks pass, or an error describing the failure.
-    pub fn evaluate_from(
-        folder: &Path,
+    pub fn evaluate_from<CR: 'static + CiphertextSourceProvider + Send + Sync>(
+        &self,
+        ciphertext_repo: &CR,
         input_cases: Vec<EvaluatorCaseInput>,
-    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError> {
-        generic::Evaluator::<garbled_groth16::GarblerCompressedInput, FileSource>::evaluate_from(
-            folder,
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
+    where
+        <CR::Source as CiphertextSource>::Result: Into<u128>,
+    {
+        self.inner.evaluate_from(
+            ciphertext_repo,
             input_cases,
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,

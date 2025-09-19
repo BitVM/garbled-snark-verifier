@@ -10,6 +10,7 @@ use garbled_snark_verifier::{
         SNARK, UniformRand,
     },
     circuit::{CiphertextHandler, CiphertextSender, CircuitBuilder},
+    cut_and_choose::FileCiphertextHandlerProvider,
     garbled_groth16,
     groth16_cut_and_choose::{self as ccn, EvaluatorCaseInput},
 };
@@ -273,15 +274,18 @@ fn run_evaluator(
         panic!("unexpected message; expected commits")
     };
 
-    let mut senders = Vec::with_capacity(finalize);
+    let eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits);
 
-    let eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits, &mut |index| {
-        let (tx, rx) = channel::unbounded::<S>();
-        senders.push((index, tx));
-        rx
-    });
+    let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
-    let finalize_indices: Vec<usize> = eval.get_indexes_to_finalize().to_vec();
+    // Build channels for finalized instances using iterator + unzip
+    let (senders, receivers): (Vec<_>, Vec<_>) = finalize_indices
+        .iter()
+        .map(|&index| {
+            let (tx, rx) = channel::unbounded::<S>();
+            ((index, tx), (index, rx))
+        })
+        .unzip();
 
     assert_eq!(
         finalize_indices.len(),
@@ -303,12 +307,16 @@ fn run_evaluator(
 
     info!("Output dir: {}", out_dir.display());
 
-    eval.run_regarbling(open_result, &out_dir)
-        .expect("regarbling checks");
+    eval.run_regarbling(
+        open_result,
+        &receivers,
+        &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),
+    )
+    .expect("regarbling checks");
 
     let Ok(G2EMsg::OpenLabels(cases)) = g2e_rx.recv() else {
         panic!("unexpected message; expected finalized inputs")
     };
 
-    ccn::Evaluator::evaluate_from(&out_dir, cases).unwrap()
+    eval.evaluate_from(&out_dir, cases).unwrap()
 }
