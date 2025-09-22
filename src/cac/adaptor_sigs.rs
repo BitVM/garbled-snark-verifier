@@ -32,6 +32,9 @@ impl AdaptorInfo {
 
         let mut public_sum = garbler_commit + nonce_commit;
 
+        // bip-340 requires the pubkey & nonce commit to be even, so we flip if needed.
+        // Note that we also need to flip the corresponding private values, i.e. `nonce`
+        // here, and the garbler will need to flip their secret value as well.
         if Into::<bool>::into(public_sum.to_affine().y_is_odd()) {
             public_sum = -public_sum;
             nonce = -nonce;
@@ -70,7 +73,10 @@ impl AdaptorInfo {
             Scalar::from_repr(*FieldBytes::from_slice(&garbler_sig.to_bytes()[32..])).unwrap();
         let diff = garbler_s - self.evaluator_s;
         if is_odd {
-            // fi = -((s - fi) - s)
+            // see the `garbler_signature` function - we have:
+            // garbler_s = self.evaluator_s - secret
+            // so secret = -(garbler_s - self.evaluator_s)
+            // = -diff
             Ok(-diff)
         } else {
             Ok(diff)
@@ -82,6 +88,10 @@ impl AdaptorInfo {
         let is_odd: bool = commit_sum.to_affine().y_is_odd().into();
 
         let (r, s) = if is_odd {
+            // During setup, we negated evaluator_nonce_commit and garbler_commit, and we need to
+            // flip the corresponding private values as well. In the setup, the evaluator's private
+            // nonce was already negated. Now we need to add the negation of our secret to make a
+            // valid signature.
             (-commit_sum, self.evaluator_s - secret)
         } else {
             (commit_sum, self.evaluator_s + secret)
