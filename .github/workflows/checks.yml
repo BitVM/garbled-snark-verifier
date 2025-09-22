@@ -77,4 +77,4 @@ jobs:
 
       - name: Run codespell
         run: |
-          codespell --skip="*.lock,./target"
+          codespell --skip="*.lock,./target" --ignore-words=.codespellignore
