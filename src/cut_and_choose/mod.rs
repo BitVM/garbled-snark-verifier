@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 
-use crate::circuit::CircuitInput;
+use crate::{S, circuit::CircuitInput, hashers};
 
 pub mod ciphertext_repository;
 pub mod evaluator;
@@ -17,6 +17,12 @@ pub mod groth16;
 
 pub type Seed = u64;
 pub type Commit = u128;
+
+pub fn commit_label(label: S) -> Commit {
+    let enc = hashers::aes_ni::aes128_encrypt_block_static(label.to_bytes())
+        .expect("AES backend should be available (HW or software)");
+    S::from_bytes(enc).to_u128()
+}
 
 /// Protocol configuration shared by Garbler/Evaluator.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

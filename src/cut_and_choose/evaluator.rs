@@ -12,7 +12,9 @@ use crate::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
     },
-    cut_and_choose::{CiphertextHandlerProvider, CiphertextSourceProvider, Commit, Seed},
+    cut_and_choose::{
+        CiphertextHandlerProvider, CiphertextSourceProvider, Commit, Seed, commit_label,
+    },
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,8 +310,7 @@ where
 
                     let commit = &self.commits[index];
 
-                    let true_consatnt_wire_hash =
-                        CiphertextHashAcc::digest(S::from_u128(true_constant_wire));
+                    let true_consatnt_wire_hash = commit_label(S::from_u128(true_constant_wire));
 
                     if true_consatnt_wire_hash != commit.true_consatnt_wire_commit() {
                         return Err(ConsistencyError::TrueConstantMismatch {
@@ -319,8 +320,7 @@ where
                         });
                     }
 
-                    let false_consatnt_wire_hash =
-                        CiphertextHashAcc::digest(S::from_u128(false_constant_wire));
+                    let false_consatnt_wire_hash = commit_label(S::from_u128(false_constant_wire));
 
                     if false_consatnt_wire_hash != commit.false_consatnt_wire_commit() {
                         return Err(ConsistencyError::FalseConstantMismatch {
@@ -362,7 +362,7 @@ where
                         });
                     }
 
-                    let output_hash = CiphertextHashAcc::digest(result.output_value.active_label);
+                    let output_hash = commit_label(result.output_value.active_label);
 
                     let expected_output_hash = if result.output_value.value {
                         commit.output_label1_commit()

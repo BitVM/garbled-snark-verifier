@@ -14,7 +14,7 @@ use crate::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
     },
-    cut_and_choose::{Commit, Config, Seed},
+    cut_and_choose::{Commit, Config, Seed, commit_label},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -76,12 +76,8 @@ impl GarbledInstanceCommit {
 
             output_label0_commit: Self::commit_label0(&instance.output_wire_values),
 
-            true_constant_commit: CiphertextHashAcc::digest(
-                instance.true_wire_constant.select(true),
-            ),
-            false_constant_commit: CiphertextHashAcc::digest(
-                instance.false_wire_constant.select(false),
-            ),
+            true_constant_commit: commit_label(instance.true_wire_constant.select(true)),
+            false_constant_commit: commit_label(instance.false_wire_constant.select(false)),
         }
     }
 
@@ -95,11 +91,11 @@ impl GarbledInstanceCommit {
     }
 
     fn commit_label1(input: &GarbledWire) -> Commit {
-        CiphertextHashAcc::digest(input.label1)
+        commit_label(input.label1)
     }
 
     fn commit_label0(input: &GarbledWire) -> Commit {
-        CiphertextHashAcc::digest(input.label0)
+        commit_label(input.label0)
     }
 
     pub fn output_label1_commit(&self) -> Commit {

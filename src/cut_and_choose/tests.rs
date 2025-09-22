@@ -6,7 +6,7 @@ use rand_chacha::ChaCha20Rng;
 
 use super::*;
 use crate::{
-    CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, Gate, S, WireId, ark,
+    EvaluatedWire, GarbleMode, GarbledWire, Gate, S, WireId, ark,
     circuit::{
         CiphertextHandler, CircuitContext, EncodeInput, EvaluateMode, FALSE_WIRE, TRUE_WIRE,
         ciphertext_source, modes::CircuitMode,
@@ -437,7 +437,7 @@ fn cut_and_choose_fq12_mul_e2e() {
     for (idx, out) in results_true {
         assert!(out.value, "a*b == prod_m should be true");
         assert_eq!(
-            CiphertextHashAcc::digest(out.active_label),
+            super::commit_label(out.active_label),
             commits[idx].output_label1_commit()
         );
     }
@@ -470,7 +470,7 @@ fn cut_and_choose_fq12_mul_e2e() {
     for (idx, out) in results_false {
         assert!(!out.value, "a*b_alt == prod_m should be false");
         assert_eq!(
-            CiphertextHashAcc::digest(out.active_label),
+            super::commit_label(out.active_label),
             commits[idx].output_label0_commit()
         );
     }
