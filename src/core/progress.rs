@@ -23,7 +23,7 @@ pub fn format_gate_count(n: u64) -> String {
 /// Log progress every `GATE_LOG_STEP` gates with a unified format.
 #[inline]
 pub fn maybe_log_progress(label: &str, gate_id: usize) {
-    if gate_id % GATE_LOG_STEP == 0 {
+    if gate_id.is_multiple_of(GATE_LOG_STEP) {
         info!("{}: {}", label, format_gate_count(gate_id as u64));
     }
 }

@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["BitVM Alliance"]
 license = "GPL-3.0-only"
 repository = "https://github.com/BitVM/garbled-snark-verifier"
-rust-version = "1.89"
+rust-version = "1.90"
 
 [lib]
 proc-macro = true

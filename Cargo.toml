@@ -6,7 +6,7 @@ authors = ["BitVM Alliance"]
 license = "GPL-3.0-only"
 repository = "https://github.com/BitVM/garbled-snark-verifier"
 readme = "README.md"
-rust-version = "1.89"
+rust-version = "1.90"
 keywords = [
     "garbled-circuit",
     "cryptography",
