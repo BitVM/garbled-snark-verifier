@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
