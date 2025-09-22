@@ -140,14 +140,15 @@ impl CircuitBuilder<ExecuteMode> {
 pub trait CiphertextHandler: Sized {
     type Result: Default;
 
-    fn handle(&mut self, gate_id: usize, ct: S);
+    /// Handle next ciphertext label in stream order.
+    fn handle(&mut self, ct: S);
     fn finalize(&self) -> Self::Result;
 }
 
 impl CiphertextHandler for CiphertextHashAcc {
     type Result = u128;
 
-    fn handle(&mut self, _gate_id: usize, ct: S) {
+    fn handle(&mut self, ct: S) {
         self.update(ct);
     }
 
@@ -156,13 +157,13 @@ impl CiphertextHandler for CiphertextHashAcc {
     }
 }
 
-pub type CiphertextSender = channel::Sender<(usize, S)>;
+pub type CiphertextSender = channel::Sender<S>;
 
 impl CiphertextHandler for CiphertextSender {
     type Result = ();
 
-    fn handle(&mut self, gate_id: usize, ct: S) {
-        self.send((gate_id, ct)).unwrap();
+    fn handle(&mut self, ct: S) {
+        self.send(ct).unwrap();
     }
 
     fn finalize(&self) -> Self::Result {}
@@ -171,7 +172,7 @@ impl CiphertextHandler for CiphertextSender {
 impl CiphertextHandler for () {
     type Result = ();
 
-    fn handle(&mut self, _gate_id: usize, _ct: S) {}
+    fn handle(&mut self, _ct: S) {}
 
     fn finalize(&self) -> Self::Result {}
 }
@@ -179,7 +180,7 @@ impl CiphertextHandler for () {
 impl<H: GateHasher, CTH: CiphertextHandler> CircuitBuilder<GarbleMode<H, CTH>> {
     /// Streaming garbling with a generic handler for ciphertexts.
     ///
-    /// The `handler` closure is invoked for each non-free gate with `(gate_id, ciphertext)`.
+    /// The `handler` is invoked for each non-free gate with the ciphertext label in stream order.
     /// Use this to avoid forcing a channel and choose single-threaded or multi-threaded plumbing.
     pub fn streaming_garbling<I, F, O>(
         inputs: I,
@@ -207,7 +208,7 @@ impl<H: GateHasher> CircuitBuilder<GarbleMode<H, CiphertextSender>> {
         inputs: I,
         live_wires_capacity: usize,
         seed: u64,
-        output_sender: channel::Sender<(usize, S)>,
+        output_sender: channel::Sender<S>,
         f: F,
     ) -> StreamingResult<GarbleMode<H, CiphertextSender>, I, O>
     where

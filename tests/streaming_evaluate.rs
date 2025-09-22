@@ -417,12 +417,12 @@ fn test_bn254_fq_complex_chain_garble_eval() {
             g_sender,
             fq_complex_circuit,
         );
-    let tables: Vec<(usize, S)> = g_receiver.try_iter().collect();
+    let tables: Vec<S> = g_receiver.try_iter().collect();
 
     // Forward ciphertexts to evaluator
     let (e_sender, e_receiver) = channel::unbounded();
-    for (i, ct) in tables {
-        let _ = e_sender.send((i, ct));
+    for ct in tables {
+        let _ = e_sender.send(ct);
     }
     drop(e_sender);
 

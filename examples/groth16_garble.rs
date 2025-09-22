@@ -201,8 +201,8 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         let calculated_ciphertext_hash = std::thread::spawn(move || {
             let mut hasher = CiphertextHashAcc::default();
 
-            while let Ok((index, ciphertext)) = ciphertext_to_evaluator_receiver.recv() {
-                proxy_sender.send((index, ciphertext)).unwrap();
+            while let Ok(ciphertext) = ciphertext_to_evaluator_receiver.recv() {
+                proxy_sender.send(ciphertext).unwrap();
                 hasher.update(ciphertext);
             }
 
