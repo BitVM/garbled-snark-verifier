@@ -13,11 +13,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Rust 1.89 with rustfmt
+      - name: Set up Rust 1.90 with rustfmt
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.89.0
+          toolchain: 1.90.0
           override: true
           components: rustfmt
       - name: Run Cargo fmt
@@ -29,11 +29,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Rust 1.89 with clippy
+      - name: Set up Rust 1.90 with clippy
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.89.0
+          toolchain: 1.90.0
           override: true
           components: clippy
       - name: Run Cargo clippy
@@ -77,4 +77,4 @@ jobs:
 
       - name: Run codespell
         run: |
-          codespell --skip="*.lock,./target"
+          codespell --skip="*.lock,./target" --ignore-words=.codespellignore
