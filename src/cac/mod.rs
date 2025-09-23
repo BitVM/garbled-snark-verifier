@@ -73,9 +73,7 @@ mod tests {
             .expect("signature should be valid");
 
         // step 12: evaluator monitors chain, extracts the garbler secret from the signature
-        let secrets_share = adaptor
-            .extract_secret(&garbler_sig)
-            .expect("secret should be extracted");
+        let secrets_share = adaptor.extract_secret(&garbler_sig);
         assert_eq!(secrets_share, unused_share_secret);
 
         // step 13: evaluator can now use the newly revealed share, together with the previously revealed ones,

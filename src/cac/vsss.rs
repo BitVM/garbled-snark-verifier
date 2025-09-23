@@ -1,5 +1,4 @@
 use bitcoin::key::rand;
-use eyre::{Result, eyre};
 use k256::elliptic_curve::PrimeField;
 use k256::{ProjectivePoint, Scalar};
 use std::ops::Add;
@@ -62,30 +61,33 @@ pub struct PolynomialCommits(Polynomial<ProjectivePoint>);
 
 pub struct ShareCommits(pub Vec<ProjectivePoint>);
 impl ShareCommits {
-    pub fn verify(&self, polynomial_commits: &PolynomialCommits) -> Result<()> {
+    pub fn verify(&self, polynomial_commits: &PolynomialCommits) -> Result<(), String> {
         for (i, share_commit) in self.0.iter().enumerate() {
             let recomputed_share_commit = polynomial_commits
                 .0
                 .eval_at(Scalar::from_u128((i + 1) as u128));
             if share_commit != &recomputed_share_commit {
-                return Err(eyre!("Share commit verification failed"));
+                return Err("Share commit verification failed".to_string());
             }
         }
         Ok(())
     }
 
-    pub fn verify_shares(&self, shares: &[(usize, Scalar)]) -> Result<()> {
+    pub fn verify_shares(&self, shares: &[(usize, Scalar)]) -> Result<(), String> {
         let mut indices = shares.iter().map(|(i, _)| *i).collect::<Vec<_>>();
         indices.sort_unstable();
         if indices.windows(2).any(|arr| arr[0] == arr[1]) {
-            return Err(eyre!("Duplicate share index found"));
+            return Err("Duplicate share index found".to_string());
         }
 
         for (i, share) in shares.iter() {
-            let share_commit = self.0.get(*i).ok_or(eyre!("Share index out of bounds"))?;
+            let share_commit = self
+                .0
+                .get(*i)
+                .ok_or("Share index out of bounds".to_string())?;
 
             if *share_commit != ProjectivePoint::GENERATOR * share {
-                return Err(eyre!("Share verification failed"));
+                return Err("Share verification failed".to_string());
             }
         }
         Ok(())

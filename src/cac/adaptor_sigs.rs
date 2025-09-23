@@ -1,7 +1,6 @@
 use bitcoin::TapSighash;
 use bitcoin::hashes::Hash;
 use bitcoin::key::rand;
-use eyre::Result;
 use k256::FieldBytes;
 use k256::elliptic_curve::PrimeField;
 use k256::elliptic_curve::point::AffineCoordinates;
@@ -66,7 +65,7 @@ impl AdaptorInfo {
         }
     }
 
-    pub fn extract_secret(&self, garbler_sig: &Signature) -> Result<Scalar> {
+    pub fn extract_secret(&self, garbler_sig: &Signature) -> Scalar {
         let commit_sum = self.evaluator_nonce_commit + self.garbler_commit;
         let is_odd: bool = commit_sum.to_affine().y_is_odd().into();
         let garbler_s =
@@ -77,9 +76,9 @@ impl AdaptorInfo {
             // garbler_s = self.evaluator_s - secret
             // so secret = -(garbler_s - self.evaluator_s)
             // = -diff
-            Ok(-diff)
+            -diff
         } else {
-            Ok(diff)
+            diff
         }
     }
 
@@ -104,10 +103,10 @@ impl AdaptorInfo {
         &self,
         sighash: &TapSighash,
         garbler_sig: &Signature,
-    ) -> Result<()> {
+    ) -> Result<(), ()> {
         self.evaluator_pubkey
-            .verify_raw(sighash.as_byte_array(), garbler_sig)?;
-        Ok(())
+            .verify_raw(sighash.as_byte_array(), garbler_sig)
+            .map_err(|_| ())
     }
 }
 
@@ -133,9 +132,7 @@ mod tests {
             .verify_garbler_signature(&sighash, &garbler_sig)
             .expect("signature should be valid");
 
-        let secret = adaptor
-            .extract_secret(&garbler_sig)
-            .expect("secret should be extracted");
+        let secret = adaptor.extract_secret(&garbler_sig);
         assert_eq!(secret, garbler_secret);
     }
 }
@@ -154,7 +151,6 @@ mod bitvm_tests {
         transaction::Version,
     };
     use bitcoin_script::script;
-    use eyre::eyre;
     use std::str::FromStr;
 
     pub(crate) fn unspendable_pubkey() -> UntweakedPublicKey {
@@ -162,12 +158,13 @@ mod bitvm_tests {
             .unwrap()
     }
 
-    pub fn spend_info_from_script(script: ScriptBuf) -> Result<TaprootSpendInfo> {
+    pub fn spend_info_from_script(script: ScriptBuf) -> TaprootSpendInfo {
         let secp = Secp256k1::new();
 
-        TaprootBuilder::with_huffman_tree(vec![(1, script)])?
+        TaprootBuilder::with_huffman_tree(vec![(1, script)])
+            .unwrap()
             .finalize(&secp, unspendable_pubkey())
-            .map_err(|e| eyre!("Failed to finalize taproot spend info: {:?}", e))
+            .unwrap()
     }
 
     pub fn address_from_spend_info(spend_info: &TaprootSpendInfo, network: Network) -> Address {
@@ -194,7 +191,7 @@ mod bitvm_tests {
         }
         .compile();
 
-        let spend_info = spend_info_from_script(script.clone()).unwrap();
+        let spend_info = spend_info_from_script(script.clone());
         let address = address_from_spend_info(&spend_info, Network::Bitcoin);
 
         let mut tx = Transaction {
@@ -226,9 +223,7 @@ mod bitvm_tests {
             .verify_garbler_signature(&sighash, &garbler_sig)
             .expect("signature should be valid");
 
-        let secret = adaptor
-            .extract_secret(&garbler_sig)
-            .expect("secret should be extracted");
+        let secret = adaptor.extract_secret(&garbler_sig);
         assert_eq!(secret, garbler_secret);
 
         let control_block = spend_info

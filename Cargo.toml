@@ -53,7 +53,6 @@ serde = { version = "1.0.225", features = ["derive"] }
 ark-serialize = "0.5.0"
 
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
-eyre = "0.6.12"
 k256 = "0.13.4"
 sha2 = "0.10.9"
 
