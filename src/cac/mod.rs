@@ -3,21 +3,25 @@ pub mod vsss;
 
 #[cfg(test)]
 mod tests {
-    use crate::cac::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_at_index};
-
-    use super::*;
+    use ark_ff::PrimeField;
+    use ark_secp256k1::Fr;
     use bitcoin::{TapSighash, hashes::Hash};
-    use k256::schnorr::SigningKey;
+    use k256::schnorr::{Signature as KSig, SigningKey, VerifyingKey};
     use rand::prelude::IteratorRandom;
     use sha2::{Digest, Sha256};
+
+    use super::*;
+    use crate::cac::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_at_index};
 
     #[test]
     fn test_full_flow() {
         let n = 181;
         let k = 181 - 7;
 
+        let mut rng = rand::thread_rng();
+
         // step 1: garbler generates secret:
-        let polynomial = vsss::Polynomial::rand(k);
+        let polynomial = vsss::Polynomial::rand(&mut rng, k);
 
         // step 2: garbler send commitments to the polynomial coefficients to the evaluator
         let coefficient_commits = polynomial.coefficient_commits();
@@ -63,18 +67,34 @@ mod tests {
 
         // step 10: evaluator sets up adaptor and sends to garbler
         let evaluator_privkey = SigningKey::random(&mut rand::thread_rng());
-        let sighash = TapSighash::from_byte_array(Sha256::digest(b"some message").into());
-        let adaptor = AdaptorInfo::new(&evaluator_privkey, *unused_share_commit.1, &sighash);
+
+        let mut sk_bytes = evaluator_privkey.to_bytes().to_vec();
+        sk_bytes.reverse();
+
+        let evaluator_secret_fr = Fr::from_le_bytes_mod_order(&sk_bytes);
+        let sighash =
+            TapSighash::from_byte_array(Sha256::digest(b"some message").into()).to_byte_array();
+
+        let mut rng = rand::thread_rng();
+
+        let adaptor = AdaptorInfo::new(
+            &evaluator_secret_fr,
+            *unused_share_commit.1,
+            &sighash,
+            &mut rng,
+        );
 
         // step 11: garbler signs the adaptor, submits on-chain
         let garbler_sig = adaptor.garbler_signature(&unused_share_secret);
-        adaptor
-            .verify_garbler_signature(&sighash, &garbler_sig)
+        let verifying_key: VerifyingKey = *evaluator_privkey.verifying_key();
+        let ksig = KSig::try_from(garbler_sig.as_slice()).expect("valid sig");
+        verifying_key
+            .verify_raw(&sighash, &ksig)
             .expect("signature should be valid");
 
         // step 12: evaluator monitors chain, extracts the garbler secret from the signature
         let secrets_share = adaptor.extract_secret(&garbler_sig);
-        assert_eq!(secrets_share, unused_share_secret);
+        assert_eq!(secrets_share, Ok(unused_share_secret));
 
         // step 13: evaluator can now use the newly revealed share, together with the previously revealed ones,
         // to reconstruct any missing shares.
@@ -87,6 +107,7 @@ mod tests {
             .filter(|&i| combined_shares.iter().all(|(j, _)| i != *j))
             .map(|i| (i, lagrange_interpolate_at_index(&combined_shares, i)))
             .collect::<Vec<_>>();
+
         for share in missing_shares {
             assert_eq!(share, all_shares[share.0]);
         }

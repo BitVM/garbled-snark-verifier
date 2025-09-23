@@ -1,157 +1,174 @@
-use bitcoin::TapSighash;
-use bitcoin::hashes::Hash;
-use k256::FieldBytes;
-use k256::elliptic_curve::PrimeField;
-use k256::elliptic_curve::point::AffineCoordinates;
-use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::{
-    ProjectivePoint, Scalar,
-    schnorr::{Signature, SigningKey, VerifyingKey},
-};
-use rand;
+use ark_ec::{CurveGroup, PrimeGroup};
+use ark_ff::{BigInteger, PrimeField, UniformRand};
+use ark_secp256k1::{Fq, Fr, Projective};
 use sha2::{Digest, Sha256};
 
-pub struct AdaptorInfo {
-    garbler_commit: ProjectivePoint,
-    evaluator_nonce_commit: ProjectivePoint,
-    evaluator_s: Scalar,
-    evaluator_pubkey: VerifyingKey,
+fn fq_to_be32(x: &Fq) -> [u8; 32] {
+    // `Fq` modulus is 256 bits, so its big-endian encoding always fits in 32 bytes.
+    x.into_bigint()
+        .to_bytes_be()
+        .try_into()
+        .expect("Fq encodes to exactly 32 bytes")
 }
 
-impl AdaptorInfo {
-    pub fn new(
-        evaluator_privkey: &SigningKey,
-        garbler_commit: ProjectivePoint,
-        message_hash: &TapSighash,
-    ) -> Self {
-        let verifying_key = evaluator_privkey.verifying_key();
+fn fr_to_be32(x: &Fr) -> [u8; 32] {
+    // `Fr` modulus is 256 bits, so its big-endian encoding always fits in 32 bytes.
+    x.into_bigint()
+        .to_bytes_be()
+        .try_into()
+        .expect("Fr encodes to exactly 32 bytes")
+}
 
-        let mut nonce = Scalar::generate_vartime(&mut rand::thread_rng());
-        let nonce_commit = ProjectivePoint::GENERATOR * nonce;
+fn fr_from_be_bytes_mod_order(bytes: &[u8]) -> Fr {
+    Fr::from_be_bytes_mod_order(bytes)
+}
+
+fn is_odd(y: &Fq) -> bool {
+    y.into_bigint().is_odd()
+}
+
+pub struct AdaptorInfo {
+    garbler_commit: Projective,
+    evaluator_nonce_commit: Projective,
+    evaluator_s: Fr,
+}
+
+pub type SignatureBytes = [u8; 64];
+
+impl AdaptorInfo {
+    pub fn new<R: rand::Rng + ?Sized>(
+        evaluator_secret: &Fr,
+        garbler_commit: Projective,
+        message_hash: &[u8],
+        rng: &mut R,
+    ) -> Self {
+        let mut nonce = Fr::rand(rng);
+        let nonce_commit = Projective::generator() * nonce;
+
+        // Compute evaluator public key (x-only) for the challenge hash
+        let eval_pub = (Projective::generator() * evaluator_secret).into_affine();
+        let eval_pub_x = fq_to_be32(&eval_pub.x);
 
         let mut public_sum = garbler_commit + nonce_commit;
-
-        // bip-340 requires the pubkey & nonce commit to be even, so we flip if needed.
-        // Note that we also need to flip the corresponding private values, i.e. `nonce`
-        // here, and the garbler will need to flip their secret value as well.
-        if Into::<bool>::into(public_sum.to_affine().y_is_odd()) {
+        // BIP-340 requires even Y; if odd, negate both commit and nonce
+        if is_odd(&public_sum.into_affine().y) {
             public_sum = -public_sum;
             nonce = -nonce;
         }
-
-        let public_sum_bytes = *public_sum.to_encoded_point(false).x().unwrap();
+        let public_sum_bytes = fq_to_be32(&public_sum.into_affine().x);
 
         let tag_hash = Sha256::digest(b"BIP0340/challenge");
-        let h = Sha256::digest(
-            [
-                &tag_hash,
-                &tag_hash,
-                &public_sum_bytes,
-                &verifying_key.to_bytes(),
-                &message_hash.as_byte_array()[..],
-            ]
-            .concat(),
-        );
-        let e = Scalar::from_repr(h).expect("fixed size shouldn't fail");
+        let mut hasher = Sha256::new();
+        hasher.update(tag_hash);
+        hasher.update(tag_hash);
+        hasher.update(public_sum_bytes);
+        hasher.update(eval_pub_x);
+        hasher.update(message_hash);
+        let h = hasher.finalize();
+        let e = fr_from_be_bytes_mod_order(h.as_slice());
 
-        let x = evaluator_privkey.as_nonzero_scalar().as_ref();
-        let s = nonce + e * x;
+        let s = nonce + e * evaluator_secret;
 
         AdaptorInfo {
             evaluator_nonce_commit: nonce_commit,
             garbler_commit,
             evaluator_s: s,
-            evaluator_pubkey: *verifying_key,
         }
     }
 
-    pub fn extract_secret(&self, garbler_sig: &Signature) -> Scalar {
+    pub fn extract_secret(&self, garbler_sig: &[u8]) -> Result<Fr, String> {
+        if garbler_sig.len() != 64 {
+            return Err("invalid signature length".to_owned());
+        }
         let commit_sum = self.evaluator_nonce_commit + self.garbler_commit;
-        let is_odd: bool = commit_sum.to_affine().y_is_odd().into();
-        let garbler_s =
-            Scalar::from_repr(*FieldBytes::from_slice(&garbler_sig.to_bytes()[32..])).unwrap();
+        let is_odd = is_odd(&commit_sum.into_affine().y);
+        let garbler_s = fr_from_be_bytes_mod_order(&garbler_sig[32..]);
         let diff = garbler_s - self.evaluator_s;
-        if is_odd {
-            // see the `garbler_signature` function - we have:
-            // garbler_s = self.evaluator_s - secret
-            // so secret = -(garbler_s - self.evaluator_s)
-            // = -diff
-            -diff
-        } else {
-            diff
-        }
+        Ok(if is_odd { -diff } else { diff })
     }
 
-    pub fn garbler_signature(&self, secret: &Scalar) -> Signature {
+    pub fn garbler_signature(&self, secret: &Fr) -> SignatureBytes {
         let commit_sum = self.evaluator_nonce_commit + self.garbler_commit;
-        let is_odd: bool = commit_sum.to_affine().y_is_odd().into();
+        let is_odd = is_odd(&commit_sum.into_affine().y);
 
         let (r, s) = if is_odd {
-            // During setup, we negated evaluator_nonce_commit and garbler_commit, and we need to
-            // flip the corresponding private values as well. In the setup, the evaluator's private
-            // nonce was already negated. Now we need to add the negation of our secret to make a
-            // valid signature.
             (-commit_sum, self.evaluator_s - secret)
         } else {
             (commit_sum, self.evaluator_s + secret)
         };
-        Signature::try_from([r.to_affine().x(), s.to_bytes()].concat().as_ref())
-            .expect("valid signature")
-    }
-
-    pub fn verify_garbler_signature(
-        &self,
-        sighash: &TapSighash,
-        garbler_sig: &Signature,
-    ) -> Result<(), ()> {
-        self.evaluator_pubkey
-            .verify_raw(sighash.as_byte_array(), garbler_sig)
-            .map_err(|_| ())
+        let r_x = fq_to_be32(&r.into_affine().x);
+        let s_bytes = fr_to_be32(&s);
+        let mut out = [0u8; 64];
+        out[..32].copy_from_slice(&r_x);
+        out[32..].copy_from_slice(&s_bytes);
+        out
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use k256::{ProjectivePoint, Scalar, schnorr::SigningKey};
+    use k256::schnorr::{Signature as KSig, SigningKey, VerifyingKey};
     use sha2::{Digest, Sha256};
 
-    use crate::cac::adaptor_sigs::AdaptorInfo;
+    use super::*;
+
+    fn fr_from_sk(sk: &SigningKey) -> Fr {
+        let bytes = sk.to_bytes();
+        fr_from_be_bytes_mod_order(bytes.as_slice())
+    }
 
     #[test]
     fn test_high_level() {
-        let evaluator_privkey = SigningKey::random(&mut rand::thread_rng());
-        let garbler_secret = Scalar::generate_vartime(&mut rand::thread_rng());
-        let garbler_commit = ProjectivePoint::GENERATOR * garbler_secret;
+        let mut rng = rand::thread_rng();
+        let evaluator_privkey = SigningKey::random(&mut rng);
+        let evaluator_secret_fr = fr_from_sk(&evaluator_privkey);
+        let garbler_secret_fr = Fr::rand(&mut rng);
+        let garbler_commit = Projective::generator() * garbler_secret_fr;
 
-        let sighash = TapSighash::from_byte_array(Sha256::digest(b"some message").into());
-        let adaptor = AdaptorInfo::new(&evaluator_privkey, garbler_commit, &sighash);
+        let sighash = Sha256::digest(b"some message").to_vec();
+        let adaptor = AdaptorInfo::new(
+            &evaluator_secret_fr,
+            garbler_commit,
+            sighash.as_slice(),
+            &mut rng,
+        );
 
-        let garbler_sig = adaptor.garbler_signature(&garbler_secret);
-        adaptor
-            .verify_garbler_signature(&sighash, &garbler_sig)
+        let garbler_sig_bytes = adaptor.garbler_signature(&garbler_secret_fr);
+        // Verify using k256 in test only
+        let verifying_key: VerifyingKey = *evaluator_privkey.verifying_key();
+        let ksig = KSig::try_from(garbler_sig_bytes.as_slice()).expect("valid sig");
+        verifying_key
+            .verify_raw(sighash.as_slice(), &ksig)
             .expect("signature should be valid");
 
-        let secret = adaptor.extract_secret(&garbler_sig);
-        assert_eq!(secret, garbler_secret);
+        let secret = adaptor
+            .extract_secret(&garbler_sig_bytes)
+            .expect("secret should be extracted");
+        assert_eq!(secret, garbler_secret_fr);
     }
 }
 
 #[cfg(test)]
 mod bitvm_tests {
-    use super::*;
+    use std::str::FromStr;
 
     use bitcoin::{
         Address, Amount, Network, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Witness,
         XOnlyPublicKey,
         absolute::LockTime,
+        hashes::Hash,
         key::{Secp256k1, UntweakedPublicKey},
         sighash::{Prevouts, ScriptPath, SighashCache},
         taproot::{LeafVersion, TaprootBuilder, TaprootSpendInfo},
         transaction::Version,
     };
     use bitcoin_script::script;
-    use std::str::FromStr;
+    use k256::{
+        elliptic_curve::point::AffineCoordinates,
+        schnorr::{Signature as KSig, SigningKey, VerifyingKey},
+    };
+
+    use super::*;
 
     pub(crate) fn unspendable_pubkey() -> UntweakedPublicKey {
         XOnlyPublicKey::from_str("50929b74c1a04954b78b4b6035e97a5e078a5a0f28ec96d547bfee9ace803ac0")
@@ -180,10 +197,14 @@ mod bitvm_tests {
     #[test]
     fn test_tx() {
         let evaluator_privkey = SigningKey::random(&mut rand::thread_rng());
-        let garbler_secret = Scalar::generate_vartime(&mut rand::thread_rng());
-        let garbler_commit = ProjectivePoint::GENERATOR * garbler_secret;
-
         let evaluator_pubkey = evaluator_privkey.verifying_key().as_affine().x().to_vec();
+        let mut rng = rand::thread_rng();
+        let evaluator_secret_fr = {
+            let b = evaluator_privkey.to_bytes();
+            fr_from_be_bytes_mod_order(b.as_slice())
+        };
+        let garbler_secret_fr = Fr::rand(&mut rng);
+        let garbler_commit = Projective::generator() * garbler_secret_fr;
 
         let script = script! {
             { evaluator_pubkey }
@@ -192,20 +213,23 @@ mod bitvm_tests {
         .compile();
 
         let spend_info = spend_info_from_script(script.clone());
-        let address = address_from_spend_info(&spend_info, Network::Bitcoin);
-
+        let address = address_from_spend_info(&spend_info, Network::Testnet);
         let mut tx = Transaction {
             version: Version::TWO,
             lock_time: LockTime::ZERO,
             input: vec![TxIn::default()],
-            output: vec![],
+            output: vec![TxOut {
+                value: Amount::from_sat(2000),
+                script_pubkey: address.script_pubkey(),
+            }],
         };
 
-        let mut sighash_cache = SighashCache::new(&tx);
-        let prevouts = [TxOut {
+        // Provide a concrete prevout matching the spend script to compute taproot sighash
+        let prevouts = vec![TxOut {
+            value: Amount::from_sat(2000),
             script_pubkey: address.script_pubkey(),
-            value: Amount::from_sat(1000000),
         }];
+        let mut sighash_cache = SighashCache::new(&tx);
 
         let sighash = sighash_cache
             .taproot_script_spend_signature_hash(
@@ -214,29 +238,37 @@ mod bitvm_tests {
                 ScriptPath::with_defaults(script.as_script()),
                 TapSighashType::Default,
             )
-            .unwrap();
+            .unwrap()
+            .to_byte_array()
+            .to_vec();
 
-        let adaptor = AdaptorInfo::new(&evaluator_privkey, garbler_commit, &sighash);
+        let adaptor = AdaptorInfo::new(
+            &evaluator_secret_fr,
+            garbler_commit,
+            sighash.as_slice(),
+            &mut rng,
+        );
 
-        let garbler_sig = adaptor.garbler_signature(&garbler_secret);
-        adaptor
-            .verify_garbler_signature(&sighash, &garbler_sig)
+        let garbler_sig_bytes = adaptor.garbler_signature(&garbler_secret_fr);
+        // Verify using k256 in test only
+        let verifying_key: VerifyingKey = *evaluator_privkey.verifying_key();
+        let ksig = KSig::try_from(garbler_sig_bytes.as_slice()).expect("valid sig");
+        verifying_key
+            .verify_raw(sighash.as_slice(), &ksig)
             .expect("signature should be valid");
 
-        let secret = adaptor.extract_secret(&garbler_sig);
-        assert_eq!(secret, garbler_secret);
+        let secret = adaptor
+            .extract_secret(&garbler_sig_bytes)
+            .expect("secret should be extracted");
+        assert_eq!(secret, garbler_secret_fr);
 
         let control_block = spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .unwrap()
             .serialize();
 
-        let witness: Witness = vec![
-            garbler_sig.to_bytes().to_vec(),
-            script.to_bytes(),
-            control_block,
-        ]
-        .into();
+        let witness: Witness =
+            vec![garbler_sig_bytes.to_vec(), script.to_bytes(), control_block].into();
 
         tx.input[0].witness = witness;
 
