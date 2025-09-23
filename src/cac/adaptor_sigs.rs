@@ -1,6 +1,5 @@
 use bitcoin::TapSighash;
 use bitcoin::hashes::Hash;
-use bitcoin::key::rand;
 use k256::FieldBytes;
 use k256::elliptic_curve::PrimeField;
 use k256::elliptic_curve::point::AffineCoordinates;
@@ -9,6 +8,7 @@ use k256::{
     ProjectivePoint, Scalar,
     schnorr::{Signature, SigningKey, VerifyingKey},
 };
+use rand;
 use sha2::{Digest, Sha256};
 
 pub struct AdaptorInfo {

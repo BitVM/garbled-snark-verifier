@@ -1,6 +1,6 @@
-use bitcoin::key::rand;
 use k256::elliptic_curve::PrimeField;
 use k256::{ProjectivePoint, Scalar};
+use rand;
 use std::ops::Add;
 use std::ops::Mul;
 
