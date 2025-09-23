@@ -60,6 +60,14 @@ pub struct PolynomialCommits(Polynomial<Projective>);
 pub struct ShareCommits(pub Vec<Projective>);
 
 impl ShareCommits {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn as_slice(&self) -> &[Projective] {
+        &self.0
+    }
+
     pub fn verify(&self, polynomial_commits: &PolynomialCommits) -> Result<(), String> {
         for (i, share_commit) in self.0.iter().enumerate() {
             let recomputed_share_commit = polynomial_commits.0.eval_at(Fr::from((i + 1) as u64));
@@ -90,6 +98,16 @@ impl ShareCommits {
         }
 
         Ok(())
+    }
+}
+
+impl PolynomialCommits {
+    pub fn evaluate_at(&self, x: Fr) -> Projective {
+        self.0.eval_at(x)
+    }
+
+    pub fn degree(&self) -> usize {
+        self.0.0.len().saturating_sub(1)
     }
 }
 
