@@ -27,6 +27,7 @@ fn is_odd(y: &Fq) -> bool {
     y.into_bigint().is_odd()
 }
 
+#[derive(Clone, Debug)]
 pub struct AdaptorInfo {
     garbler_commit: Projective,
     evaluator_nonce_commit: Projective,

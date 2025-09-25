@@ -18,6 +18,7 @@ pub const DEFAULT_CAPACITY: usize = 150_000;
 
 /// Groth16-specific wrapper preserving the existing API while delegating
 /// to the generic cut-and-choose implementation.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Garbler {
     inner: generic::Garbler<garbled_groth16::GarblerCompressedInput>,
 }

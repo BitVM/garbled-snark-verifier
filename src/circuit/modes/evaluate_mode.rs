@@ -1,5 +1,7 @@
 use std::num::NonZero;
 
+use serde::{Deserialize, Serialize};
+
 use super::garble_mode::{GarbledWire, halfgates_garbling};
 use crate::{
     Gate, S, WireId,
@@ -9,7 +11,7 @@ use crate::{
     storage::{Credits, Storage},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvaluatedWire {
     pub active_label: S,
     pub value: bool,

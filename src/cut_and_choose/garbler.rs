@@ -17,7 +17,7 @@ use crate::{
     cut_and_choose::{Commit, Config, Seed, commit_label},
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GarbledInstance {
     /// Constant to represent false wire constant
     ///
@@ -127,7 +127,7 @@ pub enum OpenForInstance {
     },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum GarblerStage {
     Generating { seeds: Box<[Seed]> },
     PreparedForEval { indexes_to_eval: Box<[usize]> },
@@ -148,7 +148,7 @@ impl GarblerStage {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Garbler<I: CircuitInput + Clone> {
     stage: GarblerStage,
     instances: Vec<GarbledInstance>,

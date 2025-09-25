@@ -4,8 +4,10 @@ use ark_ec::PrimeGroup;
 use ark_ff::{Field, One, UniformRand, Zero};
 use ark_secp256k1::{Fr, Projective};
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 // we use this for both polynomials over scalars and over projective points
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Polynomial<T>(Vec<T>);
 
 impl<T> Polynomial<T>
@@ -55,8 +57,10 @@ impl Polynomial<Fr> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct PolynomialCommits(Polynomial<Projective>);
 
+#[derive(Clone, Debug)]
 pub struct ShareCommits(pub Vec<Projective>);
 
 impl ShareCommits {

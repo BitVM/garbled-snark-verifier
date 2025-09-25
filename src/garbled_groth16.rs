@@ -168,7 +168,7 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for 
 // ============================================================================
 
 /// Bit-vector wrapper for field element wires evaluated against garbled labels.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatedFrWires(pub Vec<EvaluatedWire>);
 
 impl Deref for EvaluatedFrWires {
@@ -481,23 +481,25 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>>
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatedCompressedG1Wires {
     pub x: EvaluatedFrWires,
     pub y_flag: EvaluatedWire,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatedCompressedG2Wires {
     pub x: [EvaluatedFrWires; 2],
     pub y_flag: EvaluatedWire,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EvaluatorCompressedInput {
     pub public: Vec<EvaluatedFrWires>,
     pub a: EvaluatedCompressedG1Wires,
     pub b: EvaluatedCompressedG2Wires,
     pub c: EvaluatedCompressedG1Wires,
+    #[serde(with = "ark_canonical")]
     pub vk: VerifyingKey<Bn254>,
 }
 

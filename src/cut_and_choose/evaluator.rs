@@ -169,6 +169,7 @@ where
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct EvaluatorCaseInput<I> {
     pub index: usize,
     pub input: I,
