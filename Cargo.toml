@@ -55,6 +55,7 @@ ark-secp256k1 = "0.5.0"
 
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
 sha2 = "0.10.9"
+hex = "0.4.3"
 
 [dev-dependencies]
 ark-ec = "0.5.0"

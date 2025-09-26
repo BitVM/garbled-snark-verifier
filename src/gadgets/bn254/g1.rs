@@ -373,6 +373,15 @@ impl G1Projective {
         scalars: &[Fr],
         bases: &[ark_bn254::G1Projective],
     ) -> G1Projective {
+        // Edge case: no scalars/bases. Return the additive identity (point at infinity).
+        // This allows callers (e.g., Groth16 with zero public inputs) to add the
+        // constant term separately without panicking on empty MSMs.
+        if scalars.is_empty() {
+            let zero = ark_bn254::G1Projective::default();
+            let zero_m = G1Projective::as_montgomery(zero);
+            return G1Projective::new_constant(&zero_m);
+        }
+
         assert_eq!(scalars.len(), bases.len());
 
         let mut to_be_added = Vec::with_capacity(bases.len());
