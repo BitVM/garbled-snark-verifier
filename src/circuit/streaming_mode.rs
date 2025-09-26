@@ -282,7 +282,7 @@ impl<M: CircuitMode> StreamingContext<M> {
         self.mode.add_credits(wires, credits);
     }
 
-    pub fn finalize_ciphertext_accumulator(&self) -> M::CiphertextAcc {
+    pub fn finalize_ciphertext_accumulator(self) -> M::CiphertextAcc {
         self.mode.finalize_ciphertext_accumulator()
     }
 }

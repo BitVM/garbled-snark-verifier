@@ -190,7 +190,7 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> 
         }
     }
 
-    fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
+    fn finalize_ciphertext_accumulator(self) -> Self::CiphertextAcc {
         self.source.finalize()
     }
 }

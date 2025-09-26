@@ -45,7 +45,7 @@ pub trait CircuitMode: Sized + fmt::Debug {
 
     fn add_credits(&mut self, wires: &[WireId], credits: NonZero<Credits>);
 
-    fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
+    fn finalize_ciphertext_accumulator(self) -> Self::CiphertextAcc {
         Self::CiphertextAcc::default()
     }
 }

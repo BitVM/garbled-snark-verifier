@@ -261,7 +261,7 @@ impl<H: GateHasher, CTH: CiphertextHandler> CircuitMode for GarbleMode<H, CTH> {
         }
     }
 
-    fn finalize_ciphertext_accumulator(&self) -> Self::CiphertextAcc {
+    fn finalize_ciphertext_accumulator(self) -> Self::CiphertextAcc {
         self.output_handler.finalize()
     }
 }
