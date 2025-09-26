@@ -4,10 +4,10 @@
 //   Default (AES): `RUST_LOG=info cargo run --example groth16_garble --release`
 //   Blake3:        `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3`
 
-use std::{env, thread, time::Instant};
+use std::{env, fmt::Write as _, thread, time::Instant};
 
 use garbled_snark_verifier::{
-    CiphertextHashAcc, EvaluatedWire, GarbledWire,
+    AESAccumulatingHash, EvaluatedWire, GarbledWire,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::{
         CircuitBuilder, StreamingResult,
@@ -65,7 +65,7 @@ enum G2EMsg {
         output_label0_hash: [u8; 32],
         /// Hash of the label that proof is correct
         output_label1_hash: [u8; 32],
-        ciphertext_hash: u128,
+        ciphertext_hash: [u8; 16],
 
         input_labels: garbled_groth16::EvaluatorInput,
         true_wire: u128,
@@ -75,6 +75,14 @@ enum G2EMsg {
 
 fn hash(inp: &impl AsRef<[u8]>) -> [u8; 32] {
     blake3::hash(inp.as_ref()).as_bytes().to_owned()
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(&mut s, "{:02x}", byte);
+    }
+    s
 }
 
 const CAPACITY: usize = 150_000;
@@ -100,7 +108,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         vk: vk.clone(),
     };
 
-    let hasher = CiphertextHashAcc::default();
+    let hasher = AESAccumulatingHash::default();
 
     info!("Starting garbling of Groth16 verification circuit...");
 
@@ -124,7 +132,8 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     let GarbledWire { label0, label1 } = *garbling_result.output_labels();
     let input_values = garbling_result.input_wire_values;
 
-    let ciphertext_hash: u128 = garbling_result.ciphertext_handler_result;
+    let ciphertext_hash = garbling_result.ciphertext_handler_result;
+    let ciphertext_hash_hex = to_hex(&ciphertext_hash);
 
     // NOTE For the SetupPhase, we must use a random set of bytes and compare
     // them with the hash provided earlier.
@@ -140,7 +149,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         "[GARBLER]
             Label0: {:?},
             Label1: {:?},
-            CiphertextHash: {ciphertext_hash}
+            CiphertextHash: 0x{ciphertext_hash_hex}
         ",
         label0, label1
     );
@@ -199,7 +208,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         let (proxy_sender, proxy_receiver) = crossbeam::channel::unbounded();
 
         let calculated_ciphertext_hash = std::thread::spawn(move || {
-            let mut hasher = CiphertextHashAcc::default();
+            let mut hasher = AESAccumulatingHash::default();
 
             while let Ok(ciphertext) = ciphertext_to_evaluator_receiver.recv() {
                 proxy_sender.send(ciphertext).unwrap();
@@ -231,6 +240,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         } = evaluator_result.output_value;
 
         let calculated_ciphertext_hash = calculated_ciphertext_hash.join().unwrap();
+        let calculated_ciphertext_hash_hex = to_hex(&calculated_ciphertext_hash);
         let result_hash = hash(&possible_secret.to_bytes());
 
         info!(
@@ -238,7 +248,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
             Is Proof Correct: {is_proof_correct},
             Result Hash: {result_hash:?},
             Label: {possible_secret:?},
-            CiphertextHash: {calculated_ciphertext_hash}
+            CiphertextHash: 0x{calculated_ciphertext_hash_hex}
         "
         );
 

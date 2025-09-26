@@ -1,11 +1,11 @@
 use crate::{S, hashers::aes_ni::aes128_encrypt_block_static};
 
 // It can be any, we use it to use AES as a hash.
-pub struct CiphertextHashAcc {
+pub struct AESAccumulatingHash {
     running_hash: S,
 }
 
-impl Default for CiphertextHashAcc {
+impl Default for AESAccumulatingHash {
     fn default() -> Self {
         Self {
             running_hash: S::ZERO,
@@ -13,8 +13,8 @@ impl Default for CiphertextHashAcc {
     }
 }
 
-impl CiphertextHashAcc {
-    pub fn digest(input: S) -> u128 {
+impl AESAccumulatingHash {
+    pub fn digest(input: S) -> [u8; 16] {
         let mut h = Self::default();
         h.update(input);
         h.finalize()
@@ -28,7 +28,7 @@ impl CiphertextHashAcc {
         );
     }
 
-    pub fn finalize(&self) -> u128 {
-        self.running_hash.to_u128()
+    pub fn finalize(&self) -> [u8; 16] {
+        self.running_hash.to_bytes()
     }
 }

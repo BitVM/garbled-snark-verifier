@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crossbeam::channel;
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
 };
 
 // Garbler-side input: single boolean wire, just allocate a fresh garbled label
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct OneBitGarblerInput;
 
 impl CircuitInput for OneBitGarblerInput {
@@ -163,18 +164,18 @@ fn cut_and_choose_one_bit_e2e() {
         let t = garbler.true_wire_constant_for(idx);
         let f = garbler.false_wire_constant_for(idx);
 
-        let labels = garbler.input_labels_for(idx);
+        let input_labels = garbler.input_labels_for(idx);
 
-        assert_eq!(labels.len(), 1);
+        assert_eq!(input_labels.len(), 1);
 
         // Build both true and false evaluator inputs
         let e_true = OneBitEvaluatorInput {
             bit: true,
-            label: labels[0].clone(),
+            label: input_labels[0].clone(),
         };
         let e_false = OneBitEvaluatorInput {
             bit: false,
-            label: labels[0].clone(),
+            label: input_labels[0].clone(),
         };
 
         cases_true.push(EvaluatorCaseInput {
@@ -239,10 +240,13 @@ fn cut_and_choose_fq12_mul_e2e() {
     use crate::{circuit::WiresObject, gadgets::bn254::fq12::Fq12 as Fq12Wire};
 
     // Evaluator-side input: bit values for (a, b) + corresponding garbled labels
-    #[derive(Clone, Default)]
+    #[derive(Clone, Default, Serialize, Deserialize)]
     struct Fq12MulInput {
+        #[serde(skip)]
         a_m: ark_bn254::Fq12,
+        #[serde(skip)]
         b_m: ark_bn254::Fq12,
+        #[serde(skip)]
         prod_m: ark_bn254::Fq12,
         labels: Vec<GarbledWire>,
     }
@@ -293,7 +297,27 @@ fn cut_and_choose_fq12_mul_e2e() {
         for Fq12MulInput
     {
         fn encode(&self, repr: &Self::WireRepr, cache: &mut EvaluateMode<H, SRC>) {
-            // Flatten Fq12 bits in allocation order: a.c0 || a.c1 || b.c0 || b.c1
+            let bits = self.flatten_bits();
+
+            assert_eq!(bits.len(), self.labels.len());
+
+            for ((wire_id, bit), gw) in repr
+                .a
+                .to_wires_vec()
+                .into_iter()
+                .chain(repr.b.to_wires_vec().into_iter())
+                .zip(bits.into_iter())
+                .zip(self.labels.iter())
+            {
+                let ew = EvaluatedWire::new_from_garbled(gw, bit);
+                cache.feed_wire(wire_id, ew);
+            }
+        }
+    }
+
+    impl Fq12MulInput {
+        /// Flatten Fq12 bits in allocation order: a.c0 || a.c1 || b.c0 || b.c1.
+        fn flatten_bits(&self) -> Vec<bool> {
             let mut bits: Vec<bool> = Vec::with_capacity(Fq12Wire::N_BITS * 2);
             let (a_c0_bits, a_c1_bits) = Fq12Wire::to_bits(self.a_m);
             for (v0, v1) in a_c0_bits.into_iter() {
@@ -313,20 +337,7 @@ fn cut_and_choose_fq12_mul_e2e() {
                 bits.extend(v0);
                 bits.extend(v1);
             }
-
-            assert_eq!(bits.len(), self.labels.len());
-
-            for ((wire_id, bit), gw) in repr
-                .a
-                .to_wires_vec()
-                .into_iter()
-                .chain(repr.b.to_wires_vec().into_iter())
-                .zip(bits.into_iter())
-                .zip(self.labels.iter())
-            {
-                let ew = EvaluatedWire::new_from_garbled(gw, bit);
-                cache.feed_wire(wire_id, ew);
-            }
+            bits
         }
     }
 
@@ -417,13 +428,14 @@ fn cut_and_choose_fq12_mul_e2e() {
         let f = garbler.false_wire_constant_for(idx);
 
         let labels = garbler.input_labels_for(idx);
+        let input_true = Fq12MulInput {
+            labels: labels.clone(),
+            ..input.clone()
+        };
 
         cases_true.push(EvaluatorCaseInput {
             index: idx,
-            input: Fq12MulInput {
-                labels: labels.clone(),
-                ..input
-            },
+            input: input_true,
             true_constant_wire: t,
             false_constant_wire: f,
         });
@@ -450,14 +462,17 @@ fn cut_and_choose_fq12_mul_e2e() {
     let mut cases_false = Vec::new();
 
     for idx in to_finalize.iter().copied() {
+        let labels = garbler.input_labels_for(idx);
+        let input_false = Fq12MulInput {
+            a_m: input.a_m,
+            b_m: b_alt_m,
+            prod_m: input.prod_m,
+            labels: labels.clone(),
+        };
+
         cases_false.push(EvaluatorCaseInput {
             index: idx,
-            input: Fq12MulInput {
-                a_m: input.a_m,
-                b_m: b_alt_m,
-                prod_m: input.prod_m,
-                labels: garbler.input_labels_for(idx),
-            },
+            input: input_false,
             true_constant_wire: garbler.true_wire_constant_for(idx),
             false_constant_wire: garbler.false_wire_constant_for(idx),
         });

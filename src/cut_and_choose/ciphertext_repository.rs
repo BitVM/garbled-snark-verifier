@@ -9,9 +9,9 @@ use crossbeam::channel;
 use tracing::error;
 
 use crate::{
-    CiphertextHashAcc, S,
+    AESAccumulatingHash, S,
     circuit::{CiphertextHandler, ciphertext_source},
-    cut_and_choose::Commit,
+    cut_and_choose::CiphertextCommit,
 };
 
 pub trait CiphertextSourceProvider {
@@ -59,7 +59,7 @@ pub trait CiphertextHandlerProvider {
 pub struct FileCiphertextHandler {
     path: PathBuf,
     writer: BufWriter<File>,
-    hasher: CiphertextHashAcc,
+    hasher: AESAccumulatingHash,
     bytes_written: u64,
 }
 
@@ -82,14 +82,14 @@ impl FileCiphertextHandler {
         Ok(Self {
             path,
             writer: BufWriter::with_capacity(buffer_size, file),
-            hasher: CiphertextHashAcc::default(),
+            hasher: AESAccumulatingHash::default(),
             bytes_written: 0,
         })
     }
 }
 
 impl CiphertextHandler for FileCiphertextHandler {
-    type Result = Commit;
+    type Result = CiphertextCommit;
 
     fn handle(&mut self, ct: S) {
         self.hasher.update(ct);

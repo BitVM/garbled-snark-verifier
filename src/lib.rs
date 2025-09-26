@@ -20,7 +20,7 @@ pub use crate::circuit::modes::GarbledWire;
 pub use crate::hashers::{AesNiHasher, Blake3Hasher, GateHasher, HasherKind};
 pub type DefaultHasher = crate::hashers::Blake3Hasher;
 
-pub use ciphertext_hasher::CiphertextHashAcc;
+pub use ciphertext_hasher::AESAccumulatingHash;
 pub use circuit::CircuitContext;
 pub use circuit_component_macro::component;
 // Publicly re-export commonly used BN254 wire types for examples/binaries

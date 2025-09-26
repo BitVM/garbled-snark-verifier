@@ -6,7 +6,7 @@ use crate::{
     EvaluatedWire, GarbledWire,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
-        self as generic, CiphertextHandlerProvider, CiphertextSourceProvider, Commit,
+        self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
         ConsistencyError, GarblerStage,
     },
     garbled_groth16::{self, PublicParams},
@@ -127,7 +127,7 @@ impl Evaluator {
         CSourceProvider: CiphertextSourceProvider + Send + Sync,
         CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
         CHandlerProvider::Handler: 'static,
-        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<Commit>,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
     {
         self.inner.run_regarbling(
             seeds,
@@ -157,7 +157,7 @@ impl Evaluator {
         input_cases: Vec<EvaluatorCaseInput>,
     ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
     where
-        <CR::Source as CiphertextSource>::Result: Into<u128>,
+        <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
     {
         self.inner.evaluate_from(
             ciphertext_repo,

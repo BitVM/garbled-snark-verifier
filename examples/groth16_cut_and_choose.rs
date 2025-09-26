@@ -19,8 +19,8 @@ use rand_chacha::ChaCha20Rng;
 use tracing::{error, info};
 
 // Configuration constants - modify these as needed
-const TOTAL_INSTANCES: usize = 3;
-const FINALIZE_INSTANCES: usize = 1;
+const TOTAL_INSTANCES: usize = 4;
+const FINALIZE_INSTANCES: usize = 2;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;

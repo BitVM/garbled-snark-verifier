@@ -7,7 +7,7 @@ use std::{
 use crossbeam::channel;
 use tracing::error;
 
-use crate::{CiphertextHashAcc, S};
+use crate::{AESAccumulatingHash, S};
 
 /// Abstraction over a stream of ciphertexts
 /// Mirrors `CiphertextHandler` on the consumption side.
@@ -39,7 +39,7 @@ pub struct FileSource {
     rec: [u8; 16],
     eof: bool,
     // Optional hasher to accumulate ciphertext hash for verification
-    hasher: CiphertextHashAcc,
+    hasher: AESAccumulatingHash,
 }
 
 impl FileSource {
@@ -52,13 +52,13 @@ impl FileSource {
             reader,
             rec: [0u8; 16],
             eof: false,
-            hasher: CiphertextHashAcc::default(),
+            hasher: AESAccumulatingHash::default(),
         })
     }
 }
 
 impl CiphertextSource for FileSource {
-    type Result = u128;
+    type Result = [u8; 16];
     fn recv(&mut self) -> Option<S> {
         if self.eof {
             return None;

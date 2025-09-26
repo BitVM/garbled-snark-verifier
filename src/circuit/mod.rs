@@ -4,7 +4,7 @@ use crossbeam::channel;
 use tracing::info;
 
 use crate::{
-    CiphertextHashAcc, EvaluatedWire, GarbledWire, S, WireId,
+    AESAccumulatingHash, EvaluatedWire, GarbledWire, S, WireId,
     circuit::component_meta::ComponentMetaBuilder, core::gate_type::GateCount, hashers::GateHasher,
 };
 
@@ -145,15 +145,15 @@ pub trait CiphertextHandler: Sized {
     fn finalize(self) -> Self::Result;
 }
 
-impl CiphertextHandler for CiphertextHashAcc {
-    type Result = u128;
+impl CiphertextHandler for AESAccumulatingHash {
+    type Result = [u8; 16];
 
     fn handle(&mut self, ct: S) {
         self.update(ct);
     }
 
     fn finalize(self) -> Self::Result {
-        CiphertextHashAcc::finalize(&self)
+        AESAccumulatingHash::finalize(&self)
     }
 }
 

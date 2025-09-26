@@ -2,38 +2,50 @@ use std::{error, fmt};
 
 use rand::Rng;
 use rayon::{iter::IntoParallelRefIterator, prelude::*};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, info};
 
 use super::{Config, garbler::GarbledInstanceCommit};
 use crate::{
-    AesNiHasher, CiphertextHashAcc, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
+    AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
     },
     cut_and_choose::{
-        CiphertextHandlerProvider, CiphertextSourceProvider, Commit, Seed, commit_label,
+        CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
+        DefaultLabelCommitHasher, LabelCommit, LabelCommitHasher, Seed, commit_label_with,
+        write_commit_hex,
     },
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Evaluator<I: CircuitInput + Clone> {
+#[serde(bound = "H: LabelCommitHasher")]
+pub struct Evaluator<
+    I: CircuitInput + Clone + Serialize + DeserializeOwned,
+    H: LabelCommitHasher = DefaultLabelCommitHasher,
+> {
     config: Config<I>,
-    commits: Vec<GarbledInstanceCommit>,
+    commits: Vec<GarbledInstanceCommit<H>>,
     to_finalize: Box<[usize]>,
 }
 
-impl<I> Evaluator<I>
+impl<I, H> Evaluator<I, H>
 where
-    I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
+    I: CircuitInput
+        + Clone
+        + Send
+        + Sync
+        + EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send + Sync,
+    I: Serialize + DeserializeOwned,
+    H: LabelCommitHasher,
 {
     // Generate `to_finalize` with `rng` based on data on `Config`
     pub fn create(
         mut rng: impl Rng,
         config: Config<I>,
-        commits: Vec<GarbledInstanceCommit>,
+        commits: Vec<GarbledInstanceCommit<H>>,
     ) -> Self {
         assert!(
             config.to_finalize <= config.total,
@@ -80,9 +92,9 @@ where
         CSourceProvider: CiphertextSourceProvider + Send + Sync,
         CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
         CHandlerProvider::Handler: 'static,
-        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<Commit>,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, CiphertextHashAcc>>,
+                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -115,7 +127,7 @@ where
                             handler.handle(s);
                         }
 
-                        let computed_commit: Commit = handler.finalize().into();
+                        let computed_commit: CiphertextCommit = handler.finalize().into();
 
                         if computed_commit != commit.ciphertext_commit() {
                             error!("ciphertext corrupted");
@@ -133,7 +145,7 @@ where
                         };
 
                         let inputs = self.config.input.clone();
-                        let hasher = CiphertextHashAcc::default();
+                        let hasher = AESAccumulatingHash::default();
 
                         let span = tracing::info_span!("regarble", instance = index);
                         let _enter = span.enter();
@@ -141,7 +153,7 @@ where
                         info!("Starting regarbling of circuit (cut-and-choose)");
 
                         let res: StreamingResult<
-                            GarbleMode<AesNiHasher, CiphertextHashAcc>,
+                            GarbleMode<AesNiHasher, AESAccumulatingHash>,
                             I,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
@@ -152,7 +164,7 @@ where
                             builder,
                         );
 
-                        let regarbling_commit = GarbledInstanceCommit::new(&res.into());
+                        let regarbling_commit = GarbledInstanceCommit::<H>::new(&res.into());
 
                         if &regarbling_commit != commit {
                             error!("regarbling failed");
@@ -179,40 +191,46 @@ pub struct EvaluatorCaseInput<I> {
 
 /// Errors that can occur during consistency checking.
 #[derive(Debug)]
-pub enum ConsistencyError {
+pub enum ConsistencyError<H: LabelCommitHasher = DefaultLabelCommitHasher> {
     CommitFileNotFound(usize),
     CommitFileInvalid(usize, String),
     TrueConstantMismatch {
         index: usize,
-        expected: u128,
-        actual: u128,
+        expected: H::Output,
+        actual: H::Output,
     },
     FalseConstantMismatch {
         index: usize,
-        expected: u128,
-        actual: u128,
+        expected: H::Output,
+        actual: H::Output,
     },
     CiphertextMismatch {
         index: usize,
-        expected: u128,
-        actual: u128,
+        expected: CiphertextCommit,
+        actual: CiphertextCommit,
     },
     InputLabelsMismatch {
         index: usize,
-        expected: u128,
-        actual: u128,
+        label_index: usize,
+        expected: LabelCommit<H>,
+        actual: LabelCommit<H>,
+    },
+    InputLabelsCountMismatch {
+        index: usize,
+        expected: usize,
+        actual: usize,
     },
     OutputLabelMismatch {
         index: usize,
-        expected: u128,
-        actual: u128,
+        expected: H::Output,
+        actual: H::Output,
     },
     MissingCiphertextHash(usize),
 }
 
-impl error::Error for ConsistencyError {}
+impl<H: LabelCommitHasher> error::Error for ConsistencyError<H> {}
 
-impl fmt::Display for ConsistencyError {
+impl<H: LabelCommitHasher> fmt::Display for ConsistencyError<H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::CommitFileNotFound(idx) => {
@@ -225,47 +243,77 @@ impl fmt::Display for ConsistencyError {
                 index,
                 expected,
                 actual,
-            } => write!(
-                f,
-                "True constant hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
+            } => {
+                write!(
+                    f,
+                    "True constant hash mismatch for instance {}: expected 0x",
+                    index
+                )?;
+                write_commit_hex(f, expected.as_ref())?;
+                write!(f, ", got 0x")?;
+                write_commit_hex(f, actual.as_ref())
+            }
             Self::FalseConstantMismatch {
                 index,
                 expected,
                 actual,
-            } => write!(
-                f,
-                "False constant hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
+            } => {
+                write!(
+                    f,
+                    "False constant hash mismatch for instance {}: expected 0x",
+                    index
+                )?;
+                write_commit_hex(f, expected.as_ref())?;
+                write!(f, ", got 0x")?;
+                write_commit_hex(f, actual.as_ref())
+            }
             Self::CiphertextMismatch {
                 index,
                 expected,
                 actual,
+            } => {
+                write!(
+                    f,
+                    "Ciphertext hash mismatch for instance {}: expected 0x",
+                    index
+                )?;
+                write_commit_hex(f, expected.as_ref())?;
+                write!(f, ", got 0x")?;
+                write_commit_hex(f, actual.as_ref())
+            }
+            Self::InputLabelsMismatch {
+                index,
+                label_index,
+                expected,
+                actual,
             } => write!(
                 f,
-                "Ciphertext hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
+                "Input label commit mismatch for instance {}, label {}: expected {}, got {}",
+                index, label_index, expected, actual
             ),
-            Self::InputLabelsMismatch {
+            Self::InputLabelsCountMismatch {
                 index,
                 expected,
                 actual,
             } => write!(
                 f,
-                "Input labels hash mismatch for instance {}: expected {:#x}, got {:#x}",
+                "Input labels count mismatch for instance {}: expected {}, got {}",
                 index, expected, actual
             ),
             Self::OutputLabelMismatch {
                 index,
                 expected,
                 actual,
-            } => write!(
-                f,
-                "Output label hash mismatch for instance {}: expected {:#x}, got {:#x}",
-                index, expected, actual
-            ),
+            } => {
+                write!(
+                    f,
+                    "Output label hash mismatch for instance {}: expected 0x",
+                    index
+                )?;
+                write_commit_hex(f, expected.as_ref())?;
+                write!(f, ", got 0x")?;
+                write_commit_hex(f, actual.as_ref())
+            }
             Self::MissingCiphertextHash(idx) => {
                 write!(f, "Missing ciphertext hash for instance {}", idx)
             }
@@ -273,9 +321,10 @@ impl fmt::Display for ConsistencyError {
     }
 }
 
-impl<I> Evaluator<I>
+impl<I, H> Evaluator<I, H>
 where
-    I: CircuitInput + Clone + Send + Sync,
+    I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
+    H: LabelCommitHasher,
 {
     /// Evaluate all finalized instances from saved ciphertext files in `folder`.
     /// Returns `(index, EvaluatedWire)` pairs.
@@ -288,10 +337,10 @@ where
         input_cases: Vec<EvaluatorCaseInput<E>>,
         capacity: usize,
         builder: F,
-    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<H>>
     where
         CR: 'static + CiphertextSourceProvider + Sync,
-        <CR::Source as CiphertextSource>::Result: Into<u128>,
+        <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
         E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>>,
         F: Fn(&mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>, &E::WireRepr) -> WireId
             + Send
@@ -311,7 +360,8 @@ where
 
                     let commit = &self.commits[index];
 
-                    let true_consatnt_wire_hash = commit_label(S::from_u128(true_constant_wire));
+                    let true_consatnt_wire_hash =
+                        commit_label_with::<H>(S::from_u128(true_constant_wire));
 
                     if true_consatnt_wire_hash != commit.true_consatnt_wire_commit() {
                         return Err(ConsistencyError::TrueConstantMismatch {
@@ -321,7 +371,8 @@ where
                         });
                     }
 
-                    let false_consatnt_wire_hash = commit_label(S::from_u128(false_constant_wire));
+                    let false_consatnt_wire_hash =
+                        commit_label_with::<H>(S::from_u128(false_constant_wire));
 
                     if false_consatnt_wire_hash != commit.false_consatnt_wire_commit() {
                         return Err(ConsistencyError::FalseConstantMismatch {
@@ -331,7 +382,7 @@ where
                         });
                     }
 
-                    // TODO #37 Check input labels consistency [soldering]
+                    let expected_input_commits = commit.input_labels_commit();
 
                     let source = match ciphertext_repo.source_for(index) {
                         Ok(src) => src,
@@ -340,8 +391,9 @@ where
                         }
                     };
 
-                    let result =
-                    CircuitBuilder::<EvaluateMode<AesNiHasher, CR::Source>>::streaming_evaluation::<
+                    let _span = tracing::info_span!("evaluate", instance = index).entered();
+
+                    let result = CircuitBuilder::<EvaluateMode<AesNiHasher, CR::Source>>::streaming_evaluation::<
                         _,
                         _,
                         EvaluatedWire,
@@ -354,7 +406,41 @@ where
                         builder,
                     );
 
-                    let new_ciphertext_commit = result.ciphertext_handler_result.into();
+                    if expected_input_commits.len() != result.input_wire_values.len() {
+                        return Err(ConsistencyError::InputLabelsCountMismatch {
+                            index,
+                            expected: expected_input_commits.len(),
+                            actual: result.input_wire_values.len(),
+                        });
+                    }
+
+                    for (label_index, (expected_commit, evaluated_wire)) in expected_input_commits
+                        .iter()
+                        .zip(result.input_wire_values)
+                        .enumerate()
+                    {
+                        let expected_hash = expected_commit.commit_for_value(evaluated_wire.value);
+                        let actual_hash = commit_label_with::<H>(evaluated_wire.active_label);
+
+                        if actual_hash != expected_hash {
+                            let mut actual_commit = *expected_commit;
+
+                            if evaluated_wire.value {
+                                actual_commit.commit_label1 = actual_hash;
+                            } else {
+                                actual_commit.commit_label0 = actual_hash;
+                            }
+
+                            return Err(ConsistencyError::InputLabelsMismatch {
+                                index,
+                                label_index,
+                                expected: *expected_commit,
+                                actual: actual_commit,
+                            });
+                        }
+                    }
+
+                    let new_ciphertext_commit: CiphertextCommit = result.ciphertext_handler_result.into();
                     if new_ciphertext_commit != commit.ciphertext_commit() {
                         return Err(ConsistencyError::CiphertextMismatch {
                             index,
@@ -363,7 +449,7 @@ where
                         });
                     }
 
-                    let output_hash = commit_label(result.output_value.active_label);
+                    let output_hash = commit_label_with::<H>(result.output_value.active_label);
 
                     let expected_output_hash = if result.output_value.value {
                         commit.output_label1_commit()

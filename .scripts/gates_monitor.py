@@ -66,7 +66,7 @@ RE_G2EVALUATOR = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble2evaluator:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
 RE_EVALUATED = re.compile(
-    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*$'
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*(?:instance=(?P<instance>\d+))?\s*$'
 )
 
 # Selected mode (set in main). "auto" selects phases dynamically.
@@ -97,6 +97,8 @@ class PhaseState:
     instance_times: Dict[int, dict] = field(default_factory=dict)
     max_instance_id: int = -1
     expected_total: Optional[int] = None
+    evaluation_instance_counter: int = 0  # For assigning instance IDs when not provided
+    evaluation_last_ts: Dict[float, int] = field(default_factory=dict)  # Map timestamp to instance
 
 def parse_iso_utc(ts: str) -> float:
     # Accept e.g. "2025-09-16T10:56:02.056992Z"
@@ -136,7 +138,8 @@ def parse_line_auto(line: str) -> Optional[Sample]:
     if m:
         ts = parse_iso_utc(m.group('ts'))
         v = to_gates(m.group('num'), m.group('unit'))
-        return Sample(ts, v, 0, 'evaluation')
+        instance = int(m.group('instance')) if m.group('instance') else None
+        return Sample(ts, v, instance, 'evaluation')
 
     return None
 
@@ -151,8 +154,8 @@ def parse_line(line: str) -> Optional[Sample]:
             return None
         ts = parse_iso_utc(m.group('ts'))
         v = to_gates(m.group('num'), m.group('unit'))
-        # Single stream for evaluation mode; use instance 0
-        return Sample(ts, v, 0, 'evaluation')
+        instance = int(m.group('instance')) if m.group('instance') else None
+        return Sample(ts, v, instance, 'evaluation')
     else:
         if MODE == "garbling":
             m = RE_GARBLE.match(line)
@@ -239,6 +242,27 @@ def process_sample(state: PhaseState, sample: Sample, target_gates: int, *, igno
 
     Returns True if the sample was appended (i.e. new progress recorded).
     """
+    # Handle evaluation mode with no instance IDs
+    if sample.phase == 'evaluation' and sample.instance is None:
+        # Assign instance based on value pattern - find which instance this belongs to
+        found_instance = None
+        for inst_id, last_v in state.last_value_per_instance.items():
+            # If this value is a reasonable progression from the last value
+            if sample.v >= last_v and sample.v - last_v < 100_000_000:  # Less than 100M gate jump
+                found_instance = inst_id
+                break
+
+        if found_instance is None:
+            # This is a new instance or a reset
+            if sample.v < 10_000_000:  # Small value, likely a new instance starting
+                sample.instance = state.evaluation_instance_counter
+                state.evaluation_instance_counter += 1
+            else:
+                # Try to find the best match based on expected progress
+                sample.instance = 0  # Default to instance 0
+        else:
+            sample.instance = found_instance
+
     last_val = state.last_value_per_instance.get(sample.instance)
 
     if ignore_non_increasing and last_val is not None and sample.v <= last_val:
