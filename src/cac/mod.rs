@@ -18,16 +18,18 @@ mod tests {
         let n = 181;
         let k = 181 - 7;
 
+        let secp = vsss::Secp256k1::new();
+
         let mut rng = rand::thread_rng();
 
         // step 1: garbler generates secret:
         let polynomial = vsss::Polynomial::rand(&mut rng, k);
 
         // step 2: garbler send commitments to the polynomial coefficients to the evaluator
-        let coefficient_commits = polynomial.coefficient_commits();
+        let coefficient_commits = polynomial.coefficient_commits(&secp);
 
         // step 3: garbler shares commits, sends them to evaluator
-        let share_commits = polynomial.share_commits(n);
+        let share_commits = polynomial.share_commits(&secp, n);
 
         // step 4: evaluator verifies correctness of the share commits:
         share_commits
@@ -46,7 +48,7 @@ mod tests {
 
         // step 7: evaluator checks that the selected shares match the share commits
         share_commits
-            .verify_shares(&selected_shares)
+            .verify_shares(&secp, &selected_shares)
             .expect("Share verification failed");
 
         // step 8: (omitted) evaluator checks the garbled circuit validity
