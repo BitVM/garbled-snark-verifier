@@ -46,6 +46,8 @@ pub type Compressed = Groth16VerifyCompressedInput;
 pub use gadgets::groth16_verify_compressed as verify_compressed;
 
 mod ark_canonical {
+    use std::borrow::Cow;
+
     use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
     use serde::{Deserializer, Serializer};
 
@@ -73,8 +75,8 @@ mod ark_canonical {
         D: Deserializer<'de>,
     {
         let bytes = if deserializer.is_human_readable() {
-            let hex: &str = serde::Deserialize::deserialize(deserializer)?;
-            hex::decode(hex).map_err(serde::de::Error::custom)?
+            let hex: Cow<'de, str> = serde::Deserialize::deserialize(deserializer)?;
+            hex::decode(hex.as_ref()).map_err(serde::de::Error::custom)?
         } else {
             serde::Deserialize::deserialize(deserializer)?
         };
