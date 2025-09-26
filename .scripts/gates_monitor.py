@@ -66,7 +66,7 @@ RE_G2EVALUATOR = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble2evaluator:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
 RE_EVALUATED = re.compile(
-    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*(?:instance=(?P<instance>\d+))?\s*$'
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+evaluate:\s+evaluated:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s*(?:instance=(?P<instance>\d+))?\s*$'
 )
 
 # Selected mode (set in main). "auto" selects phases dynamically.
