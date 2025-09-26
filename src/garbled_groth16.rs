@@ -60,14 +60,25 @@ mod ark_canonical {
             .serialize_compressed(&mut bytes)
             .map_err(serde::ser::Error::custom)?;
 
-        serializer.serialize_bytes(&bytes)
+        if serializer.is_human_readable() {
+            let hex = hex::encode(&bytes);
+            serializer.serialize_str(&hex)
+        } else {
+            serializer.serialize_bytes(&bytes)
+        }
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<VerifyingKey<Bn254>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
+        let bytes = if deserializer.is_human_readable() {
+            let hex: &str = serde::Deserialize::deserialize(deserializer)?;
+            hex::decode(hex).map_err(serde::de::Error::custom)?
+        } else {
+            serde::Deserialize::deserialize(deserializer)?
+        };
+
         VerifyingKey::deserialize_compressed(&bytes[..]).map_err(serde::de::Error::custom)
     }
 }
