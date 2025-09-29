@@ -1,13 +1,13 @@
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-pub use crate::cut_and_choose::{GarbledInstanceCommit, OpenForInstance, Seed};
+pub use crate::cut_and_choose::{GarbledInstanceCommit, LabelCommitHasher, OpenForInstance, Seed};
 use crate::{
     EvaluatedWire, GarbledWire,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
-        ConsistencyError, GarblerStage,
+        ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
     },
     garbled_groth16::{self, PublicParams},
 };
@@ -36,6 +36,13 @@ impl Garbler {
 
     pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
         self.inner.commit()
+    }
+
+    pub fn commit_with_hasher<HHasher>(&self) -> Vec<GarbledInstanceCommit<HHasher>>
+    where
+        HHasher: LabelCommitHasher,
+    {
+        self.inner.commit_with_hasher::<HHasher>()
     }
 
     pub fn open_commit<CTH: 'static + Send + CiphertextHandler>(
@@ -95,14 +102,15 @@ impl Garbler {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Evaluator {
-    inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput>,
+#[serde(bound = "HHasher: LabelCommitHasher")]
+pub struct Evaluator<HHasher: LabelCommitHasher = DefaultLabelCommitHasher> {
+    inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, HHasher>,
 }
 
-impl Evaluator {
+impl<H: LabelCommitHasher> Evaluator<H> {
     // Generate `to_finalize` with `rng` based on data on `Config`
-    pub fn create(rng: impl Rng, config: Config, commits: Vec<GarbledInstanceCommit>) -> Self {
-        let inner = generic::Evaluator::<garbled_groth16::GarblerCompressedInput>::create(
+    pub fn create(rng: impl Rng, config: Config, commits: Vec<GarbledInstanceCommit<H>>) -> Self {
+        let inner = generic::Evaluator::<garbled_groth16::GarblerCompressedInput, H>::create(
             rng, config, commits,
         );
         Self { inner }
@@ -142,7 +150,7 @@ impl Evaluator {
 pub type EvaluatorCaseInput =
     generic::EvaluatorCaseInput<garbled_groth16::EvaluatorCompressedInput>;
 
-impl Evaluator {
+impl<H: LabelCommitHasher> Evaluator<H> {
     /// Evaluate all finalized instances from saved ciphertext files with consistency checking.
     ///
     /// This method performs three consistency checks:
@@ -155,7 +163,7 @@ impl Evaluator {
         &self,
         ciphertext_repo: &CR,
         input_cases: Vec<EvaluatorCaseInput>,
-    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError>
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<H>>
     where
         <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
     {
