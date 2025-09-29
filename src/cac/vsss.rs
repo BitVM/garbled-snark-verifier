@@ -97,42 +97,104 @@ impl ShareCommits {
     }
 }
 
-// find the missing point by using the Lagrange interpolation, see https://en.wikipedia.org/wiki/Lagrange_polynomial
-// Input is a vec of (index, value), where index is 0-based
-pub fn lagrange_interpolate_at_index(points: &[(usize, Fr)], index: usize) -> Fr {
-    lagrange_interpolate_at_x(points, Fr::from((index + 1) as u64))
-}
+/// Returns the values of the polynomial defined by known_points at missing_points, in the given order
+/// Assumes that points in the two sets are disjoint and their union is set of natural numbers smaller than < n (including 0) for n = len(known_points) + len(missing_points)
+/// Uses the fact that the number of missing points will be small compared to the known ones to evalute polynomials with factorials
+/// so, assuming field inversion and multiplication complexity are I and M, total complexity is O(I + len(missing_points) * n * O)
+pub fn lagrange_interpolate_whole_polynomial(
+    known_points: &[(usize, Fr)],
+    missing_points: &[usize],
+) -> Vec<Fr> {
+    assert!(!known_points.is_empty() || !missing_points.is_empty());
 
-// internal function that allows also queying g(0)
-fn lagrange_interpolate_at_x(points: &[(usize, Fr)], x: Fr) -> Fr {
-    let sc = |val: usize| Fr::from(val as u64);
-    points
-        .iter()
-        .enumerate()
-        .fold(Fr::zero(), |result, (i, (idx, y_i))| {
-            let x_i = sc(*idx + 1); // share 0 corresponds to x=1
-            // Compute L_i(x)
-            let (num, denum) = points.iter().enumerate().filter(|(j, _)| *j != i).fold(
-                (Fr::one(), Fr::one()),
-                |(num, denum), (_, (idx, _))| {
-                    let x_j = sc(*idx + 1); // share 0 corresponds to x=1
+    let n = known_points.len() + missing_points.len();
+    let factorial: Vec<Fr> = std::iter::once(Fr::one())
+        .chain((1..n).scan(Fr::one(), |state, i| {
+            *state *= Fr::from(i as u64);
+            Some(*state)
+        }))
+        .collect();
 
-                    (num * (x - x_j), denum * (x_i - x_j))
-                },
-            );
+    // inv_fact[i] = 1 / factorial[i]
+    let inv_factorial: Vec<Fr> = (0..n)
+        .rev()
+        .scan(
+            factorial[n - 1]
+                .inverse()
+                .expect("This is guaranteed to be non-zero"),
+            |cur_state, i| {
+                let ith_value = *cur_state;
+                *cur_state *= Fr::from(i as u64);
+                Some(ith_value)
+            },
+        )
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
 
-            // calculate li = num / denum = num * denum^{-1}
-            let denum_inv = denum.inverse().expect("x_i - x_j must be nonzero");
-            let li = num * denum_inv;
-
-            result + *y_i * li
+    let inv: Vec<Fr> = (0..n)
+        .map(|i| {
+            if i == 0 {
+                Fr::zero() //This should never be used
+            } else {
+                inv_factorial[i] * factorial[i - 1]
+            }
         })
+        .collect();
+
+    // For x, calculates the multiplication of (x - i) for all i in known_points (known_points = 0..n \ missing_points)
+    // returns the inverse of the multiplication result, based on the parameter
+    let get_coeff = |x: usize, is_inverse: bool| {
+        // corner case checks for 0 and n - 1 are not needed since inv_factorial[0] = factorial[0] = 1
+        let mut result: Fr = if is_inverse {
+            inv_factorial[x] * inv_factorial[n - 1 - x]
+        } else {
+            factorial[x] * factorial[n - 1 - x]
+        };
+        if (n - x).is_multiple_of(2) {
+            result *= -Fr::one();
+        }
+        for i in missing_points {
+            if *i == x {
+                continue;
+            };
+            result *= if is_inverse {
+                Fr::from(x as i64 - *i as i64)
+            } else if *i < x {
+                inv[x - *i]
+            } else {
+                -inv[*i - x]
+            }
+        }
+        result
+    };
+
+    let lagrange_basis_polynomial_coeffs: Vec<(usize, Fr)> = known_points
+        .iter()
+        .map(|(x, y)| (*x, get_coeff(*x, true) * y))
+        .collect();
+
+    missing_points
+        .iter()
+        .map(|x| {
+            let all_differences = get_coeff(*x, false);
+            lagrange_basis_polynomial_coeffs
+                .iter()
+                .fold(Fr::zero(), |result, (i, coeff_i)| {
+                    let ith_diff_inv: Fr = if i < x { inv[x - i] } else { -inv[i - x] };
+                    result + ith_diff_inv * all_differences * *coeff_i
+                })
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use rand::{SeedableRng, seq::index::sample};
+    use rand_chacha::ChaCha20Rng;
+    use std::collections::HashSet;
     #[test]
     fn test_polynomial_eval() {
         let polynomial = Polynomial::<Fr>::rand(rand::thread_rng(), 2);
@@ -143,33 +205,6 @@ mod tests {
                 assert_eq!(polynomial.eval_at(x), a + b * x + c * x * x);
             }
             _ => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn test_interpolation_from_coefficients() {
-        let polynomial_degree = 3;
-        let polynomial = Polynomial::rand(rand::thread_rng(), polynomial_degree);
-
-        let num_shares = polynomial_degree + 1;
-        let points = polynomial.shares(num_shares);
-
-        let secret = lagrange_interpolate_at_x(&points, Fr::zero());
-
-        assert_eq!(secret, polynomial.0[0]);
-    }
-
-    #[test]
-    fn test_interpolate_missing_shares() {
-        let polynomial_degree = 3;
-        let polynomial = Polynomial::rand(rand::thread_rng(), polynomial_degree);
-        let points = polynomial.shares(6);
-        let selected_points = &points[..polynomial_degree + 1];
-        let missing_points = &points[polynomial_degree + 1..];
-
-        for (i, share) in missing_points.iter() {
-            let reconstructed = lagrange_interpolate_at_index(selected_points, *i);
-            assert_eq!(reconstructed, *share);
         }
     }
 
@@ -186,5 +221,33 @@ mod tests {
 
         let shares = polynomial.shares(num_shares);
         share_commits.verify_shares(&shares).unwrap();
+    }
+
+    #[test]
+    fn test_interpolation() {
+        for (n_revealed, n_hidden) in vec![(5usize, 2usize), (100, 50), (300, 7)] {
+            // Assumes one of the revealed ones is 0, as it will be in application, includes it in the n_revealed ones
+            let n_total = n_revealed + n_hidden;
+            let mut seed_rng = ChaCha20Rng::seed_from_u64(42);
+            let hidden_points = sample(&mut seed_rng, n_total, n_hidden)
+                .into_vec()
+                .into_iter()
+                .map(|x| x + 1)
+                .collect::<Vec<_>>();
+            let polynomial = Polynomial::rand(seed_rng, n_revealed - 1);
+            let points = polynomial.shares(n_total); //points[i].0 = i
+
+            let aux_set: HashSet<_> = hidden_points.iter().copied().collect();
+            let known_points: Vec<(usize, Fr)> = points
+                .clone()
+                .into_iter()
+                .filter(|(x, _)| !aux_set.contains(x))
+                .collect();
+            let answer = lagrange_interpolate_whole_polynomial(&known_points, &hidden_points);
+
+            for (x, y) in hidden_points.into_iter().zip(answer.into_iter()) {
+                assert_eq!(points[x].1, y);
+            }
+        }
     }
 }

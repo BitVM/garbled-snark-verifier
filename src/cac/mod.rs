@@ -11,7 +11,7 @@ mod tests {
     use sha2::{Digest, Sha256};
 
     use super::*;
-    use crate::cac::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_at_index};
+    use crate::cac::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_whole_polynomial};
 
     #[test]
     fn test_full_flow() {
@@ -103,13 +103,16 @@ mod tests {
             &[(unused_share_commit.0, unused_share_secret)],
         ]
         .concat();
-        let missing_shares = (0..n)
-            .filter(|&i| combined_shares.iter().all(|(j, _)| i != *j))
-            .map(|i| (i, lagrange_interpolate_at_index(&combined_shares, i)))
-            .collect::<Vec<_>>();
 
-        for share in missing_shares {
-            assert_eq!(share, all_shares[share.0]);
+        let missing_points: Vec<usize> = (0..n)
+            .filter(|&i| combined_shares.iter().all(|(j, _)| i != *j))
+            .collect();
+
+        let missing_shares =
+            lagrange_interpolate_whole_polynomial(&combined_shares, &missing_points);
+
+        for (x, y) in missing_points.into_iter().zip(missing_shares.into_iter()) {
+            assert_eq!(all_shares[x].1, y)
         }
     }
 }
