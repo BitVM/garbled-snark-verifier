@@ -1,6 +1,6 @@
 //! High-level Groth16 verification API (BN254) for streaming circuits.
 
-use std::ops::Deref;
+use std::{iter, ops::Deref};
 
 use ark_bn254::{Bn254, Fr};
 use ark_ec::AffineRepr;
@@ -701,5 +701,23 @@ impl<M: CircuitMode<WireValue = EvaluatedWire>> EncodeInput<M> for EvaluatorComp
             .zip_eq(self.c.x.iter())
             .for_each(|(wire_id, ew)| cache.feed_wire(*wire_id, ew.clone()));
         cache.feed_wire(repr.c.y_flag, self.c.y_flag.clone());
+    }
+}
+
+impl EvaluatorCompressedInput {
+    pub fn iter_active_labels(&self) -> impl Iterator<Item = EvaluatedWire> {
+        self.public
+            .iter()
+            .flat_map(|pp| pp.iter())
+            .chain(self.a.x.iter().chain(iter::once(&self.a.y_flag)))
+            .chain(
+                self.b
+                    .x
+                    .iter()
+                    .flat_map(|f2| f2.iter())
+                    .chain(iter::once(&self.b.y_flag)),
+            )
+            .chain(self.c.x.iter().chain(iter::once(&self.c.y_flag)))
+            .cloned()
     }
 }
