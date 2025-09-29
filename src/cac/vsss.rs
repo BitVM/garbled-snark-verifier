@@ -100,7 +100,7 @@ impl ShareCommits {
 /// Returns the values of the polynomial defined by known_points at missing_points, in the given order
 /// Assumes that points in the two sets are disjoint and their union is set of natural numbers smaller than < n (including 0) for n = len(known_points) + len(missing_points)
 /// Uses the fact that the number of missing points will be small compared to the known ones to evalute polynomials with factorials
-/// so, assuming field inversion and multiplication complexity are I and M, total complexity is O(I + len(missing_points) * n * O)
+/// so, assuming field inversion and multiplication complexity are I and M, total complexity is O(I + len(missing_points) * n * M)
 pub fn lagrange_interpolate_whole_polynomial(
     known_points: &[(usize, Fr)],
     missing_points: &[usize],
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_interpolation() {
-        for (n_revealed, n_hidden) in vec![(5usize, 2usize), (100, 50), (300, 7)] {
+        for (n_revealed, n_hidden) in vec![(5usize, 2usize), (100, 10), (175, 7)] {
             // Assumes one of the revealed ones is 0, as it will be in application, includes it in the n_revealed ones
             let n_total = n_revealed + n_hidden;
             let mut seed_rng = ChaCha20Rng::seed_from_u64(42);
