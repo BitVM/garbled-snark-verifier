@@ -1,12 +1,12 @@
-use super::utils::neg_pos_sum_of_powers_of_two;
+use std::ops::{Add, Mul};
+
 use ark_ec::{PrimeGroup, scalar_mul::BatchMulPreprocessing};
-use ark_ff::BigInteger;
-use ark_ff::PrimeField;
-use ark_ff::{Field, One, UniformRand, Zero};
+use ark_ff::{BigInteger, Field, One, PrimeField, UniformRand, Zero};
 use ark_secp256k1::{Fr, Projective};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::ops::{Add, Mul};
+
+use super::utils::neg_pos_sum_of_powers_of_two;
 
 pub struct Secp256k1 {
     pub generator: BatchMulPreprocessing<Projective>,
@@ -345,14 +345,13 @@ pub fn lagrange_interpolate_whole_polynomial(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
+    use std::{collections::HashSet, time::Instant};
 
     use ark_ec::ScalarMul;
-
-    use super::*;
     use rand::{SeedableRng, seq::index::sample};
     use rand_chacha::ChaCha20Rng;
-    use std::collections::HashSet;
+
+    use super::*;
 
     #[test]
     fn test_commit_verification() {
