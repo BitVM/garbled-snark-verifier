@@ -11,8 +11,7 @@ mod tests {
     use rand::prelude::IteratorRandom;
     use sha2::{Digest, Sha256};
 
-    use super::*;
-    use crate::cac::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_whole_polynomial};
+    use super::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_whole_polynomial, *};
 
     #[test]
     fn test_full_flow() {

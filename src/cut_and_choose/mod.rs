@@ -12,6 +12,8 @@ pub mod garbler;
 pub use ciphertext_repository::*;
 pub use evaluator::*;
 pub use garbler::*;
+// TODO tmp pub
+pub mod soldering;
 
 pub mod groth16;
 

@@ -1,4 +1,3 @@
-pub mod cac;
 pub mod ciphertext_hasher;
 pub mod circuit;
 mod core;

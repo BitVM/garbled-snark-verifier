@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn test_interpolation() {
-        for (n_revealed, n_hidden) in vec![(5usize, 2usize), (100, 10), (175, 7)] {
+        for (n_revealed, n_hidden) in [(5usize, 2usize), (100, 10), (175, 7)] {
             // Assumes one of the revealed ones is 0, as it will be in application, includes it in the n_revealed ones
             let n_total = n_revealed + n_hidden;
             let mut seed_rng = ChaCha20Rng::seed_from_u64(42);
@@ -431,14 +431,14 @@ mod tests {
 
     #[test]
     fn test_suffix_interpolation() {
-        for (n_revealed, n_hidden) in vec![(5usize, 2usize), (100, 10), (175, 7)] {
+        for (n_revealed, n_hidden) in [(5usize, 2usize), (100, 10), (175, 7)] {
             // Assumes one of the revealed ones is 0, as it will be in application, includes it in the n_revealed ones
             let n_total = n_revealed + n_hidden;
             let seed_rng = ChaCha20Rng::seed_from_u64(42);
             let polynomial = Polynomial::rand(seed_rng, n_revealed - 1);
             let points = polynomial.shares(n_total);
             let answer = polynomial.eval_at_suffix_points::<false>(n_hidden);
-            for (x, y) in (n_revealed..n_total).into_iter().zip(answer.into_iter()) {
+            for (x, y) in (n_revealed..n_total).zip(answer.into_iter()) {
                 assert_eq!(points[x].1, y);
                 assert_eq!(polynomial.eval_at(x), y);
             }
