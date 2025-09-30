@@ -179,6 +179,10 @@ where
 
         Ok(())
     }
+
+    pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
+        &self.commits
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -145,6 +145,10 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             garbled_groth16::verify_compressed,
         )
     }
+
+    pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
+        self.inner.commits()
+    }
 }
 
 pub type EvaluatorCaseInput =
