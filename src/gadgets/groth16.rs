@@ -66,90 +66,47 @@ pub fn groth16_verify<C: CircuitContext>(
         vk,
     } = input;
 
-    // Optimization: When there are no public inputs, we can skip the MSM computation
-    // and use a simpler verification equation with fewer pairings.
-    if public.is_empty() {
-        // When public inputs are empty, the verification equation simplifies:
-        // e(gamma_abc_g1[0], -gamma) * e(C, -delta) * e(A, B) == e(alpha, -beta)
-        //
-        // We can precompute e(gamma_abc_g1[0], -gamma) * e(alpha, -beta)^(-1) as a constant
-        // This reduces the verification to: e(C, -delta) * e(A, B) == constant
-        //
-        // However, since multi_miller_loop_groth16_evaluate_montgomery_fast expects 3 G1 points,
-        // we pass gamma_abc_g1[0] as a constant G1 point in Montgomery form.
+    // Standard verification with public inputs
+    // MSM: sum_i public[i] * gamma_abc_g1[i+1]
+    let bases: Vec<ark_bn254::G1Projective> = vk
+        .gamma_abc_g1
+        .iter()
+        .skip(1)
+        .take(public.len())
+        .map(|a| a.into_group())
+        .collect();
+    let msm_temp =
+        G1Projective::msm_with_constant_bases_montgomery::<10, _>(circuit, public, &bases);
 
-        let gamma0_m = G1Projective::as_montgomery(vk.gamma_abc_g1[0].into_group());
-        let gamma0_const = G1Projective::new_constant(&gamma0_m);
+    // Add the constant term gamma_abc_g1[0] in Montgomery form
+    let gamma0_m = G1Projective::as_montgomery(vk.gamma_abc_g1[0].into_group());
+    let msm =
+        G1Projective::add_montgomery(circuit, &msm_temp, &G1Projective::new_constant(&gamma0_m));
 
-        // Convert to affine (z=1) for pairing
-        let gamma0_affine = projective_to_affine_montgomery(circuit, &gamma0_const);
+    let msm_affine = projective_to_affine_montgomery(circuit, &msm);
 
-        let f = multi_miller_loop_groth16_evaluate_montgomery_fast(
-            circuit,
-            &gamma0_affine, // p1: gamma_abc_g1[0] (constant)
-            c,              // p2: proof.C
-            a,              // p3: proof.A
-            -vk.gamma_g2,   // q1: -gamma
-            -vk.delta_g2,   // q2: -delta
-            b,              // q3: proof.B
-        );
+    let f = multi_miller_loop_groth16_evaluate_montgomery_fast(
+        circuit,
+        &msm_affine,  // p1
+        c,            // p2
+        a,            // p3
+        -vk.gamma_g2, // q1
+        -vk.delta_g2, // q2
+        b,            // q3
+    );
 
-        let alpha_beta = ark_bn254::Bn254::final_exponentiation(
-            ark_bn254::Bn254::multi_miller_loop([vk.alpha_g1.into_group()], [-vk.beta_g2]),
-        )
-        .unwrap()
-        .0
-        .inverse()
-        .unwrap();
+    let alpha_beta = ark_bn254::Bn254::final_exponentiation(ark_bn254::Bn254::multi_miller_loop(
+        [vk.alpha_g1.into_group()],
+        [-vk.beta_g2],
+    ))
+    .unwrap()
+    .0
+    .inverse()
+    .unwrap();
 
-        let f = final_exponentiation_montgomery(circuit, &f);
+    let f = final_exponentiation_montgomery(circuit, &f);
 
-        Fq12::equal_constant(circuit, &f, &Fq12::as_montgomery(alpha_beta))
-    } else {
-        // Standard verification with public inputs
-        // MSM: sum_i public[i] * gamma_abc_g1[i+1]
-        let bases: Vec<ark_bn254::G1Projective> = vk
-            .gamma_abc_g1
-            .iter()
-            .skip(1)
-            .take(public.len())
-            .map(|a| a.into_group())
-            .collect();
-        let msm_temp =
-            G1Projective::msm_with_constant_bases_montgomery::<10, _>(circuit, public, &bases);
-
-        // Add the constant term gamma_abc_g1[0] in Montgomery form
-        let gamma0_m = G1Projective::as_montgomery(vk.gamma_abc_g1[0].into_group());
-        let msm = G1Projective::add_montgomery(
-            circuit,
-            &msm_temp,
-            &G1Projective::new_constant(&gamma0_m),
-        );
-
-        let msm_affine = projective_to_affine_montgomery(circuit, &msm);
-
-        let f = multi_miller_loop_groth16_evaluate_montgomery_fast(
-            circuit,
-            &msm_affine,  // p1
-            c,            // p2
-            a,            // p3
-            -vk.gamma_g2, // q1
-            -vk.delta_g2, // q2
-            b,            // q3
-        );
-
-        let alpha_beta = ark_bn254::Bn254::final_exponentiation(
-            ark_bn254::Bn254::multi_miller_loop([vk.alpha_g1.into_group()], [-vk.beta_g2]),
-        )
-        .unwrap()
-        .0
-        .inverse()
-        .unwrap();
-
-        let f = final_exponentiation_montgomery(circuit, &f);
-
-        Fq12::equal_constant(circuit, &f, &Fq12::as_montgomery(alpha_beta))
-    }
+    Fq12::equal_constant(circuit, &f, &Fq12::as_montgomery(alpha_beta))
 }
 
 /// Decompress a compressed G1 point (x, sign bit) into projective wires with z = 1 (Montgomery domain).
