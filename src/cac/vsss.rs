@@ -158,55 +158,44 @@ where
             }
         };
 
-        let lagrange_basis_polynomial_coeffs: Vec<Fr> = (0..n_known).map(&get_coeff).collect();
+        let lagrange_basis_polynomial_coeffs: Vec<Fr> = (0..n).map(&get_coeff).collect();
+        let mut result = vec![T::zero(); n_points];
 
-        let mut precalculated_tables: Vec<Vec<T>> = vec![];
-        if USE_TABLES {
-            for i in 0..n_known {
-                let mut table = vec![];
+        for i in 0..n_known {
+            let mut table = vec![];
+            if USE_TABLES {
                 table.push(self.0[i].clone());
                 for j in 1..(Fr::MODULUS_BIT_SIZE + 1) as usize {
                     table.push(table[j - 1].clone() + table[j - 1].clone());
                 }
-                precalculated_tables.push(table);
+            }
+
+            for j in 0..n_points {
+                let scalar = lagrange_basis_polynomial_coeffs[n_known + j]
+                    * lagrange_basis_polynomial_coeffs[i]
+                    * inv[j + n_known - i];
+
+                result[j] = result[j].clone()
+                    + if !USE_TABLES {
+                        self.0[i].clone() * &scalar
+                    } else {
+                        let mut sum = T::zero();
+                        for (bit_i, bit_value) in
+                            neg_pos_sum_of_powers_of_two(scalar.into_bigint().to_bits_le())
+                                .into_iter()
+                                .enumerate()
+                        {
+                            if bit_value == 1 {
+                                sum = sum + table[bit_i].clone();
+                            } else if bit_value == -1 {
+                                sum = sum - table[bit_i].clone();
+                            }
+                        }
+                        sum
+                    };
             }
         }
-
-        let scalar_mul = |known_i: usize, scalar: &Fr| {
-            if *scalar == Fr::zero() {
-                return T::zero();
-            }
-            if !USE_TABLES {
-                return self.0[known_i].clone() * scalar;
-            }
-            let mut result = T::zero();
-            let current_table = &precalculated_tables[known_i];
-            for (bit_i, bit_value) in
-                neg_pos_sum_of_powers_of_two(scalar.into_bigint().to_bits_le())
-                    .into_iter()
-                    .enumerate()
-            {
-                if bit_value == 1 {
-                    result = result + current_table[bit_i].clone();
-                } else if bit_value == -1 {
-                    result = result - current_table[bit_i].clone();
-                }
-            }
-            result
-        };
-
-        (n_known..n_known + n_points)
-            .map(|x| {
-                let mut result = T::zero();
-                let nom_coeff = get_coeff(x);
-                for i in 0..n_known {
-                    let whole_coeff: Fr =
-                        lagrange_basis_polynomial_coeffs[i] * inv[x - i] * nom_coeff;
-                    result = result + scalar_mul(i, &whole_coeff);
-                }
-                result
-            })
-            .collect()
+        result
     }
 }
 
