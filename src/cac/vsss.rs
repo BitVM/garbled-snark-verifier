@@ -259,7 +259,7 @@ impl ShareCommits {
 
 /// Returns the values of the polynomial defined by known_points at missing_points, in the given order
 /// Assumes that points in the two sets are disjoint and their union is set of natural numbers smaller than < n (including 0) for n = len(known_points) + len(missing_points)
-/// Uses the fact that the number of missing points will be small compared to the known ones to evalute polynomials with factorials
+/// Uses the fact that the number of missing points will be small compared to the known ones to evaluate polynomials with factorials
 /// so, assuming field inversion and multiplication complexity are I and M, total complexity is O(I + len(missing_points) * n * M)
 pub fn lagrange_interpolate_whole_polynomial(
     known_points: &[(usize, Fr)],
