@@ -137,7 +137,7 @@ where
 
     /// evaluates the function at smallest consecutive integer points bigger than the degree
     /// functions similar to [`lagrange_interpolate_whole_polynomial`],
-    fn eval_at_suffix_points(&self, n_points: usize) -> Vec<T> {
+    fn eval_at_suffix_points<const USE_TABLES: bool>(&self, n_points: usize) -> Vec<T> {
         let n_known = self.0.len();
         let n = n_known + n_points;
         let (factorial, inv_factorial, inv) = precalculated_factorials_and_inverses(n);
@@ -159,6 +159,36 @@ where
 
         let lagrange_basis_polynomial_coeffs: Vec<Fr> = (0..n_known).map(&get_coeff).collect();
 
+        let mut precalculated_tables: Vec<Vec<T>> = vec![];
+        if USE_TABLES {
+            for i in 0..n_known {
+                let mut table = vec![];
+                table.push(self.0[i].clone());
+                for j in 1..Fr::MODULUS_BIT_SIZE as usize {
+                    table.push(table[j - 1].clone() + table[j - 1].clone());
+                }
+                precalculated_tables.push(table);
+            }
+        }
+
+        let scalar_mul = |known_i: usize, scalar: &Fr| {
+            if *scalar == Fr::zero() {
+                return T::zero();
+            }
+            if !USE_TABLES {
+                return self.0[known_i].clone() * scalar;
+            }
+            let mut result = T::zero();
+            let current_table = &precalculated_tables[known_i];
+            for (bit_i, bit_value) in scalar.into_bigint().to_bits_le().into_iter().enumerate() {
+                if !bit_value {
+                    continue;
+                }
+                result = result + current_table[bit_i].clone();
+            }
+            result
+        };
+
         (n_known..n_known + n_points)
             .map(|x| {
                 let mut result = T::zero();
@@ -166,7 +196,7 @@ where
                 for i in 0..n_known {
                     let whole_coeff: Fr =
                         lagrange_basis_polynomial_coeffs[i] * inv[x - i] * nom_coeff;
-                    result = result + self.0[i].clone() * &whole_coeff;
+                    result = result + scalar_mul(i, &whole_coeff);
                 }
                 result
             })
@@ -186,7 +216,7 @@ impl Polynomial<Fr> {
 
     pub fn shares(&self, num_shares: usize) -> Vec<(usize, Fr)> {
         let n_known = self.0.len();
-        let suffix_points = self.eval_at_suffix_points(num_shares - n_known);
+        let suffix_points = self.eval_at_suffix_points::<false>(num_shares - n_known);
         (0..num_shares)
             .map(|i| {
                 if i < n_known {
@@ -219,7 +249,9 @@ impl ShareCommits {
     pub fn verify(&self, polynomial_commits: &PolynomialCommits) -> Result<(), String> {
         let n_known = polynomial_commits.0.0.len();
         let n_unknown = self.0.len() - n_known;
-        let unknown_points = polynomial_commits.0.eval_at_suffix_points(n_unknown);
+        let unknown_points = polynomial_commits
+            .0
+            .eval_at_suffix_points::<true>(n_unknown);
         for (i, share_commit) in self.0.iter().enumerate() {
             let recomputed_share_commit = if i < n_known {
                 polynomial_commits.0.0[i]
@@ -411,7 +443,7 @@ mod tests {
             let seed_rng = ChaCha20Rng::seed_from_u64(42);
             let polynomial = Polynomial::rand(seed_rng, n_revealed - 1);
             let points = polynomial.shares(n_total);
-            let answer = polynomial.eval_at_suffix_points(n_hidden);
+            let answer = polynomial.eval_at_suffix_points::<false>(n_hidden);
             for (x, y) in (n_revealed..n_total).into_iter().zip(answer.into_iter()) {
                 assert_eq!(points[x].1, y);
                 assert_eq!(polynomial.eval_at(x), y);
