@@ -1,4 +1,5 @@
 pub mod adaptor_sigs;
+pub mod utils;
 pub mod vsss;
 
 #[cfg(test)]

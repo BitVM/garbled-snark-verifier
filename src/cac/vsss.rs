@@ -1,5 +1,4 @@
-use std::ops::{Add, Mul};
-
+use super::utils::neg_pos_sum_of_powers_of_two;
 use ark_ec::{PrimeGroup, scalar_mul::BatchMulPreprocessing};
 use ark_ff::BigInteger;
 use ark_ff::PrimeField;
@@ -7,6 +6,7 @@ use ark_ff::{Field, One, UniformRand, Zero};
 use ark_secp256k1::{Fr, Projective};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use std::ops::{Add, Mul};
 
 pub struct Secp256k1 {
     pub generator: BatchMulPreprocessing<Projective>,
@@ -103,7 +103,8 @@ pub struct Polynomial<T>(Vec<T>);
 
 impl<T> Polynomial<T>
 where
-    for<'a> T: Add<T, Output = T> + Mul<&'a Fr, Output = T> + Clone + Zero,
+    for<'a> T:
+        Add<T, Output = T> + Mul<&'a Fr, Output = T> + std::ops::Sub<Output = T> + Clone + Zero,
 {
     #[allow(dead_code)]
     // naive lagrange interpolation, used for testing
@@ -164,7 +165,7 @@ where
             for i in 0..n_known {
                 let mut table = vec![];
                 table.push(self.0[i].clone());
-                for j in 1..Fr::MODULUS_BIT_SIZE as usize {
+                for j in 1..(Fr::MODULUS_BIT_SIZE + 1) as usize {
                     table.push(table[j - 1].clone() + table[j - 1].clone());
                 }
                 precalculated_tables.push(table);
@@ -180,11 +181,16 @@ where
             }
             let mut result = T::zero();
             let current_table = &precalculated_tables[known_i];
-            for (bit_i, bit_value) in scalar.into_bigint().to_bits_le().into_iter().enumerate() {
-                if !bit_value {
-                    continue;
+            for (bit_i, bit_value) in
+                neg_pos_sum_of_powers_of_two(scalar.into_bigint().to_bits_le())
+                    .into_iter()
+                    .enumerate()
+            {
+                if bit_value == 1 {
+                    result = result + current_table[bit_i].clone();
+                } else if bit_value == -1 {
+                    result = result - current_table[bit_i].clone();
                 }
-                result = result + current_table[bit_i].clone();
             }
             result
         };
