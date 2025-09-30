@@ -333,4 +333,8 @@ where
     pub fn stage(&self) -> &GarblerStage {
         &self.stage
     }
+
+    pub fn output_wire(&self, index: usize) -> Option<&GarbledWire> {
+        self.instances.get(index).map(|gw| &gw.output_wire_values)
+    }
 }

@@ -99,6 +99,10 @@ impl Garbler {
             })
             .collect()
     }
+
+    pub fn output_wire(&self, index: usize) -> Option<&GarbledWire> {
+        self.inner.output_wire(index)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
