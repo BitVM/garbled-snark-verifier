@@ -58,16 +58,27 @@ impl<I: CircuitInput>
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq)]
 #[serde(bound = "H: LabelCommitHasher")]
 pub struct GarbledInstanceCommit<H: LabelCommitHasher = DefaultLabelCommitHasher> {
     ciphertext_commit: CiphertextCommit,
-    input_labels_commit: Vec<LabelCommit<H>>,
+    input_labels_commit: Vec<LabelCommit<H::Output>>,
     // Separate commits for output labels: one for label1 and one for label0
     output_label1_commit: H::Output,
     output_label0_commit: H::Output,
     true_constant_commit: H::Output,
     false_constant_commit: H::Output,
+}
+
+impl<H: LabelCommitHasher> PartialEq for GarbledInstanceCommit<H> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ciphertext_commit == other.ciphertext_commit
+            && self.input_labels_commit == other.input_labels_commit
+            && self.output_label1_commit == other.output_label1_commit
+            && self.output_label0_commit == other.output_label0_commit
+            && self.true_constant_commit == other.true_constant_commit
+            && self.false_constant_commit == other.false_constant_commit
+    }
 }
 
 impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
@@ -87,10 +98,12 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
         }
     }
 
-    pub fn commit_garbled_wires(inputs: &[GarbledWire]) -> Vec<LabelCommit<H>> {
+    pub fn commit_garbled_wires(inputs: &[GarbledWire]) -> Vec<LabelCommit<H::Output>> {
         inputs
             .iter()
-            .map(|GarbledWire { label0, label1 }| LabelCommit::<H>::new(*label0, *label1))
+            .map(|GarbledWire { label0, label1 }| {
+                LabelCommit::<H::Output>::new::<H>(*label0, *label1)
+            })
             .collect()
     }
 
@@ -122,7 +135,7 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
         self.ciphertext_commit
     }
 
-    pub fn input_labels_commit(&self) -> &[LabelCommit<H>] {
+    pub fn input_labels_commit(&self) -> &[LabelCommit<H::Output>] {
         &self.input_labels_commit
     }
 }

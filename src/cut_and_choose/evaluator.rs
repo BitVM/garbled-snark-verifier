@@ -216,8 +216,8 @@ pub enum ConsistencyError<H: LabelCommitHasher = DefaultLabelCommitHasher> {
     InputLabelsMismatch {
         index: usize,
         label_index: usize,
-        expected: LabelCommit<H>,
-        actual: LabelCommit<H>,
+        expected: LabelCommit<H::Output>,
+        actual: LabelCommit<H::Output>,
     },
     InputLabelsCountMismatch {
         index: usize,
@@ -427,7 +427,7 @@ where
                         let actual_hash = commit_label_with::<H>(evaluated_wire.active_label);
 
                         if actual_hash != expected_hash {
-                            let mut actual_commit = *expected_commit;
+                            let mut actual_commit = expected_commit.clone();
 
                             if evaluated_wire.value {
                                 actual_commit.commit_label1 = actual_hash;
@@ -438,7 +438,7 @@ where
                             return Err(ConsistencyError::InputLabelsMismatch {
                                 index,
                                 label_index,
-                                expected: *expected_commit,
+                                expected: expected_commit.clone(),
                                 actual: actual_commit,
                             });
                         }

@@ -22,9 +22,7 @@ pub type Seed = u64;
 
 pub type CiphertextCommit = [u8; 16];
 
-pub trait LabelCommitHasher:
-    Copy + Send + Sync + fmt::Debug + PartialEq + Eq + Serialize + for<'de> Deserialize<'de>
-{
+pub trait LabelCommitHasher: fmt::Debug {
     type Output: Copy
         + fmt::Debug
         + Eq
@@ -52,22 +50,21 @@ impl LabelCommitHasher for AesLabelCommitHasher {
 pub type DefaultLabelCommitHasher = AesLabelCommitHasher;
 pub type Commit = <DefaultLabelCommitHasher as LabelCommitHasher>::Output;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound = "H: LabelCommitHasher")]
-pub struct LabelCommit<H: LabelCommitHasher = DefaultLabelCommitHasher> {
-    pub commit_label0: H::Output,
-    pub commit_label1: H::Output,
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct LabelCommit<H: Clone + Copy> {
+    pub commit_label0: H,
+    pub commit_label1: H,
 }
 
-impl<H: LabelCommitHasher> LabelCommit<H> {
-    pub fn new(label0: S, label1: S) -> Self {
+impl<H: Clone + Copy> LabelCommit<H> {
+    pub fn new<Hasher: LabelCommitHasher<Output = H>>(label0: S, label1: S) -> Self {
         Self {
-            commit_label0: commit_label_with::<H>(label0),
-            commit_label1: commit_label_with::<H>(label1),
+            commit_label0: commit_label_with::<Hasher>(label0),
+            commit_label1: commit_label_with::<Hasher>(label1),
         }
     }
 
-    pub fn commit_for_value(&self, bit: bool) -> H::Output {
+    pub fn commit_for_value(&self, bit: bool) -> H {
         if bit {
             self.commit_label1
         } else {
@@ -76,7 +73,7 @@ impl<H: LabelCommitHasher> LabelCommit<H> {
     }
 }
 
-impl<H: LabelCommitHasher> fmt::Display for LabelCommit<H> {
+impl<H: Clone + Copy + AsRef<[u8]>> fmt::Display for LabelCommit<H> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "LabelCommit {{ label0: 0x")?;
         write_commit_hex(f, self.commit_label0.as_ref())?;
