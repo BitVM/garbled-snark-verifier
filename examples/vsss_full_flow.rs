@@ -14,7 +14,7 @@ const TOTAL_SHARES: usize = 181;
 const DEGREE: usize = TOTAL_SHARES - 7;
 
 fn main() {
-    let num_polynomials = 1273;
+    let num_polynomials = 1273 * 2 * 32;
 
     (0..num_polynomials)
         .into_par_iter()
