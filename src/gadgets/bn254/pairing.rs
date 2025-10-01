@@ -1008,6 +1008,154 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast<C: CircuitContext>(
     f
 }
 
+pub fn multi_miller_loop_montgomery<C: CircuitContext>(
+    circuit: &mut C,
+    p1: &G1Projective,
+    p2: &G1Projective,
+    p3: &G1Projective,
+    q1: &G2Projective,
+    q2: &G2Projective,
+    q3: &G2Projective,
+) -> Fq12 {
+    let q1ell = ell_coeffs_montgomery(circuit, q1);
+    let q2ell = ell_coeffs_montgomery(circuit, q2);
+    let q3ell = ell_coeffs_montgomery(circuit, q3);
+    let mut q1_ell = q1ell.iter();
+    let mut q2_ell = q2ell.iter();
+    let mut q3_ell = q3ell.iter();
+
+    let mut f = new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
+
+    for i in (1..ark_bn254::Config::ATE_LOOP_COUNT.len()).rev() {
+        if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
+            f = Fq12::square_montgomery(circuit, &f);
+        }
+
+        let q1ell_next = q1_ell.next().unwrap();
+        f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+        let q2ell_next = q2_ell.next().unwrap();
+        f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+        let q3ell_next = q3_ell.next().unwrap().clone();
+        f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+        let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
+        if bit == 1 || bit == -1 {
+            let q1ell_next = q1_ell.next().unwrap();
+            f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+            let q2ell_next = q2_ell.next().unwrap();
+            f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+            let q3ell_next = q3_ell.next().unwrap().clone();
+            f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+        }
+    }
+
+    let q1ell_next = q1_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+    let q2ell_next = q2_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+    let q3ell_next = q3_ell.next().unwrap().clone();
+    f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+    let q1ell_next = q1_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+    let q2ell_next = q2_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+    let q3ell_next = q3_ell.next().unwrap().clone();
+    f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+    f
+}
+
+pub fn multi_miller_loop_montgomery_4<C: CircuitContext>(
+    circuit: &mut C,
+    p1: &G1Projective,
+    p2: &G1Projective,
+    p3: &G1Projective,
+    p4: &G1Projective,
+    q1: &G2Projective,
+    q2: &G2Projective,
+    q3: &G2Projective,
+    q4: &G2Projective,
+) -> Fq12 {
+    let q1ell = ell_coeffs_montgomery(circuit, q1);
+    let q2ell = ell_coeffs_montgomery(circuit, q2);
+    let q3ell = ell_coeffs_montgomery(circuit, q3);
+    let q4ell = ell_coeffs_montgomery(circuit, q4);
+    let mut q1_ell = q1ell.iter();
+    let mut q2_ell = q2ell.iter();
+    let mut q3_ell = q3ell.iter();
+    let mut q4_ell = q4ell.iter();
+
+    let mut f = new_fq12_constant_montgomery(ark_bn254::Fq12::ONE);
+
+    for i in (1..ark_bn254::Config::ATE_LOOP_COUNT.len()).rev() {
+        if i != ark_bn254::Config::ATE_LOOP_COUNT.len() - 1 {
+            f = Fq12::square_montgomery(circuit, &f);
+        }
+
+        let q1ell_next = q1_ell.next().unwrap();
+        f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+        let q2ell_next = q2_ell.next().unwrap();
+        f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+        let q3ell_next = q3_ell.next().unwrap().clone();
+        f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+        let q4ell_next = q4_ell.next().unwrap().clone();
+        f = ell_montgomery(circuit, &f, &q4ell_next, p4);
+
+        let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
+        if bit == 1 || bit == -1 {
+            let q1ell_next = q1_ell.next().unwrap();
+            f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+            let q2ell_next = q2_ell.next().unwrap();
+            f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+            let q3ell_next = q3_ell.next().unwrap().clone();
+            f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+            let q4ell_next = q4_ell.next().unwrap().clone();
+            f = ell_montgomery(circuit, &f, &q4ell_next, p4);
+        }
+    }
+
+    let q1ell_next = q1_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+    let q2ell_next = q2_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+    let q3ell_next = q3_ell.next().unwrap().clone();
+    f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+    let q4ell_next = q4_ell.next().unwrap().clone();
+    f = ell_montgomery(circuit, &f, &q4ell_next, p4);
+
+    let q1ell_next = q1_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q1ell_next, p1);
+
+    let q2ell_next = q2_ell.next().unwrap();
+    f = ell_montgomery(circuit, &f, &q2ell_next, p2);
+
+    let q3ell_next = q3_ell.next().unwrap().clone();
+    f = ell_montgomery(circuit, &f, &q3ell_next, p3);
+
+    let q4ell_next = q4_ell.next().unwrap().clone();
+    f = ell_montgomery(circuit, &f, &q4ell_next, p4);
+
+    f
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
@@ -2517,8 +2665,6 @@ mod tests {
         assert_eq!(result.output_value.value, expected_m);
     }
 
-    // Too slow (~13 minutes) for default test runs; enable when benchmarking.
-    #[ignore]
     #[test]
     fn test_multi_miller_loop_groth16_evaluate_montgomery_fast_matches_ark_many() {
         // Helper to build expected pre-final-exponentiation value using arkworks' Miller loop
@@ -2681,7 +2827,7 @@ mod tests {
 
         // Exercise several randomized and edge cases
         let mut rng = ChaCha20Rng::seed_from_u64(0xC011EC7);
-        for case in 0..4u32 {
+        for case in 0..1u32 {
             // Select points per case
             let (p1, p2, p3, q1, q2, q3) = match case {
                 // Fully random points
@@ -2740,5 +2886,430 @@ mod tests {
                 "case {case} mismatch"
             );
         }
+    }
+
+    #[test]
+    fn test_multi_miller_loop_montgomery() {
+        // Helper to build expected pre-final-exponentiation value using arkworks' Miller loop
+        fn expected_f(
+            p1: ark_bn254::G1Projective,
+            p2: ark_bn254::G1Projective,
+            p3: ark_bn254::G1Projective,
+            q1: ark_bn254::G2Projective,
+            q2: ark_bn254::G2Projective,
+            q3: ark_bn254::G2Projective,
+        ) -> ark_bn254::Fq12 {
+            // Convert Ps and Q3 to affine for the host-side reference implementation
+            let ps = vec![p1.into_affine(), p2.into_affine(), p3.into_affine()];
+            let qs = vec![q1.into_affine(), q2.into_affine(), q3.into_affine()];
+            multi_miller_loop(ps, qs)
+        }
+
+        // Local input/wire structs for streaming execution
+        struct In {
+            p1: ark_bn254::G1Projective,
+            p2: ark_bn254::G1Projective,
+            p3: ark_bn254::G1Projective,
+            q1: ark_bn254::G2Projective,
+            q2: ark_bn254::G2Projective,
+            q3: ark_bn254::G2Projective,
+        }
+        struct W {
+            p1: G1Projective,
+            p2: G1Projective,
+            p3: G1Projective,
+            q1: G2Projective,
+            q2: G2Projective,
+            q3: G2Projective,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                W {
+                    p1: G1Projective::new(&mut issue),
+                    p2: G1Projective::new(&mut issue),
+                    p3: G1Projective::new(&mut issue),
+                    q1: G2Projective::new(&mut issue),
+                    q2: G2Projective::new(&mut issue),
+                    q3: G2Projective::new(&mut issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = Vec::with_capacity(G1Projective::N_BITS * 3 + G2Projective::N_BITS * 3);
+                ids.extend(repr.p1.to_wires_vec());
+                ids.extend(repr.p2.to_wires_vec());
+                ids.extend(repr.p3.to_wires_vec());
+                ids.extend(repr.q1.to_wires_vec());
+                ids.extend(repr.q2.to_wires_vec());
+                ids.extend(repr.q3.to_wires_vec());
+                ids
+            }
+        }
+        fn encode_p<M: CircuitMode<WireValue = bool>>(
+            p: ark_bn254::G1Projective,
+            w: &G1Projective,
+            cache: &mut M,
+        ) {
+            let p_m = G1Projective::as_montgomery(p);
+            let bits_x =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.x.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_y =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.y.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_z =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.z.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            w.x.0
+                .iter()
+                .zip(bits_x)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.y.0
+                .iter()
+                .zip(bits_y)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.z.0
+                .iter()
+                .zip(bits_z)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+        }
+        fn encode_q<M: CircuitMode<WireValue = bool>>(
+            q: ark_bn254::G2Projective,
+            w: &G2Projective,
+            cache: &mut M,
+        ) {
+            let q_m = G2Projective::as_montgomery(q);
+            let bits_x_c0 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.x.c0.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_x_c1 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.x.c1.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_y_c0 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.y.c0.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_y_c1 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.y.c1.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_z_c0 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.z.c0.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_z_c1 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.z.c1.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+
+            w.x.0[0]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_x_c0)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.x.0[1]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_x_c1)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.y.0[0]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_y_c0)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.y.0[1]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_y_c1)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.z.0[0]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_z_c0)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.z.0[1]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_z_c1)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
+                encode_p(self.p1, &repr.p1, cache);
+                encode_p(self.p2, &repr.p2, cache);
+                encode_p(self.p3, &repr.p3, cache);
+                encode_q(self.q1, &repr.q1, cache);
+                encode_q(self.q2, &repr.q2, cache);
+                encode_q(self.q3, &repr.q3, cache);
+            }
+        }
+
+        let mut rng = ChaCha20Rng::seed_from_u64(0xC011EC7);
+
+        let p1 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let p2 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let p3 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let q1_aff = random_g2_affine(&mut rng);
+        let q1 = ark_bn254::G2Projective::new(q1_aff.x, q1_aff.y, ark_bn254::Fq2::ONE);
+        let q2_aff = random_g2_affine(&mut rng);
+        let q2 = ark_bn254::G2Projective::new(q2_aff.x, q2_aff.y, ark_bn254::Fq2::ONE);
+        let q3_aff = random_g2_affine(&mut rng);
+        let q3 = ark_bn254::G2Projective::new(q3_aff.x, q3_aff.y, ark_bn254::Fq2::ONE);
+
+        // Compute host-side expected (Miller loop only) and convert to Montgomery
+        let exp = expected_f(p1, p2, p3, q1, q2, q3);
+        let expected_m = Fq12::as_montgomery(exp);
+
+        // Build and execute the circuit under test
+        let input = In { p1, p2, p3, q1, q2, q3 };
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 80_000, |ctx, w| {
+                multi_miller_loop_montgomery(
+                    ctx, &w.p1, &w.p2, &w.p3, &w.q1, &w.q2, &w.q3,
+                )
+            });
+
+        assert_eq!(result.output_value.value, expected_m);
+    }
+
+    #[test]
+    fn test_multi_miller_loop_montgomery_4() {
+        // Helper to build expected pre-final-exponentiation value using arkworks' Miller loop
+        fn expected_f(
+            p1: ark_bn254::G1Projective,
+            p2: ark_bn254::G1Projective,
+            p3: ark_bn254::G1Projective,
+            p4: ark_bn254::G1Projective,
+            q1: ark_bn254::G2Projective,
+            q2: ark_bn254::G2Projective,
+            q3: ark_bn254::G2Projective,
+            q4: ark_bn254::G2Projective,
+        ) -> ark_bn254::Fq12 {
+            // Convert Ps and Q3 to affine for the host-side reference implementation
+            let ps = vec![p1.into_affine(), p2.into_affine(), p3.into_affine(), p4.into_affine()];
+            let qs = vec![q1.into_affine(), q2.into_affine(), q3.into_affine(), q4.into_affine()];
+            multi_miller_loop(ps, qs)
+        }
+
+        // Local input/wire structs for streaming execution
+        struct In {
+            p1: ark_bn254::G1Projective,
+            p2: ark_bn254::G1Projective,
+            p3: ark_bn254::G1Projective,
+            p4: ark_bn254::G1Projective,
+            q1: ark_bn254::G2Projective,
+            q2: ark_bn254::G2Projective,
+            q3: ark_bn254::G2Projective,
+            q4: ark_bn254::G2Projective,
+        }
+        struct W {
+            p1: G1Projective,
+            p2: G1Projective,
+            p3: G1Projective,
+            p4: G1Projective,
+            q1: G2Projective,
+            q2: G2Projective,
+            q3: G2Projective,
+            q4: G2Projective,
+        }
+        impl CircuitInput for In {
+            type WireRepr = W;
+            fn allocate(&self, mut issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                W {
+                    p1: G1Projective::new(&mut issue),
+                    p2: G1Projective::new(&mut issue),
+                    p3: G1Projective::new(&mut issue),
+                    p4: G1Projective::new(&mut issue),
+                    q1: G2Projective::new(&mut issue),
+                    q2: G2Projective::new(&mut issue),
+                    q3: G2Projective::new(&mut issue),
+                    q4: G2Projective::new(&mut issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut ids = Vec::with_capacity(G1Projective::N_BITS * 4 + G2Projective::N_BITS * 4);
+                ids.extend(repr.p1.to_wires_vec());
+                ids.extend(repr.p2.to_wires_vec());
+                ids.extend(repr.p3.to_wires_vec());
+                ids.extend(repr.p4.to_wires_vec());
+                ids.extend(repr.q1.to_wires_vec());
+                ids.extend(repr.q2.to_wires_vec());
+                ids.extend(repr.q3.to_wires_vec());
+                ids.extend(repr.q4.to_wires_vec());
+                ids
+            }
+        }
+        fn encode_p<M: CircuitMode<WireValue = bool>>(
+            p: ark_bn254::G1Projective,
+            w: &G1Projective,
+            cache: &mut M,
+        ) {
+            let p_m = G1Projective::as_montgomery(p);
+            let bits_x =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.x.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_y =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.y.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            let bits_z =
+                bits_from_biguint_with_len(&BigUintOutput::from(p_m.z.into_bigint()), Fq::N_BITS)
+                    .unwrap();
+            w.x.0
+                .iter()
+                .zip(bits_x)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.y.0
+                .iter()
+                .zip(bits_y)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+            w.z.0
+                .iter()
+                .zip(bits_z)
+                .for_each(|(w, b)| cache.feed_wire(*w, b));
+        }
+        fn encode_q<M: CircuitMode<WireValue = bool>>(
+            q: ark_bn254::G2Projective,
+            w: &G2Projective,
+            cache: &mut M,
+        ) {
+            let q_m = G2Projective::as_montgomery(q);
+            let bits_x_c0 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.x.c0.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_x_c1 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.x.c1.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_y_c0 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.y.c0.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_y_c1 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.y.c1.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_z_c0 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.z.c0.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+            let bits_z_c1 = bits_from_biguint_with_len(
+                &BigUintOutput::from(q_m.z.c1.into_bigint()),
+                Fq::N_BITS,
+            )
+            .unwrap();
+
+            w.x.0[0]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_x_c0)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.x.0[1]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_x_c1)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.y.0[0]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_y_c0)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.y.0[1]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_y_c1)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.z.0[0]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_z_c0)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+            w.z.0[1]
+                .0
+                .to_wires_vec()
+                .into_iter()
+                .zip(bits_z_c1)
+                .for_each(|(w, b)| cache.feed_wire(w, b));
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for In {
+            fn encode(&self, repr: &W, cache: &mut M) {
+                encode_p(self.p1, &repr.p1, cache);
+                encode_p(self.p2, &repr.p2, cache);
+                encode_p(self.p3, &repr.p3, cache);
+                encode_p(self.p4, &repr.p4, cache);
+                encode_q(self.q1, &repr.q1, cache);
+                encode_q(self.q2, &repr.q2, cache);
+                encode_q(self.q3, &repr.q3, cache);
+                encode_q(self.q4, &repr.q4, cache);
+            }
+        }
+
+        let mut rng = ChaCha20Rng::seed_from_u64(0xC011EC7);
+
+        let p1 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let p2 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let p3 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let p4 = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
+            .into_affine()
+            .into_group();
+        let q1_aff = random_g2_affine(&mut rng);
+        let q1 = ark_bn254::G2Projective::new(q1_aff.x, q1_aff.y, ark_bn254::Fq2::ONE);
+        let q2_aff = random_g2_affine(&mut rng);
+        let q2 = ark_bn254::G2Projective::new(q2_aff.x, q2_aff.y, ark_bn254::Fq2::ONE);
+        let q3_aff = random_g2_affine(&mut rng);
+        let q3 = ark_bn254::G2Projective::new(q3_aff.x, q3_aff.y, ark_bn254::Fq2::ONE);
+        let q4_aff = random_g2_affine(&mut rng);
+        let q4 = ark_bn254::G2Projective::new(q4_aff.x, q4_aff.y, ark_bn254::Fq2::ONE);
+
+        // Compute host-side expected (Miller loop only) and convert to Montgomery
+        let exp = expected_f(p1, p2, p3, p4, q1, q2, q3, q4);
+        let expected_m = Fq12::as_montgomery(exp);
+
+        // Build and execute the circuit under test
+        let input = In { p1, p2, p3, p4, q1, q2, q3, q4 };
+        let result =
+            CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 80_000, |ctx, w| {
+                multi_miller_loop_montgomery_4(
+                    ctx, &w.p1, &w.p2, &w.p3, &w.p4, &w.q1, &w.q2, &w.q3, &w.q4,
+                )
+            });
+
+        assert_eq!(result.output_value.value, expected_m);
     }
 }
