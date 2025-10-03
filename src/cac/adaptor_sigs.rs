@@ -154,8 +154,8 @@ mod bitvm_tests {
     use std::str::FromStr;
 
     use bitcoin::{
-        Address, Amount, Network, ScriptBuf, TapSighashType, Transaction, TxIn, TxOut, Witness,
-        XOnlyPublicKey,
+        Address, Amount, Network, ScriptBuf, TapSighash, TapSighashType, Transaction, TxIn, TxOut,
+        Witness, XOnlyPublicKey,
         absolute::LockTime,
         hashes::Hash,
         key::{Secp256k1, UntweakedPublicKey},
@@ -275,5 +275,116 @@ mod bitvm_tests {
 
         let res = bitvm::dry_run_taproot_input(&tx, 0, &prevouts[..]);
         assert!(res.success);
+    }
+
+    #[test]
+    fn test_tx_multiple_sigs() {
+        let evaluator_privkey = SigningKey::random(&mut rand::thread_rng());
+        let evaluator_pubkey = evaluator_privkey.verifying_key().as_affine().x().to_vec();
+        let mut rng = rand::thread_rng();
+
+        let num_sigs = 3;
+
+        // assumes num_sigs >= 2
+        let script = script! {
+            { evaluator_pubkey.clone() }
+
+            for _ in 0..num_sigs - 1 {
+                OP_TUCK
+                OP_CHECKSIGVERIFY
+                OP_CODESEPARATOR
+            }
+
+            OP_CHECKSIG
+        }
+        .compile();
+
+        let spend_info = spend_info_from_script(script.clone());
+        let address = address_from_spend_info(&spend_info, Network::Testnet);
+        let mut tx = Transaction {
+            version: Version::TWO,
+            lock_time: LockTime::ZERO,
+            input: vec![TxIn::default()],
+            output: vec![TxOut {
+                value: Amount::from_sat(2000),
+                script_pubkey: address.script_pubkey(),
+            }],
+        };
+
+        // Provide a concrete prevout matching the spend script to compute taproot sighash
+        let prevouts = vec![TxOut {
+            value: Amount::from_sat(2000),
+            script_pubkey: address.script_pubkey(),
+        }];
+        let mut sighash_cache = SighashCache::new(&tx);
+
+        let sigs = (0..num_sigs)
+            .map(|i| {
+                let evaluator_secret_fr =
+                    fr_from_be_bytes_mod_order(evaluator_privkey.to_bytes().as_slice());
+
+                let garbler_secret_fr = Fr::rand(&mut rng);
+                let garbler_commit = Projective::generator() * garbler_secret_fr;
+
+                let mut enc = TapSighash::engine();
+                sighash_cache
+                    .taproot_encode_signing_data_to(
+                        &mut enc,
+                        0,
+                        &Prevouts::All(&prevouts),
+                        None,
+                        Some((
+                            ScriptPath::with_defaults(script.as_script()).into(),
+                            if i == 0 { 0xFFFFFFFF } else { 3 * i + 32 },
+                        )),
+                        TapSighashType::Default,
+                    )
+                    .unwrap();
+                let sighash = TapSighash::from_engine(enc).to_byte_array().to_vec();
+
+                let adaptor = AdaptorInfo::new(
+                    &evaluator_secret_fr,
+                    garbler_commit,
+                    sighash.as_slice(),
+                    &mut rng,
+                );
+
+                let garbler_sig_bytes = adaptor.garbler_signature(&garbler_secret_fr);
+                // Verify using k256 in test only
+                let verifying_key: VerifyingKey = *evaluator_privkey.verifying_key();
+                let ksig = KSig::try_from(garbler_sig_bytes.as_slice()).expect("valid sig");
+                verifying_key
+                    .verify_raw(sighash.as_slice(), &ksig)
+                    .expect("signature should be valid");
+
+                let secret = adaptor
+                    .extract_secret(&garbler_sig_bytes)
+                    .expect("secret should be extracted");
+                assert_eq!(secret, garbler_secret_fr);
+                garbler_sig_bytes.to_vec()
+            })
+            .collect::<Vec<_>>();
+
+        let control_block = spend_info
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .unwrap()
+            .serialize();
+
+        tx.input[0].witness = [
+            sigs.iter().cloned().rev().collect::<Vec<_>>(),
+            vec![script.to_bytes(), control_block.clone()],
+        ]
+        .concat()
+        .into();
+        assert!(bitvm::dry_run_taproot_input(&tx, 0, &prevouts[..]).success);
+
+        // Test with different order of sigs: should fail
+        tx.input[0].witness = [
+            sigs.iter().cloned().collect::<Vec<_>>(), // note: omitted .rev()
+            vec![script.to_bytes(), control_block.clone()],
+        ]
+        .concat()
+        .into();
+        assert!(!bitvm::dry_run_taproot_input(&tx, 0, &prevouts[..]).success);
     }
 }
