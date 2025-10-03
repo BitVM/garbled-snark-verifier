@@ -1,4 +1,4 @@
-use ark_ec::{CurveGroup, PrimeGroup};
+use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
 use ark_ff::{BigInteger, PrimeField, UniformRand};
 use ark_secp256k1::{Fq, Fr, Projective};
 use sha2::{Digest, Sha256};
@@ -82,7 +82,15 @@ impl AdaptorInfo {
             return Err("invalid signature length".to_owned());
         }
         let commit_sum = self.evaluator_nonce_commit + self.garbler_commit;
+
         let is_odd = is_odd(&commit_sum.into_affine().y);
+
+        let expected_encoded_commit =
+            fq_to_be32(&commit_sum.into_affine().x().expect("valid point"));
+        if garbler_sig[0..32] != expected_encoded_commit {
+            return Err("Unexpected nonce value".to_owned());
+        }
+
         let garbler_s = fr_from_be_bytes_mod_order(&garbler_sig[32..]);
         let diff = garbler_s - self.evaluator_s;
         Ok(if is_odd { -diff } else { diff })
@@ -103,6 +111,39 @@ impl AdaptorInfo {
         out[..32].copy_from_slice(&r_x);
         out[32..].copy_from_slice(&s_bytes);
         out
+    }
+}
+
+/// Represents an adaptor where a valid signature can be produced by revealing any one of the garbler secrets.
+pub struct WideAdaptorInfo(Vec<AdaptorInfo>);
+
+impl WideAdaptorInfo {
+    pub fn new<R: rand::Rng + ?Sized>(
+        evaluator_secret: &Fr,
+        garbler_commit: &[Projective],
+        message_hash: &[u8],
+        rng: &mut R,
+    ) -> Self {
+        let sigs = garbler_commit
+            .iter()
+            .map(|commit| AdaptorInfo::new(evaluator_secret, *commit, message_hash, rng))
+            .collect();
+        Self(sigs)
+    }
+    pub fn garbler_signature(&self, secret: &Fr) -> Result<SignatureBytes, String> {
+        let commit = Projective::generator() * secret;
+        Ok(self
+            .0
+            .iter()
+            .find(|x| x.garbler_commit == commit)
+            .ok_or("Secret does not correspond to any of the commits".to_owned())?
+            .garbler_signature(secret))
+    }
+    pub fn extract_secret(&self, garbler_sig: &[u8]) -> Result<Fr, String> {
+        self.0
+            .iter()
+            .find_map(|sig| sig.extract_secret(garbler_sig).ok())
+            .ok_or("No valid garbler signature found".to_owned())
     }
 }
 
@@ -146,6 +187,46 @@ mod tests {
             .extract_secret(&garbler_sig_bytes)
             .expect("secret should be extracted");
         assert_eq!(secret, garbler_secret_fr);
+    }
+
+    #[test]
+    fn test_wide_adaptor_sig() {
+        let mut rng = rand::thread_rng();
+        let evaluator_privkey = SigningKey::random(&mut rng);
+        let evaluator_secret_fr = fr_from_sk(&evaluator_privkey);
+
+        let num_sigs = 32; // expected to be 256, but keeping it low to speed up tests
+
+        let garbler_secrets = (0..num_sigs)
+            .map(|_| Fr::rand(&mut rng))
+            .collect::<Vec<_>>();
+        let garbler_commits = garbler_secrets
+            .iter()
+            .map(|secret| Projective::generator() * secret)
+            .collect::<Vec<_>>();
+
+        let sighash = Sha256::digest(b"some message").to_vec();
+        let wide_adaptor = WideAdaptorInfo::new(
+            &evaluator_secret_fr,
+            &garbler_commits,
+            sighash.as_slice(),
+            &mut rng,
+        );
+
+        for garbler_secret in garbler_secrets {
+            let garbler_sig_bytes = wide_adaptor.garbler_signature(&garbler_secret).unwrap();
+            // Verify using k256 in test only
+            let verifying_key: VerifyingKey = *evaluator_privkey.verifying_key();
+            let ksig = KSig::try_from(garbler_sig_bytes.as_slice()).expect("valid sig");
+            verifying_key
+                .verify_raw(sighash.as_slice(), &ksig)
+                .expect("signature should be valid");
+
+            let extracted_secret = wide_adaptor
+                .extract_secret(&garbler_sig_bytes)
+                .expect("secret should be extracted");
+            assert_eq!(extracted_secret, garbler_secret);
+        }
     }
 }
 
