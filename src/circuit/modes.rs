@@ -10,7 +10,10 @@ pub type Execute = crate::circuit::StreamingMode<ExecuteMode>;
 // Collapse thin wrappers; tests live in mode files.
 
 pub mod garble_mode;
-pub use garble_mode::{GarbleMode, GarbledWire};
+pub use garble_mode::{
+    GarbleMode, GarbledWire, GarbledWireLabelSource, RandomGarbledWireLabelSource,
+    SeededGarbledWireLabelSource, VecGarbledWireLabelSource, VecGarbledWireLabelSourceError,
+};
 
 // Collapse thin wrappers; tests live in mode files.
 

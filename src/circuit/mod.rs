@@ -197,7 +197,7 @@ impl<H: GateHasher, CTH: CiphertextHandler> CircuitBuilder<GarbleMode<H, CTH>> {
     {
         CircuitBuilder::run_streaming(
             inputs,
-            GarbleMode::new(live_wires_capacity, seed, handler),
+            GarbleMode::new_with_seed(live_wires_capacity, seed, handler),
             f,
         )
     }
