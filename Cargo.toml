@@ -15,6 +15,16 @@ keywords = [
 ]
 description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusable gadgets and ergonomic circuit composition."
 
+[workspace]
+members = [
+    ".",
+    "crates/circuit_component_macro",
+]
+resolver = "2"
+
+[workspace.dependencies]
+circuit_component_macro = { path = "crates/circuit_component_macro" }
+
 [features]
 default = ["tracing_max_level", "tracing_scopes"]
 tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
@@ -32,7 +42,7 @@ ark-snark = "0.5.1"
 ark-std = "0.5.0"
 bitvec = "1.0.1"
 blake3 = { version = "1.6.1", features = ["traits-preview"] }
-circuit_component_macro = { path = "circuit_component_macro" }
+circuit_component_macro = { workspace = true }
 crossbeam = "0.8"
 digest = "0.10"
 itertools = "0.14.0"

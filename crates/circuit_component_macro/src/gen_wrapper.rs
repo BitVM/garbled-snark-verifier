@@ -1,14 +1,10 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Error, Expr, Ident, ItemFn, Pat, Result, visit_mut::VisitMut};
+use syn::{Error, Ident, ItemFn, Pat, Result, visit_mut::VisitMut};
 
 use crate::parse_sig::ComponentSignature;
 
-pub fn generate_bn_wrapper(
-    sig: &ComponentSignature,
-    original_fn: &ItemFn,
-    arity_expr: &Expr,
-) -> Result<TokenStream> {
+pub fn generate_wrapper(sig: &ComponentSignature, original_fn: &ItemFn) -> Result<TokenStream> {
     let fn_name = &original_fn.sig.ident;
     let fn_vis = &original_fn.vis;
     let fn_attrs = &original_fn.attrs;
@@ -74,10 +70,10 @@ pub fn generate_bn_wrapper(
         // Check if we need to clone a reference parameter
         if param_name_to_type
             .get(&param_name)
-            .map_or(false, |ty| matches!(ty, syn::Type::Reference(_)))
+            .is_some_and(|ty| matches!(ty, syn::Type::Reference(_)))
         {
             // For slice types, convert to Vec
-            if param_name_to_type.get(&param_name).map_or(false, |ty| {
+            if param_name_to_type.get(&param_name).is_some_and(|ty| {
                 if let syn::Type::Reference(ref_ty) = ty {
                     matches!(&*ref_ty.elem, syn::Type::Slice(_))
                 } else {
@@ -99,10 +95,10 @@ pub fn generate_bn_wrapper(
                 let param_name = ident.to_string();
                 if param_name_to_type
                     .get(&param_name)
-                    .map_or(false, |ty| matches!(ty, syn::Type::Reference(_)))
+                    .is_some_and(|ty| matches!(ty, syn::Type::Reference(_)))
                 {
                     // For slice types, convert to Vec
-                    if param_name_to_type.get(&param_name).map_or(false, |ty| {
+                    if param_name_to_type.get(&param_name).is_some_and(|ty| {
                         if let syn::Type::Reference(ref_ty) = ty {
                             matches!(&*ref_ty.elem, syn::Type::Slice(_))
                         } else {
@@ -125,6 +121,15 @@ pub fn generate_bn_wrapper(
     // Determine return type based on the original function
     let return_type = &original_fn.sig.output;
 
+    // Generate arity expression based on return type (usize, not closure)
+    let arity_expr = match return_type {
+        syn::ReturnType::Default => quote! { 0usize },
+        syn::ReturnType::Type(_, ty) => {
+            // Use the WiresObject trait's arity method on a temporary instance
+            quote! { <#ty as crate::circuit::WiresArity>::ARITY }
+        }
+    };
+
     // Convert function name to string literal
     let fn_name_str = fn_name.to_string();
 
@@ -134,9 +139,6 @@ pub fn generate_bn_wrapper(
     // Use the original context parameter type from the signature
     let context_param_type = &sig.context_param.ty;
 
-    // The arity expression evaluates to a usize arity
-    let arity_value = arity_expr;
-
     // Generate key generation code based on whether there are ignored parameters
     let key_generation = if sig.ignored_params.is_empty() {
         // No ignored params: just use the component name
@@ -144,7 +146,7 @@ pub fn generate_bn_wrapper(
             crate::circuit::generate_component_key(
                 concat!(module_path!(), "::", #fn_name_str),
                 [] as [(&str, &[u8]); 0],
-                #arity_value,
+                #arity_expr,
                 crate::circuit::WiresObject::to_wires_vec(&__input_wires).len()
             )
         }
@@ -178,7 +180,7 @@ pub fn generate_bn_wrapper(
                 crate::circuit::generate_component_key(
                     concat!(module_path!(), "::", #fn_name_str),
                     __params_refs,
-                    #arity_value,
+                    #arity_expr,
                     crate::circuit::WiresObject::to_wires_vec(&__input_wires).len()
                 )
             }
@@ -205,7 +207,7 @@ pub fn generate_bn_wrapper(
         // Check if original parameter was a reference type
         if is_already_ref(&param_name) {
             // For slice parameters, convert Vec back to slice reference
-            if param_name_to_type.get(&param_name).map_or(false, |ty| {
+            if param_name_to_type.get(&param_name).is_some_and(|ty| {
                 if let syn::Type::Reference(ref_ty) = ty {
                     matches!(&*ref_ty.elem, syn::Type::Slice(_))
                 } else {
@@ -240,7 +242,7 @@ pub fn generate_bn_wrapper(
                 let param_name = ident.to_string();
                 if is_already_ref(&param_name) {
                     // For slice parameters, convert Vec back to slice reference
-                    if param_name_to_type.get(&param_name).map_or(false, |ty| {
+                    if param_name_to_type.get(&param_name).is_some_and(|ty| {
                         if let syn::Type::Reference(ref_ty) = ty {
                             matches!(&*ref_ty.elem, syn::Type::Slice(_))
                         } else {
@@ -273,11 +275,11 @@ pub fn generate_bn_wrapper(
         ) #return_type #where_clause {
             let __input_wires = #input_wires_object;
 
-            #context_param_name.with_named_child((#key_generation), __input_wires, |__comp, __inputs| {
+            #context_param_name.with_named_child((#key_generation), __input_wires, |mut __comp, __inputs| {
                 // Unpack inputs into individual variables
                 #unpack_inputs
                 #transformed_body
-            }, #arity_value)
+            }, #arity_expr)
         }
     };
 
