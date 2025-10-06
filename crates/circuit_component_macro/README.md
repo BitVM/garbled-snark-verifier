@@ -2,6 +2,12 @@
 
 Attribute macros for ergonomic circuit composition in the garbled SNARK verifier.
 
+## Current Status (branch `62-feat-tiny-zk`)
+
+- `soldering-zk-circuit` now exposes a full Groth16 circuit: Poseidon is evaluated inside the constraints and each commitment is checked against the private labels, per `SoW.md`.
+- All commitments are wired as public inputs; proving/verification expect an external RNG, and the tests generate fully random fixtures.
+- Next steps: add the XOR-delta checks and pin down the final artifact format (keys/proof) before integrating the rest of the flow.
+
 ## Overview
 
 The `#[component]` and `#[bn_component]` macros transform regular Rust functions into reusable circuit gadgets. They take care of wiring inputs, deriving stable component keys, and creating nested component frames, so you can write straight-line Rust over a `CircuitContext`.
