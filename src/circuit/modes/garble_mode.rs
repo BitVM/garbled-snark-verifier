@@ -1,7 +1,7 @@
-use std::{array, marker::PhantomData, num::NonZero};
+use std::{fmt, marker::PhantomData, num::NonZero};
 
 use rand::SeedableRng;
-use rand_chacha::ChaChaRng;
+use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -49,6 +49,45 @@ impl GarbledWire {
     }
 }
 
+pub trait GarbledWireLabelSource {
+    type Error;
+
+    fn next_label0(&mut self) -> Result<S, Self::Error>;
+}
+
+pub type RandomGarbledWireLabelSource = ChaCha20Rng;
+
+impl GarbledWireLabelSource for RandomGarbledWireLabelSource {
+    type Error = ();
+
+    fn next_label0(&mut self) -> Result<S, Self::Error> {
+        Ok(S::random(self))
+    }
+}
+
+#[derive(Debug)]
+pub struct VecGarbledWireLabelSource {
+    labels: Vec<S>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VecGarbledWireLabelSourceError;
+
+impl VecGarbledWireLabelSource {
+    pub fn new(mut labels: Vec<S>) -> Self {
+        labels.reverse();
+        Self { labels }
+    }
+}
+
+impl GarbledWireLabelSource for VecGarbledWireLabelSource {
+    type Error = VecGarbledWireLabelSourceError;
+
+    fn next_label0(&mut self) -> Result<S, Self::Error> {
+        self.labels.pop().ok_or(VecGarbledWireLabelSourceError)
+    }
+}
+
 impl Default for GarbledWire {
     fn default() -> Self {
         GarbledWire {
@@ -61,9 +100,15 @@ impl Default for GarbledWire {
 /// Output type for garbled tables - only actual ciphertexts
 pub type GarbledTableEntry = S;
 
+pub type SeededGarbledWireLabelSource = RandomGarbledWireLabelSource;
+
 /// Garble mode - generates garbled circuits with streaming output
-pub struct GarbleMode<H: hashers::GateHasher, CTH: CiphertextHandler> {
-    rng: ChaChaRng,
+pub struct GarbleMode<
+    H: hashers::GateHasher,
+    CTH: CiphertextHandler,
+    SRC: GarbledWireLabelSource = SeededGarbledWireLabelSource,
+> {
+    wire_source: SRC,
     delta: Delta,
     gate_index: usize,
     // Handler for streaming ciphertexts (non-free gates only)
@@ -76,24 +121,28 @@ pub struct GarbleMode<H: hashers::GateHasher, CTH: CiphertextHandler> {
     _hasher: std::marker::PhantomData<H>,
 }
 
-impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
-    pub fn new(capacity: usize, seed: u64, output_handler: CTH) -> Self {
-        let mut rng = ChaChaRng::seed_from_u64(seed);
-        let delta = Delta::generate(&mut rng);
+impl<H: hashers::GateHasher, CTH: CiphertextHandler, SRC: GarbledWireLabelSource>
+    GarbleMode<H, CTH, SRC>
+{
+    pub fn new_with_source(
+        capacity: usize,
+        delta: Delta,
+        mut wire_source: SRC,
+        output_handler: CTH,
+    ) -> Result<Self, SRC::Error> {
+        let false_label0 = wire_source.next_label0()?;
+        let true_label0 = wire_source.next_label0()?;
 
-        // Generate constant wires like the original Garble does
-        let [false_wire, true_wire] = array::from_fn(|_| GarbledWire::random(&mut rng, &delta));
-
-        Self {
+        Ok(Self {
             storage: Storage::new(capacity),
-            rng,
+            wire_source,
             delta,
             gate_index: 0,
             output_handler,
-            false_wire,
-            true_wire,
+            false_wire: GarbledWire::new(false_label0, false_label0 ^ &delta),
+            true_wire: GarbledWire::new(true_label0, true_label0 ^ &delta),
             _hasher: PhantomData,
-        }
+        })
     }
 
     pub fn preallocate_input<I: EncodeInput<GarbleMode<H, ()>>>(
@@ -101,7 +150,7 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
         i: &I,
     ) -> Vec<GarbledWire> {
         // Use a no-op handler during preallocation
-        let mut self_ = GarbleMode::<H, ()>::new(3200, seed, ());
+        let mut self_ = GarbleMode::<H, ()>::new_with_seed(3200, seed, ());
 
         let allocated = i.allocate(|| self_.allocate_wire(1));
         i.encode(&allocated, &mut self_);
@@ -113,8 +162,17 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
             .collect()
     }
 
-    pub fn issue_garbled_wire(&mut self) -> GarbledWire {
-        GarbledWire::random(&mut self.rng, &self.delta)
+    pub fn try_issue_garbled_wire(&mut self) -> Result<GarbledWire, SRC::Error> {
+        let label0 = self.wire_source.next_label0()?;
+        Ok(GarbledWire::new(label0, label0 ^ &self.delta))
+    }
+
+    pub fn issue_garbled_wire(&mut self) -> GarbledWire
+    where
+        SRC::Error: fmt::Debug,
+    {
+        self.try_issue_garbled_wire()
+            .unwrap_or_else(|err| panic!("garbled wire label source failed: {:?}", err))
     }
 
     fn next_gate_index(&mut self) -> usize {
@@ -131,8 +189,22 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
     }
 }
 
-impl<H: GateHasher, CTH: CiphertextHandler> std::fmt::Debug for GarbleMode<H, CTH> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<H: hashers::GateHasher, CTH: CiphertextHandler>
+    GarbleMode<H, CTH, SeededGarbledWireLabelSource>
+{
+    pub fn new_with_seed(capacity: usize, seed: u64, output_handler: CTH) -> Self {
+        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let delta = Delta::generate(&mut rng);
+
+        Self::new_with_source(capacity, delta, rng, output_handler)
+            .expect("seeded garbled wire label source is infallible")
+    }
+}
+
+impl<H: GateHasher, CTH: CiphertextHandler, SRC: GarbledWireLabelSource> fmt::Debug
+    for GarbleMode<H, CTH, SRC>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GarbleMode")
             .field("gate_index", &self.gate_index)
             .field("has_delta", &true)
@@ -140,7 +212,9 @@ impl<H: GateHasher, CTH: CiphertextHandler> std::fmt::Debug for GarbleMode<H, CT
     }
 }
 
-impl<H: GateHasher, CTH: CiphertextHandler> CircuitMode for GarbleMode<H, CTH> {
+impl<H: GateHasher, CTH: CiphertextHandler, SRC: GarbledWireLabelSource> CircuitMode
+    for GarbleMode<H, CTH, SRC>
+{
     type WireValue = GarbledWire;
     type CiphertextAcc = CTH::Result;
 
