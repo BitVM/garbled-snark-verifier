@@ -11,8 +11,10 @@
 //! ```
 
 use clap::Parser;
-use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
+use core::ops::BitXor;
+use sha2::{Digest, Sha256};
 use soldering_types as types;
+use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const FIBONACCI_ELF: &[u8] = include_elf!("fibonacci-program");
@@ -29,6 +31,9 @@ struct Args {
 
     #[arg(long, default_value = "false")]
     dummy: bool,
+
+    #[arg(long, default_value = "false")]
+    failed: bool,
 }
 
 fn main() {
@@ -49,7 +54,7 @@ fn main() {
 
     // Setup the inputs (encode shared Input type).
     let mut stdin = SP1Stdin::new();
-    let input = make_dummy_input();
+    let input = make_dummy_input(args.failed);
     stdin.write(&input);
 
     if args.execute {
@@ -75,37 +80,88 @@ fn main() {
     }
 }
 
-fn make_dummy_input() -> types::Input {
+fn make_dummy_input(failed: bool) -> types::Input {
     use types::*;
 
-    let zero_label: Label = [0u8; 16];
-    let zero_commit: Commit = [0u8; 32];
-    let zero_sha: ShaDigest = [0u8; 32];
+    // Create some test wire labels with different values for testing
+    let wires_for_instance: [Wire; INPUT_WIRE_COUNT] = std::array::from_fn(|i| Wire {
+        label0: [i as u8; 16],       // Different label0 for each wire
+        label1: [(i + 1) as u8; 16], // Different label1 for each wire
+    });
 
-    let wire_zero = Wire { label0: zero_label, label1: zero_label };
-    let wires_for_instance: [Wire; INPUT_WIRE_COUNT] = std::array::from_fn(|_| wire_zero.clone());
     let instances: [InstanceWires; INSTANCE_COUNT] = std::array::from_fn(|_| InstanceWires {
         labels: Box::new(wires_for_instance.clone()),
     });
 
-    let selection: [bool; INSTANCE_COUNT] = [false; INSTANCE_COUNT];
-    let commitments: [Commit; INSTANCE_COUNT] = std::array::from_fn(|_| zero_commit);
-    let sha0: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
-    let sha1: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
-    let zero_wire_labels = WireLabels(Box::new(std::array::from_fn(|_| zero_label)));
-    let deltas0: [WireLabels; INSTANCE_COUNT] = std::array::from_fn(|_| zero_wire_labels.clone());
-    let deltas1: [WireLabels; INSTANCE_COUNT] = std::array::from_fn(|_| zero_wire_labels.clone());
+    let aggregate_instance_commit = |instance: &InstanceWires| -> [u8; 32] {
+        let mut hasher = Sha256::new();
+        for wire in instance.labels.iter() {
+            hasher.update(wire.label0);
+            hasher.update(wire.label1);
+        }
+        hasher.finalize().into()
+    };
+
+    // Create SHA256 commitments for the core instance (first instance)
+    let mut sha256_commit: [[ShaDigest; 2]; INPUT_WIRE_COUNT] = std::array::from_fn(|i| {
+        let wire = &wires_for_instance[i];
+        // Create correct SHA256 commitments
+        let label0_commit: [u8; 32] = Sha256::digest(wire.label0).into();
+        let label1_commit: [u8; 32] = Sha256::digest(wire.label1).into();
+        [label0_commit, label1_commit]
+    });
+
+    // If failed flag is set, corrupt the last commitment
+    if failed {
+        let last_idx = INPUT_WIRE_COUNT - 1;
+        sha256_commit[last_idx][1] = [0xFF; 32]; // Corrupt the label1 of the last wire
+        println!("Corrupted last commitment (wire {} label 1)", last_idx);
+    }
+
+    // Create commitments array with Core for first instance, Additional for rest
+    let commitments: [InstanceCommitment; INSTANCE_COUNT] = std::array::from_fn(|instance_index| {
+        if instance_index == 0 {
+            InstanceCommitment::Core {
+                sha256_commit: Box::new(sha256_commit.clone()),
+            }
+        } else {
+            let aggregate_commit = aggregate_instance_commit(&instances[instance_index]);
+            InstanceCommitment::Additional {
+                poseidon_commit: aggregate_commit,
+            }
+        }
+    });
+
+    let make_delta_labels = |label_selector: fn(&Wire) -> &Label| -> [WireLabels; INSTANCE_COUNT] {
+        std::array::from_fn(|instance_index| {
+            let delta_labels: [Label; INPUT_WIRE_COUNT] = std::array::from_fn(|wire_index| {
+                let base_wire = &instances[0].labels[wire_index];
+                let candidate_wire = &instances[instance_index].labels[wire_index];
+                let base_label = label_selector(base_wire);
+                let candidate_label = label_selector(candidate_wire);
+                std::array::from_fn(|byte_index| {
+                    base_label[byte_index].bitxor(candidate_label[byte_index])
+                })
+            });
+            WireLabels(Box::new(delta_labels))
+        })
+    };
+
+    let deltas0 = make_delta_labels(|wire| &wire.label0);
+    let deltas1 = make_delta_labels(|wire| &wire.label1);
 
     let public_param = PublicParams {
-        selection: Box::new(selection),
         commitments: Box::new(commitments),
-        sha0: Box::new(sha0),
-        sha1: Box::new(sha1),
         deltas0: Box::new(deltas0),
         deltas1: Box::new(deltas1),
     };
 
-    let private_param = PrivateParams { labels: Box::new(instances) };
+    let private_param = PrivateParams {
+        input_labels: Box::new(instances),
+    };
 
-    Input { public_param, private_param }
+    Input {
+        public_param,
+        private_param,
+    }
 }

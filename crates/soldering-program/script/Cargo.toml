@@ -9,10 +9,6 @@ name = "fibonacci"
 path = "src/bin/main.rs"
 
 [[bin]]
-name = "evm"
-path = "src/bin/evm.rs"
-
-[[bin]]
 name = "vkey"
 path = "src/bin/vkey.rs"
 
@@ -24,6 +20,7 @@ clap = { version = "4.0", features = ["derive", "env"] }
 tracing = "0.1.40"
 hex = "0.4.3"
 dotenv = "0.15.0"
+sha2 = "0.10"
 soldering-types = { path = "../types" }
 
 [build-dependencies]

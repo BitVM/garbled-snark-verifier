@@ -1,11 +1,13 @@
-use serde::*;
-use serde::ser::SerializeSeq;
+use serde::{ser::SerializeSeq, *};
 
 // Serde helpers for Box<[T; N]> arrays of any size.
 mod boxed_array {
     use super::*;
 
-    pub fn serialize<S, T, const N: usize>(arr: &Box<[T; N]>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, T, const N: usize>(
+        arr: &Box<[T; N]>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
         T: Serialize,
@@ -64,7 +66,7 @@ pub struct InstanceWires {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PrivateParams {
-    pub labels: Box<[InstanceWires; INSTANCE_COUNT]>,
+    pub input_labels: Box<[InstanceWires; INSTANCE_COUNT]>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -74,13 +76,19 @@ pub struct Input {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum InstanceCommitment {
+    /// For the first instance, we store sha256 on each input wire
+    Core {
+        #[serde(with = "boxed_array")]
+        sha256_commit: Box<[[ShaDigest; 2]; INPUT_WIRE_COUNT]>,
+    },
+    /// For all instances except the first we store poseidon on aggregate commit over labels
+    Additional { poseidon_commit: Commit },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PublicParams {
-    pub selection: Box<[bool; INSTANCE_COUNT]>,
-    pub commitments: Box<[Commit; INSTANCE_COUNT]>,
-    #[serde(with = "boxed_array")]
-    pub sha0: Box<[ShaDigest; INPUT_WIRE_COUNT]>,
-    #[serde(with = "boxed_array")]
-    pub sha1: Box<[ShaDigest; INPUT_WIRE_COUNT]>,
+    pub commitments: Box<[InstanceCommitment; INSTANCE_COUNT]>,
     #[serde(with = "boxed_array")]
     pub deltas0: Box<[WireLabels; INSTANCE_COUNT]>,
     #[serde(with = "boxed_array")]
@@ -88,9 +96,7 @@ pub struct PublicParams {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct WireLabels(
-    #[serde(with = "boxed_array")] pub Box<[Label; INPUT_WIRE_COUNT]>
-);
+pub struct WireLabels(#[serde(with = "boxed_array")] pub Box<[Label; INPUT_WIRE_COUNT]>);
 
 #[cfg(test)]
 mod tests {
@@ -102,33 +108,44 @@ mod tests {
         let zero_commit: Commit = [0u8; 32];
         let zero_sha: ShaDigest = [0u8; 32];
 
-        let wire_zero = Wire { label0: zero_label, label1: zero_label };
+        let wire_zero = Wire {
+            label0: zero_label,
+            label1: zero_label,
+        };
         let wires_for_instance: [Wire; INPUT_WIRE_COUNT] =
             std::array::from_fn(|_| wire_zero.clone());
         let instances: [InstanceWires; INSTANCE_COUNT] = std::array::from_fn(|_| InstanceWires {
             labels: Box::new(wires_for_instance.clone()),
         });
 
-        let selection: [bool; INSTANCE_COUNT] = [false; INSTANCE_COUNT];
-        let commitments: [Commit; INSTANCE_COUNT] = std::array::from_fn(|_| zero_commit);
-        let sha0: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
-        let sha1: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
+        let commitments: [InstanceCommitment; INSTANCE_COUNT] =
+            std::array::from_fn(|instance_index| {
+                if instance_index == 0 {
+                    InstanceCommitment::Core {
+                        sha256_commit: Box::new(std::array::from_fn(|_| [zero_sha; 2])),
+                    }
+                } else {
+                    InstanceCommitment::Additional {
+                        poseidon_commit: zero_commit,
+                    }
+                }
+            });
         let zero_wire_labels = WireLabels(Box::new(std::array::from_fn(|_| zero_label)));
 
         let public_param = PublicParams {
-            selection: Box::new(selection),
             commitments: Box::new(commitments),
-            sha0: Box::new(sha0),
-            sha1: Box::new(sha1),
             deltas0: Box::new(std::array::from_fn(|_| zero_wire_labels.clone())),
             deltas1: Box::new(std::array::from_fn(|_| zero_wire_labels.clone())),
         };
 
         let private_param = PrivateParams {
-            labels: Box::new(instances),
+            input_labels: Box::new(instances),
         };
 
-        let input = Input { public_param, private_param };
+        let input = Input {
+            public_param,
+            private_param,
+        };
 
         let bytes = bincode::serialize(&input).expect("serialize to bincode");
         let de: Input = bincode::deserialize(&bytes).expect("deserialize from bincode");
@@ -139,34 +156,40 @@ mod tests {
     fn serde_rejects_wrong_length_bincode() {
         // Build valid parts
         let zero_label: Label = [0u8; 16];
-        let wire_zero = Wire { label0: zero_label, label1: zero_label };
+        let wire_zero = Wire {
+            label0: zero_label,
+            label1: zero_label,
+        };
         let wires_for_instance: [Wire; INPUT_WIRE_COUNT] =
             std::array::from_fn(|_| wire_zero.clone());
         let instances: [InstanceWires; INSTANCE_COUNT] = std::array::from_fn(|_| InstanceWires {
             labels: Box::new(wires_for_instance.clone()),
         });
-        let selection: [bool; INSTANCE_COUNT] = [false; INSTANCE_COUNT];
         let zero_commit: Commit = [0u8; 32];
-        let commitments: [Commit; INSTANCE_COUNT] = std::array::from_fn(|_| zero_commit);
         let zero_sha: ShaDigest = [0u8; 32];
-        let sha1: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
         let zero_wire_labels = WireLabels(Box::new(std::array::from_fn(|_| zero_label)));
         let deltas0 = std::array::from_fn(|_| zero_wire_labels.clone());
         let deltas1 = std::array::from_fn(|_| zero_wire_labels.clone());
 
-        // Define a version with sha0 one element short to produce mismatched length on decode
+        // Define a version with sha256_commit one element short to produce mismatched length on decode
         #[derive(Serialize)]
         struct PublicParamsWrong {
-            selection: Box<[bool; INSTANCE_COUNT]>,
-            commitments: Box<[Commit; INSTANCE_COUNT]>,
-            #[serde(with = "boxed_array")]
-            sha0: Box<[ShaDigest; INPUT_WIRE_COUNT - 1]>,
-            #[serde(with = "boxed_array")]
-            sha1: Box<[ShaDigest; INPUT_WIRE_COUNT]>,
+            commitments: Box<[InstanceCommitmentWrong; INSTANCE_COUNT]>,
             #[serde(with = "boxed_array")]
             deltas0: Box<[WireLabels; INSTANCE_COUNT]>,
             #[serde(with = "boxed_array")]
             deltas1: Box<[WireLabels; INSTANCE_COUNT]>,
+        }
+
+        #[derive(Serialize)]
+        enum InstanceCommitmentWrong {
+            Core {
+                #[serde(with = "boxed_array")]
+                sha256_commit: Box<[[ShaDigest; 2]; INPUT_WIRE_COUNT - 1]>,
+            },
+            Additional {
+                poseidon_commit: Commit,
+            },
         }
 
         #[derive(Serialize)]
@@ -175,18 +198,31 @@ mod tests {
             private_param: PrivateParams,
         }
 
-        let sha0_short: [ShaDigest; INPUT_WIRE_COUNT - 1] = std::array::from_fn(|_| zero_sha);
+        let commitments_wrong: [InstanceCommitmentWrong; INSTANCE_COUNT] =
+            std::array::from_fn(|instance_index| {
+                if instance_index == 0 {
+                    InstanceCommitmentWrong::Core {
+                        sha256_commit: Box::new(std::array::from_fn(|_| [zero_sha; 2])),
+                    }
+                } else {
+                    InstanceCommitmentWrong::Additional {
+                        poseidon_commit: zero_commit,
+                    }
+                }
+            });
         let public_param_wrong = PublicParamsWrong {
-            selection: Box::new(selection),
-            commitments: Box::new(commitments),
-            sha0: Box::new(sha0_short),
-            sha1: Box::new(sha1),
+            commitments: Box::new(commitments_wrong),
             deltas0: Box::new(deltas0),
             deltas1: Box::new(deltas1),
         };
 
-        let private_param = PrivateParams { labels: Box::new(instances) };
-        let input_wrong = InputWrong { public_param: public_param_wrong, private_param };
+        let private_param = PrivateParams {
+            input_labels: Box::new(instances),
+        };
+        let input_wrong = InputWrong {
+            public_param: public_param_wrong,
+            private_param,
+        };
 
         let bytes = bincode::serialize(&input_wrong).expect("serialize to bincode");
         let res: Result<Input, _> = bincode::deserialize(&bytes);
