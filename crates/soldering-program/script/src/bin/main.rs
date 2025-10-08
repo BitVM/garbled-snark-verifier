@@ -84,27 +84,28 @@ fn make_dummy_input() -> types::Input {
 
     let wire_zero = Wire { label0: zero_label, label1: zero_label };
     let wires_for_instance: [Wire; INPUT_WIRE_COUNT] = std::array::from_fn(|_| wire_zero.clone());
-    let instances: [InstanceWires; INSTANCE_COUNT] =
-        std::array::from_fn(|_| InstanceWires { labels: wires_for_instance.clone() });
+    let instances: [InstanceWires; INSTANCE_COUNT] = std::array::from_fn(|_| InstanceWires {
+        labels: Box::new(wires_for_instance.clone()),
+    });
 
     let selection: [bool; INSTANCE_COUNT] = [false; INSTANCE_COUNT];
     let commitments: [Commit; INSTANCE_COUNT] = std::array::from_fn(|_| zero_commit);
     let sha0: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
     let sha1: [ShaDigest; INPUT_WIRE_COUNT] = std::array::from_fn(|_| zero_sha);
-    let zero_wire_labels = WireLabels(std::array::from_fn(|_| zero_label));
+    let zero_wire_labels = WireLabels(Box::new(std::array::from_fn(|_| zero_label)));
     let deltas0: [WireLabels; INSTANCE_COUNT] = std::array::from_fn(|_| zero_wire_labels.clone());
     let deltas1: [WireLabels; INSTANCE_COUNT] = std::array::from_fn(|_| zero_wire_labels.clone());
 
     let public_param = PublicParams {
-        selection,
-        commitments,
-        sha0,
-        sha1,
-        deltas0,
-        deltas1,
+        selection: Box::new(selection),
+        commitments: Box::new(commitments),
+        sha0: Box::new(sha0),
+        sha1: Box::new(sha1),
+        deltas0: Box::new(deltas0),
+        deltas1: Box::new(deltas1),
     };
 
-    let private_param = PrivateParams { labels: instances };
+    let private_param = PrivateParams { labels: Box::new(instances) };
 
     Input { public_param, private_param }
 }
