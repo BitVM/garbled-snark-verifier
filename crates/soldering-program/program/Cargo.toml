@@ -4,7 +4,10 @@ name = "fibonacci-program"
 edition = "2021"
 
 [dependencies]
-alloy-sol-types = { workspace = true }
-sp1-zkvm = "5.0.8"
+sp1-zkvm = "5.2.2"
 fibonacci-lib = { path = "../lib" }
 soldering-types = { path = "../types" }
+sha2 = "0.10.9"
+
+[patch.crates-io]
+sha2-v0-10-9 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", tag = "patch-sha2-0.10.9-sp1-4.0.0" }

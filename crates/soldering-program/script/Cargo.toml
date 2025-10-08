@@ -23,7 +23,6 @@ serde = { version = "1.0.200", default-features = false, features = ["derive"] }
 clap = { version = "4.0", features = ["derive", "env"] }
 tracing = "0.1.40"
 hex = "0.4.3"
-alloy-sol-types = { workspace = true }
 dotenv = "0.15.0"
 soldering-types = { path = "../types" }
 
