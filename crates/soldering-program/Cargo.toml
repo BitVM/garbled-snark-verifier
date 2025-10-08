@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "lib",
+    "program",
+    "script",
+    "types",
+]
+resolver = "2"
+
+[workspace.dependencies]
+alloy-sol-types = "1.0"
