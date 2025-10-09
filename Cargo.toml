@@ -19,7 +19,6 @@ description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusab
 members = [
     ".",
     "crates/circuit_component_macro",
-    "crates/soldering-zk-circuit",
 ]
 resolver = "2"
 

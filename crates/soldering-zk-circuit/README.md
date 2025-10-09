@@ -1,1 +1,0 @@
-# soldering-zk-circuit
