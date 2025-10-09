@@ -85,6 +85,56 @@ mod ark_canonical {
     }
 }
 
+use crate::circuit::modes::MultigarblingMode;
+
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for GarblerInput {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode<H, CTH>) {
+        for w in &repr.public {
+            for &wire in w.iter() {
+                let gw = cache.issue_garbled_wire();
+                cache.feed_wire(wire, gw);
+            }
+        }
+        for &wire_id in repr.a.x.iter().chain(repr.a.y.iter()) {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(wire_id, gw);
+        }
+        for &wire_id in repr.b.x.iter().chain(repr.b.y.iter()) {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(wire_id, gw);
+        }
+        for &wire_id in repr.c.x.iter().chain(repr.c.y.iter()) {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(wire_id, gw);
+        }
+    }
+}
+
+impl<H: GateHasher, CTH: CiphertextHandler, const N: usize>
+    EncodeInput<MultigarblingMode<H, CTH, N>> for GarblerInput
+{
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut MultigarblingMode<H, CTH, N>) {
+        for w in &repr.public {
+            for &wire in w.iter() {
+                let gwb = cache.issue_garbled_wire_batch();
+                cache.feed_wire(wire, gwb);
+            }
+        }
+        for &wire_id in repr.a.x.iter().chain(repr.a.y.iter()) {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(wire_id, gwb);
+        }
+        for &wire_id in repr.b.x.iter().chain(repr.b.y.iter()) {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(wire_id, gwb);
+        }
+        for &wire_id in repr.c.x.iter().chain(repr.c.y.iter()) {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(wire_id, gwb);
+        }
+    }
+}
+
 // ============================================================================
 // Garbling helpers (deterministic allocation/encoding of input labels)
 // ============================================================================
@@ -153,25 +203,43 @@ impl CircuitInput for GarblerInput {
     }
 }
 
-impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for GarblerInput {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut GarbleMode<H, CTH>) {
+impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>>
+    for GarblerCompressedInput
+{
+    fn encode(&self, repr: &ProofCompressedWires, cache: &mut GarbleMode<H, CTH>) {
+        // Assign fresh labels to all input wires deterministically
         for w in &repr.public {
             for &wire in w.iter() {
                 let gw = cache.issue_garbled_wire();
                 cache.feed_wire(wire, gw);
             }
         }
-        for &wire_id in repr.a.x.iter().chain(repr.a.y.iter()) {
+
+        for &wire_id in repr.a.x_m.iter() {
             let gw = cache.issue_garbled_wire();
             cache.feed_wire(wire_id, gw);
         }
-        for &wire_id in repr.b.x.iter().chain(repr.b.y.iter()) {
+        {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(repr.a.y_flag, gw);
+        }
+
+        for &wire_id in repr.b.p.iter() {
             let gw = cache.issue_garbled_wire();
             cache.feed_wire(wire_id, gw);
         }
-        for &wire_id in repr.c.x.iter().chain(repr.c.y.iter()) {
+        {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(repr.b.y_flag, gw);
+        }
+
+        for &wire_id in repr.c.x_m.iter() {
             let gw = cache.issue_garbled_wire();
             cache.feed_wire(wire_id, gw);
+        }
+        {
+            let gw = cache.issue_garbled_wire();
+            cache.feed_wire(repr.c.y_flag, gw);
         }
     }
 }
@@ -450,47 +518,6 @@ impl CircuitInput for GarblerCompressedInput {
         ids.extend(repr.b.to_wires_vec());
         ids.extend(repr.c.to_wires_vec());
         ids
-    }
-}
-
-impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>>
-    for GarblerCompressedInput
-{
-    fn encode(&self, repr: &ProofCompressedWires, cache: &mut GarbleMode<H, CTH>) {
-        // Assign fresh labels to all input wires deterministically
-        for w in &repr.public {
-            for &wire in w.iter() {
-                let gw = cache.issue_garbled_wire();
-                cache.feed_wire(wire, gw);
-            }
-        }
-
-        for &wire_id in repr.a.x_m.iter() {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(wire_id, gw);
-        }
-        {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(repr.a.y_flag, gw);
-        }
-
-        for &wire_id in repr.b.p.iter() {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(wire_id, gw);
-        }
-        {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(repr.b.y_flag, gw);
-        }
-
-        for &wire_id in repr.c.x_m.iter() {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(wire_id, gw);
-        }
-        {
-            let gw = cache.issue_garbled_wire();
-            cache.feed_wire(repr.c.y_flag, gw);
-        }
     }
 }
 
