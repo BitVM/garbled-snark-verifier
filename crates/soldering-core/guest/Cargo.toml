@@ -1,0 +1,12 @@
+[package]
+name = "soldering-guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sp1-zkvm = "5.2.2"
+serde = { version = "1.0.228", features = ["derive"] }
+sha2 = "0.10.9"
+
+[dev-dependencies]
+bincode = "2" # Since the types module is enabled via direct path, the tests fail without it

@@ -1,0 +1,14 @@
+[package]
+name = "soldering-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10.9"
+sp1-sdk = "5.2.2"
+thiserror = "2"
+rmp-serde = "1"
+
+[build-dependencies]
+sp1-build = "5.2.2"

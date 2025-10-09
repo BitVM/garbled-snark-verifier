@@ -19,6 +19,8 @@ description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusab
 members = [
     ".",
     "crates/circuit_component_macro",
+    "crates/soldering-core",
+    "crates/soldering-core/guest",
 ]
 resolver = "2"
 
@@ -35,9 +37,10 @@ ark-std = "0.5.0"
 ark-serialize = "0.5.0"
 
 [features]
-default = ["tracing_max_level", "tracing_scopes"]
+default = ["tracing_max_level", "tracing_scopes", "sp1-soldering"]
 tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
 tracing_scopes = []
+sp1-soldering = ["dep:soldering-core"]
 
 [dependencies]
 aes = "0.8"
@@ -75,6 +78,10 @@ ark-secp256k1 = "0.5.0"
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
 sha2 = "0.10.9"
 hex = "0.4.3"
+soldering-core = { path = "crates/soldering-core", optional = true }
+
+[patch.crates-io]
+sha2-v0-10-9 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", tag = "patch-sha2-0.10.9-sp1-4.0.0" }
 
 [dev-dependencies]
 ark-ec = "0.5.0"

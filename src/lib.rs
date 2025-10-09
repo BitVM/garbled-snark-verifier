@@ -9,6 +9,9 @@ pub mod logging;
 mod math;
 pub mod storage;
 
+#[cfg(feature = "sp1-soldering")]
+pub(crate) mod soldering;
+
 // Re-export the procedural macro
 pub use core::{delta::Delta, gate::Gate, gate_type::GateType, s::S, wire::WireId};
 
