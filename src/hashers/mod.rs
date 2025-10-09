@@ -54,7 +54,7 @@ impl HashWithGate<1> for Blake3Hasher {
 pub struct AesNiHasher;
 
 #[inline(always)]
-fn to_tweak(gate_id: usize) -> [u8; S_SIZE] {
+pub(crate) fn to_tweak(gate_id: usize) -> [u8; S_SIZE] {
     let gate_id_u64 = gate_id as u64;
 
     let t0 = gate_id_u64 ^ 0x1234_5678_9ABC_DEF0u64;
