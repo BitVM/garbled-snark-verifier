@@ -21,8 +21,8 @@ pub(crate) fn aggregate_labels_sha256<const INPUT_WIRE_COUNT: usize>(
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for wire in instance.labels.iter() {
-        hasher.update(wire.label0.to_be_bytes());
-        hasher.update(wire.label1.to_be_bytes());
+        use core::ops::BitOr;
+        hasher.update(wire.label0.bitor(wire.label1).to_be_bytes());
     }
     hasher.finalize().into()
 }
