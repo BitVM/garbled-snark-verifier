@@ -1,7 +1,10 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use core::ops::{BitOr, BitXor};
+use core::{
+    iter,
+    ops::{BitOr, BitXor},
+};
 
 use rkyv::rancor;
 use sha2::{Digest, Sha256};
@@ -19,6 +22,11 @@ fn hash_label_into(hasher: &mut Sha256, label: &rkyv::rend::u128_le, out: &mut [
 pub fn main() {
     let input_bytes = sp1_zkvm::io::read_vec();
 
+    // Safety:
+    //
+    // Crate that is used under the hood for consistency checking - does not work in sp1 env.
+    // Outside for consistency of ser/deser, the same logic code is executed for checking
+    // correctness.
     let archived = unsafe { rkyv::access_unchecked::<ArchivedWiresInput>(input_bytes.as_slice()) };
 
     let (base_instance, remaining) = archived.instances_wires.split_first().unwrap();
@@ -27,7 +35,11 @@ pub fn main() {
     let wires_count = base_instance.len();
 
     let mut base_commitment = vec![([0u8; 32], [0u8; 32]); wires_count]; //Vec::with_capacity(wires_count);
-    let mut commitments = vec![sha2::Sha256::new(); soldered_instances_count];
+
+    let mut commitments: Vec<Sha256> = iter::repeat_with(Sha256::new)
+        .take(soldered_instances_count)
+        .collect();
+
     let mut deltas = vec![Vec::with_capacity(wires_count); soldered_instances_count];
 
     let mut base_hasher = Sha256::new();

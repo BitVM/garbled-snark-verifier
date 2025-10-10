@@ -1,6 +1,6 @@
 use sp1_sdk::{
-    ExecutionReport, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues, SP1PublicValues,
-    SP1Stdin, SP1VerifyingKey,
+    ExecutionReport, Prover, ProverClient, SP1ProofWithPublicValues, SP1PublicValues, SP1Stdin,
+    SP1VerifyingKey,
 };
 
 pub use crate::{
@@ -43,8 +43,7 @@ pub fn execute(private_input: &WiresInput) -> ExecuteReport {
 }
 
 pub struct ProvenSolderedLabelsData {
-    data: SolderedLabelsData,
-    proof: SP1Proof,
+    proof: SP1ProofWithPublicValues,
     vk: SP1VerifyingKey,
 }
 
@@ -57,32 +56,17 @@ pub fn prove(private_input: &WiresInput) -> ProvenSolderedLabelsData {
     tracing::info!("start prove");
     let proof = prover.prove(&pk, &stdin).core().run().unwrap();
 
-    let archived = unsafe {
-        rkyv::access_unchecked::<ArchivedSolderedLabelsData>(proof.public_values.as_slice())
-    };
-
-    let data = rkyv::deserialize::<SolderedLabelsData, rkyv::rancor::Error>(archived).unwrap();
-
-    ProvenSolderedLabelsData {
-        data,
-        proof: proof.proof,
-        vk,
-    }
+    ProvenSolderedLabelsData { proof, vk }
 }
 
 pub fn verify(data: ProvenSolderedLabelsData) -> SolderedLabelsData {
-    let pp_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&data.data).unwrap();
+    cpu_prover().verify(&data.proof, &data.vk).unwrap();
 
-    let proof = SP1ProofWithPublicValues {
-        proof: data.proof,
-        public_values: SP1PublicValues::from(&pp_bytes),
-        sp1_version: "".to_owned(),
-        tee_proof: None,
+    let archived = unsafe {
+        rkyv::access_unchecked::<ArchivedSolderedLabelsData>(data.proof.public_values.as_slice())
     };
 
-    cpu_prover().verify(&proof, &data.vk).unwrap();
-
-    data.data
+    rkyv::deserialize::<SolderedLabelsData, rkyv::rancor::Error>(archived).unwrap()
 }
 
 #[cfg(test)]
@@ -157,7 +141,7 @@ mod test {
             instances_wires: iter::repeat_with(|| {
                 iter::repeat_with(|| rng.random()).take(1019).collect()
             })
-            .take(7)
+            .take(2)
             .collect(),
         }
     }

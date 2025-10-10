@@ -2943,6 +2943,7 @@ dependencies = [
  "core_affinity",
  "crossbeam",
  "digest 0.10.7",
+ "gsv-soldering-core",
  "hex",
  "itertools 0.14.0",
  "k256",
@@ -2956,7 +2957,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9 (registry+https://github.com/rust-lang/crates.io-index)",
  "slab",
- "soldering-core",
  "test-log",
  "thiserror 2.0.16",
  "tracing",
@@ -3057,6 +3057,20 @@ dependencies = [
  "ff 0.13.1",
  "rand_core 0.6.4",
  "subtle",
+]
+
+[[package]]
+name = "gsv-soldering-core"
+version = "0.1.0"
+dependencies = [
+ "itertools 0.10.5",
+ "rand 0.9.2",
+ "rkyv",
+ "sha2 0.10.9 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sp1-build",
+ "sp1-sdk",
+ "test-log",
+ "tracing",
 ]
 
 [[package]]
@@ -5975,20 +5989,6 @@ checksum = "233504af464074f9d066d7b5416c5f9b894a5862a6506e306f7b816cdd6f1807"
 dependencies = [
  "libc",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "soldering-core"
-version = "0.1.0"
-dependencies = [
- "itertools 0.10.5",
- "rand 0.9.2",
- "rkyv",
- "sha2 0.10.9 (registry+https://github.com/rust-lang/crates.io-index)",
- "sp1-build",
- "sp1-sdk",
- "test-log",
- "tracing",
 ]
 
 [[package]]

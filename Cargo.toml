@@ -40,7 +40,7 @@ ark-serialize = "0.5.0"
 default = ["tracing_max_level", "tracing_scopes", "sp1-soldering"]
 tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
 tracing_scopes = []
-sp1-soldering = ["dep:soldering-core"]
+sp1-soldering = ["dep:gsv-soldering-core"]
 
 [dependencies]
 aes = "0.8"
@@ -78,7 +78,7 @@ ark-secp256k1 = "0.5.0"
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
 sha2 = "0.10.9"
 hex = "0.4.3"
-soldering-core = { path = "crates/soldering-core", optional = true }
+gsv-soldering-core = { path = "crates/soldering-core", optional = true }
 
 
 [dev-dependencies]
@@ -107,3 +107,7 @@ panic = "abort"       # Faster execution, smaller binary
 # `cargo-husky` is intentionally present for git hooks and should be ignored by udeps
 development = ["cargo-husky"]
 normal = ["aes"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
