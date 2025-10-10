@@ -71,11 +71,7 @@ pub fn verify(data: ProvenSolderedLabelsData) -> SolderedLabelsData {
 
 #[cfg(test)]
 mod test {
-    use std::{
-        iter,
-        ops::{BitOr, BitXor},
-        time::Instant,
-    };
+    use std::{iter, ops::BitXor, time::Instant};
 
     use rand::{rng, Rng};
     use sha2::Digest;
@@ -89,10 +85,12 @@ mod test {
         // Split first instance as base, keep rest as iterator
         let (base_instance, remaining) = archived.instances_wires.split_first().unwrap();
         let wires_count = base_instance.len();
+        let soldered_instances_count = instances_count - 1;
 
         let mut base_commitment = Vec::with_capacity(wires_count);
-        let mut commitments = vec![sha2::Sha256::new(); instances_count - 1];
-        let mut deltas = vec![Vec::with_capacity(wires_count); instances_count - 1];
+        let mut commitments: Vec<Vec<([u8; 32], [u8; 32])>> =
+            vec![Vec::with_capacity(wires_count); soldered_instances_count];
+        let mut deltas = vec![Vec::with_capacity(wires_count); soldered_instances_count];
 
         // Use multizip to lazily iterate through corresponding positions
         // This transposes the iteration: instead of iterating instances then wires,
@@ -116,7 +114,11 @@ mod test {
             for (idx, iter) in iters[1..].iter_mut().enumerate() {
                 let instance_wire = iter.next().unwrap();
 
-                commitments[idx].update(instance_wire.0.bitor(instance_wire.1).to_be_bytes());
+                // Hash each label individually like base instance
+                commitments[idx].push((
+                    sha2::Sha256::digest(instance_wire.0.to_be_bytes()).into(),
+                    sha2::Sha256::digest(instance_wire.1.to_be_bytes()).into(),
+                ));
 
                 let delta0 = base_wire.0.bitxor(instance_wire.0);
                 let delta1 = base_wire.1.bitxor(instance_wire.1);
@@ -127,10 +129,7 @@ mod test {
         SolderedLabelsData {
             deltas,
             base_commitment,
-            commitments: commitments
-                .into_iter()
-                .map(|h| h.finalize().into())
-                .collect(),
+            commitments,
         }
     }
 
@@ -141,7 +140,7 @@ mod test {
             instances_wires: iter::repeat_with(|| {
                 iter::repeat_with(|| rng.random()).take(1019).collect()
             })
-            .take(2)
+            .take(7)
             .collect(),
         }
     }

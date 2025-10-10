@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, info};
 
 use super::{Config, garbler::GarbledInstanceCommit};
+#[cfg(feature = "sp1-soldering")]
+use crate::soldering::{SolderedLabels, SolderingProof};
 use crate::{
     AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
     circuit::{
@@ -28,6 +30,9 @@ pub struct Evaluator<
     config: Config<I>,
     commits: Vec<GarbledInstanceCommit<H>>,
     to_finalize: Box<[usize]>,
+    #[cfg(feature = "sp1-soldering")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    soldering_deltas: Option<Vec<Vec<(S, S)>>>,
 }
 
 impl<I, H> Evaluator<I, H>
@@ -66,6 +71,8 @@ where
             commits,
             to_finalize: idxs.into_boxed_slice(),
             config,
+            #[cfg(feature = "sp1-soldering")]
+            soldering_deltas: None,
         }
     }
 
@@ -473,5 +480,203 @@ where
                 })
                 .collect()
         })
+    }
+}
+
+/// Errors that can occur when verifying soldering data against local commits.
+#[cfg(feature = "sp1-soldering")]
+#[derive(Debug)]
+pub enum SolderingCheckError {
+    /// Unexpected size/layout of soldering data compared to local state
+    ShapeMismatch(&'static str),
+    /// Base instance per-wire commit mismatch
+    BaseCommitMismatch {
+        wire_index: usize,
+        which: &'static str,
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
+    /// Additional instance per-wire commit mismatch
+    InstanceCommitMismatch {
+        instance_index: usize,
+        wire_index: usize,
+        which: &'static str,
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
+}
+
+#[cfg(feature = "sp1-soldering")]
+impl error::Error for SolderingCheckError {}
+
+#[cfg(feature = "sp1-soldering")]
+impl fmt::Display for SolderingCheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ShapeMismatch(msg) => write!(f, "soldering data shape mismatch: {}", msg),
+            Self::BaseCommitMismatch {
+                wire_index,
+                which,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "base commit mismatch at wire {} ({}): expected 0x",
+                    wire_index, which
+                )?;
+                super::write_commit_hex(f, expected)?;
+                write!(f, ", got 0x")?;
+                super::write_commit_hex(f, actual)
+            }
+            Self::InstanceCommitMismatch {
+                instance_index,
+                wire_index,
+                which,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "instance {} commit mismatch at wire {} ({}): expected 0x",
+                    instance_index, wire_index, which
+                )?;
+                super::write_commit_hex(f, expected)?;
+                write!(f, ", got 0x")?;
+                super::write_commit_hex(f, actual)
+            }
+        }
+    }
+}
+
+impl<I> Evaluator<I, super::Sha256LabelCommitHasher>
+where
+    I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
+{
+    /// Verify the garbler-provided soldering proof and compare its bound commitments
+    /// against local commits for the finalized instances. Returns the verified
+    /// soldering data (`SolderedLabels`) on success.
+    ///
+    /// Requirements:
+    /// - Local commits must be produced with a hasher that outputs 32 bytes
+    ///   (e.g., `Sha256LabelCommitHasher`) to compare with soldering commitments.
+    /// - The garbler must build the proof using the same `to_finalize` ordering,
+    ///   with the base at `to_finalize[0]` and additional instances following.
+    #[cfg(feature = "sp1-soldering")]
+    pub fn verify_soldering_against_commits(
+        &mut self,
+        proof: SolderingProof,
+    ) -> Result<SolderedLabels, SolderingCheckError> {
+        use tracing::info;
+
+        let out = crate::soldering::verify_soldering(proof);
+
+        let Some(&base_idx) = self.to_finalize.first() else {
+            return Err(SolderingCheckError::ShapeMismatch(
+                "to_finalize must contain at least one index",
+            ));
+        };
+
+        let add_indices = &self.to_finalize[1..];
+
+        // Shape checks
+        let expected_wires = self.commits[base_idx].input_labels_commit().len();
+        if out.base_commitment.len() != expected_wires {
+            return Err(SolderingCheckError::ShapeMismatch(
+                "base commitment wire count",
+            ));
+        }
+        if out.deltas.len() != add_indices.len() {
+            return Err(SolderingCheckError::ShapeMismatch(
+                "deltas count vs additional instances",
+            ));
+        }
+        if out.commitments.len() != add_indices.len() {
+            return Err(SolderingCheckError::ShapeMismatch(
+                "commitments count vs additional instances",
+            ));
+        }
+        for (j, &inst_idx) in add_indices.iter().enumerate() {
+            if self.commits[inst_idx].input_labels_commit().len() != expected_wires
+                || out.commitments[j].len() != expected_wires
+                || out.deltas[j].len() != expected_wires
+            {
+                return Err(SolderingCheckError::ShapeMismatch(
+                    "per-instance wire count",
+                ));
+            }
+        }
+
+        info!(
+            base = base_idx,
+            extra = add_indices.len(),
+            wires = expected_wires,
+            "verifying soldering commits against local commits"
+        );
+
+        // Compare base instance per-wire commitments
+        let base_local = &self.commits[base_idx];
+        for (wire_idx, base_pair) in base_local.input_labels_commit().iter().enumerate() {
+            let [exp0, exp1] = out.base_commitment[wire_idx];
+            if base_pair.commit_label0 != exp0 {
+                return Err(SolderingCheckError::BaseCommitMismatch {
+                    wire_index: wire_idx,
+                    which: "label0",
+                    expected: exp0,
+                    actual: base_pair.commit_label0,
+                });
+            }
+            if base_pair.commit_label1 != exp1 {
+                return Err(SolderingCheckError::BaseCommitMismatch {
+                    wire_index: wire_idx,
+                    which: "label1",
+                    expected: exp1,
+                    actual: base_pair.commit_label1,
+                });
+            }
+        }
+
+        // Compare additional instances per-wire commitments
+        for (j, &inst_idx) in add_indices.iter().enumerate() {
+            let local = &self.commits[inst_idx];
+            for (wire_idx, local_pair) in local.input_labels_commit().iter().enumerate() {
+                let (exp0, exp1) = out.commitments[j][wire_idx];
+                if local_pair.commit_label0 != exp0 {
+                    return Err(SolderingCheckError::InstanceCommitMismatch {
+                        instance_index: inst_idx,
+                        wire_index: wire_idx,
+                        which: "label0",
+                        expected: exp0,
+                        actual: local_pair.commit_label0,
+                    });
+                }
+                if local_pair.commit_label1 != exp1 {
+                    return Err(SolderingCheckError::InstanceCommitMismatch {
+                        instance_index: inst_idx,
+                        wire_index: wire_idx,
+                        which: "label1",
+                        expected: exp1,
+                        actual: local_pair.commit_label1,
+                    });
+                }
+            }
+        }
+
+        // Persist deltas for later evaluate step
+        self.soldering_deltas = Some(out.deltas.clone());
+
+        Ok(out)
+    }
+}
+
+#[cfg(feature = "sp1-soldering")]
+impl<I, H> Evaluator<I, H>
+where
+    I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
+    H: LabelCommitHasher,
+{
+    /// Access previously verified soldering deltas, if available.
+    pub fn soldering_deltas(&self) -> Option<&[Vec<(S, S)>]> {
+        self.soldering_deltas.as_deref()
     }
 }

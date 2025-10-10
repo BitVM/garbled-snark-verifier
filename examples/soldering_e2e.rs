@@ -12,11 +12,11 @@ fn main() {
     let wires = std::env::var("WIRES")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(64);
+        .unwrap_or(1019);
     let instances = std::env::var("INSTANCES")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(3);
+        .unwrap_or(7);
 
     tracing::info!(wires, instances, "soldering_e2e: start");
 

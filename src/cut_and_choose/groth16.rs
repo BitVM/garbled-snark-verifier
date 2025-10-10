@@ -103,6 +103,11 @@ impl Garbler {
     pub fn output_wire(&self, index: usize) -> Option<&GarbledWire> {
         self.inner.output_wire(index)
     }
+
+    #[cfg(feature = "sp1-soldering")]
+    pub fn do_soldering(&self) -> crate::soldering::SolderingProof {
+        self.inner.do_soldering()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -181,5 +186,15 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         )
+    }
+}
+
+#[cfg(feature = "sp1-soldering")]
+impl Evaluator<generic::Sha256LabelCommitHasher> {
+    pub fn verify_soldering_against_commits(
+        &mut self,
+        proof: crate::soldering::SolderingProof,
+    ) -> Result<crate::soldering::SolderedLabels, generic::SolderingCheckError> {
+        self.inner.verify_soldering_against_commits(proof)
     }
 }

@@ -50,6 +50,19 @@ impl LabelCommitHasher for AesLabelCommitHasher {
 pub type DefaultLabelCommitHasher = AesLabelCommitHasher;
 pub type Commit = <DefaultLabelCommitHasher as LabelCommitHasher>::Output;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sha256LabelCommitHasher;
+
+impl LabelCommitHasher for Sha256LabelCommitHasher {
+    type Output = [u8; 32];
+
+    fn hash_label(label: S) -> Self::Output {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(label.to_u128().to_be_bytes());
+        digest.into()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LabelCommit<H: Clone + Copy> {
     pub commit_label0: H,

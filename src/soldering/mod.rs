@@ -32,7 +32,7 @@ pub struct SolderedLabels {
     /// The entry is ordered as `[commit(label0), commit(label1)]`.
     pub base_commitment: Vec<[Sha256Commit; 2]>,
     /// Commitment per additional instance, binding all its input wires.
-    pub commitments: Vec<Sha256Commit>,
+    pub commitments: Vec<Vec<(Sha256Commit, Sha256Commit)>>,
 }
 
 /// Error surface for soldering operations.

@@ -14,5 +14,5 @@ pub struct WiresInput {
 pub struct SolderedLabelsData {
     pub deltas: Vec<Vec<(u128, u128)>>,
     pub base_commitment: Vec<(Sha256Commit, Sha256Commit)>,
-    pub commitments: Vec<Sha256Commit>,
+    pub commitments: Vec<Vec<(Sha256Commit, Sha256Commit)>>,
 }

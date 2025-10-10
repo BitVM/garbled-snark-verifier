@@ -3,6 +3,8 @@ use std::{path::PathBuf, thread};
 use ark_ec::AffineRepr;
 use ark_ff::AdditiveGroup;
 use crossbeam::channel;
+#[cfg(feature = "sp1-soldering")]
+use garbled_snark_verifier::soldering::SolderingProof;
 use garbled_snark_verifier::{
     EvaluatedWire, GarbledInstanceCommit, OpenForInstance, S,
     ark::{
@@ -26,13 +28,19 @@ const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
 const IS_PRE_BOOLEAN_EXEC: bool = false;
 
+// Always use SHA-256 label commitments for this example
+type ExampleHasher = garbled_snark_verifier::cut_and_choose::Sha256LabelCommitHasher;
+
 enum G2EMsg {
     // Garbler -> Evaluator: commitments for all instances
-    Commits(Vec<GarbledInstanceCommit>),
+    Commits(Vec<GarbledInstanceCommit<ExampleHasher>>),
     // Garbler -> Evaluator: indices and seeds for instances to open
     OpenSeeds(Vec<(usize, ccn::Seed)>),
     // Garbler -> Evaluator: fully built evaluator inputs for finalized instances
     OpenLabels(Vec<EvaluatorCaseInput>),
+    // Garbler -> Evaluator: soldering proof (only when feature enabled)
+    #[cfg(feature = "sp1-soldering")]
+    SolderingProof(SolderingProof),
 }
 
 enum E2GMsg<CTH: 'static + Send + CiphertextHandler> {
@@ -180,8 +188,9 @@ fn run_garbler(
 
     let mut g = ccn::Garbler::create(&mut seed_rng, cfg.clone());
 
+    // Commit with the hasher used by evaluator; SHA-256 when soldering is enabled
     g2e_tx
-        .send(G2EMsg::Commits(g.commit()))
+        .send(G2EMsg::Commits(g.commit_with_hasher::<ExampleHasher>()))
         .expect("send commits");
 
     let E2GMsg::Challenge(finalize_senders) = e2g_rx.recv().expect("recv finalize senders");
@@ -208,6 +217,15 @@ fn run_garbler(
             error!("while regarbling: {err:?}")
         }
     });
+
+    // Produce and send soldering proof if enabled
+    #[cfg(feature = "sp1-soldering")]
+    {
+        let proof = g.do_soldering();
+        g2e_tx
+            .send(G2EMsg::SolderingProof(proof))
+            .expect("send soldering proof");
+    }
 
     let challenge_proof =
         ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
@@ -274,7 +292,7 @@ fn run_evaluator(
         panic!("unexpected message; expected commits")
     };
 
-    let eval = ccn::Evaluator::create(&mut rng, cfg.clone(), commits);
+    let mut eval = ccn::Evaluator::<ExampleHasher>::create(&mut rng, cfg.clone(), commits);
 
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
@@ -313,6 +331,16 @@ fn run_evaluator(
         &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),
     )
     .expect("regarbling checks");
+
+    // Receive and verify soldering proof when enabled
+    #[cfg(feature = "sp1-soldering")]
+    {
+        let G2EMsg::SolderingProof(proof) = g2e_rx.recv().expect("recv soldering proof") else {
+            panic!("unexpected message; expected soldering proof")
+        };
+        eval.verify_soldering_against_commits(proof)
+            .expect("soldering verify");
+    }
 
     let Ok(G2EMsg::OpenLabels(cases)) = g2e_rx.recv() else {
         panic!("unexpected message; expected finalized inputs")

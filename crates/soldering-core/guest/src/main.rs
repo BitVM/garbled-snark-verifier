@@ -1,10 +1,7 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use core::{
-    iter,
-    ops::{BitOr, BitXor},
-};
+use core::ops::BitXor;
 
 use rkyv::rancor;
 use sha2::{Digest, Sha256};
@@ -34,35 +31,38 @@ pub fn main() {
 
     let wires_count = base_instance.len();
 
-    let mut base_commitment = vec![([0u8; 32], [0u8; 32]); wires_count]; //Vec::with_capacity(wires_count);
+    let mut base_commitment = vec![([0u8; 32], [0u8; 32]); wires_count];
 
-    let mut commitments: Vec<Sha256> = iter::repeat_with(Sha256::new)
-        .take(soldered_instances_count)
-        .collect();
+    // Initialize commitments for each instance with proper capacity
+    let mut commitments: Vec<Vec<([u8; 32], [u8; 32])>> =
+        vec![vec![([0u8; 32], [0u8; 32]); wires_count]; soldered_instances_count];
 
     let mut deltas = vec![Vec::with_capacity(wires_count); soldered_instances_count];
 
-    let mut base_hasher = Sha256::new();
+    // Reuse single hasher for all operations
+    let mut hasher = Sha256::new();
 
     for wire_id in 0..wires_count {
         let base_wire = &base_instance[wire_id];
 
-        hash_label_into(
-            &mut base_hasher,
-            &base_wire.0,
-            &mut base_commitment[wire_id].0,
-        );
-        hash_label_into(
-            &mut base_hasher,
-            &base_wire.1,
-            &mut base_commitment[wire_id].1,
-        );
+        hash_label_into(&mut hasher, &base_wire.0, &mut base_commitment[wire_id].0);
+        hash_label_into(&mut hasher, &base_wire.1, &mut base_commitment[wire_id].1);
 
         // Get corresponding wire from each remaining instance
         for idx in 0..soldered_instances_count {
             let instance_wire = &remaining[idx][wire_id];
 
-            commitments[idx].update(instance_wire.0.bitor(instance_wire.1).to_be_bytes());
+            // Hash each label individually like base instance, reusing the hasher
+            hash_label_into(
+                &mut hasher,
+                &instance_wire.0,
+                &mut commitments[idx][wire_id].0,
+            );
+            hash_label_into(
+                &mut hasher,
+                &instance_wire.1,
+                &mut commitments[idx][wire_id].1,
+            );
 
             let delta0 = base_wire.0.bitxor(instance_wire.0);
             let delta1 = base_wire.1.bitxor(instance_wire.1);
@@ -73,10 +73,7 @@ pub fn main() {
     let data = SolderedLabelsData {
         deltas,
         base_commitment,
-        commitments: commitments
-            .into_iter()
-            .map(|h| h.finalize().into())
-            .collect(),
+        commitments,
     };
 
     sp1_zkvm::io::commit(&rkyv::to_bytes::<rancor::Error>(&data).unwrap().as_slice());

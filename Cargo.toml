@@ -109,5 +109,5 @@ development = ["cargo-husky"]
 normal = ["aes"]
 
 [profile.release]
-lto = "fat"
+lto = "thin" 
 codegen-units = 1

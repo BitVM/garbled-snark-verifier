@@ -18,6 +18,7 @@ use crate::{
         CiphertextCommit, Config, DefaultLabelCommitHasher, LabelCommit, LabelCommitHasher, Seed,
         commit_label_with,
     },
+    soldering::{self, SolderingProof},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -316,6 +317,25 @@ where
                 }
             })
             .collect()
+    }
+
+    pub fn do_soldering(&self) -> SolderingProof {
+        let GarblerStage::PreparedForEval { indexes_to_eval } = &self.stage else {
+            panic!("Garbler not ready to soldering")
+        };
+
+        let mut indexes_to_eval = indexes_to_eval.clone();
+        indexes_to_eval.sort();
+        let base_index = indexes_to_eval[0];
+        let base_wires = &self.instances[base_index].input_wire_values;
+
+        let additional = indexes_to_eval
+            .iter()
+            .skip(1)
+            .map(|index| self.instances[*index].input_wire_values.clone())
+            .collect::<Vec<_>>();
+
+        soldering::prove_soldering(base_wires, &additional).unwrap()
     }
 
     /// Return the constant labels for true/false as u128 words for a given instance.
