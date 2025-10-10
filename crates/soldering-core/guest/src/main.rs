@@ -1,24 +1,71 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
+use core::ops::{BitOr, BitXor};
+
+use rkyv::rancor;
+use sha2::{Digest, Sha256};
+
 #[path = "../../src/types.rs"]
-mod types;
+pub mod types;
+pub use types::*;
 
-#[path = "../../src/common.rs"]
-mod common;
-
-use common::compute_public_params;
-use types::{Input, INPUT_WIRE_COUNT, SOLDERED_INSTANCE};
+#[inline(always)]
+fn hash_label_into(hasher: &mut Sha256, label: &rkyv::rend::u128_le, out: &mut [u8; 32]) {
+    hasher.update(label.to_native().to_be_bytes().as_slice());
+    hasher.finalize_into_reset(out.into());
+}
 
 pub fn main() {
-    let input = sp1_zkvm::io::read::<Input<INPUT_WIRE_COUNT, SOLDERED_INSTANCE>>();
+    let input_bytes = sp1_zkvm::io::read_vec();
 
-    let expected_public = compute_public_params(&input.private_param);
+    let archived = unsafe { rkyv::access_unchecked::<ArchivedWiresInput>(input_bytes.as_slice()) };
 
-    assert_eq!(
-        expected_public, input.public_param,
-        "public params mismatch between computed values and provided input"
-    );
+    let (base_instance, remaining) = archived.instances_wires.split_first().unwrap();
+    let soldered_instances_count = remaining.len();
 
-    sp1_zkvm::io::commit(&input.public_param);
+    let wires_count = base_instance.len();
+
+    let mut base_commitment = vec![([0u8; 32], [0u8; 32]); wires_count]; //Vec::with_capacity(wires_count);
+    let mut commitments = vec![sha2::Sha256::new(); soldered_instances_count];
+    let mut deltas = vec![Vec::with_capacity(wires_count); soldered_instances_count];
+
+    let mut base_hasher = Sha256::new();
+
+    for wire_id in 0..wires_count {
+        let base_wire = &base_instance[wire_id];
+
+        hash_label_into(
+            &mut base_hasher,
+            &base_wire.0,
+            &mut base_commitment[wire_id].0,
+        );
+        hash_label_into(
+            &mut base_hasher,
+            &base_wire.1,
+            &mut base_commitment[wire_id].1,
+        );
+
+        // Get corresponding wire from each remaining instance
+        for idx in 0..soldered_instances_count {
+            let instance_wire = &remaining[idx][wire_id];
+
+            commitments[idx].update(instance_wire.0.bitor(instance_wire.1).to_be_bytes());
+
+            let delta0 = base_wire.0.bitxor(instance_wire.0);
+            let delta1 = base_wire.1.bitxor(instance_wire.1);
+            deltas[idx].push((delta0, delta1));
+        }
+    }
+
+    let data = SolderedLabelsData {
+        deltas,
+        base_commitment,
+        commitments: commitments
+            .into_iter()
+            .map(|h| h.finalize().into())
+            .collect(),
+    };
+
+    sp1_zkvm::io::commit(&rkyv::to_bytes::<rancor::Error>(&data).unwrap().as_slice());
 }

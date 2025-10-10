@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
 sha2 = "0.10.9"
 sp1-sdk = "5.2.2"
-thiserror = "2"
-rmp-serde = "1"
+rkyv = "0.8"
+rand = "0.9"
+test-log = { version = "0.2.8", default-features = false, features = ["trace"] }
+tracing = "0.1"
+
+[dev-dependencies]
+itertools = "*"
 
 [build-dependencies]
 sp1-build = "5.2.2"

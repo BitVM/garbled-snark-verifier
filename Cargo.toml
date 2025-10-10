@@ -80,8 +80,6 @@ sha2 = "0.10.9"
 hex = "0.4.3"
 soldering-core = { path = "crates/soldering-core", optional = true }
 
-[patch.crates-io]
-sha2-v0-10-9 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", tag = "patch-sha2-0.10.9-sp1-4.0.0" }
 
 [dev-dependencies]
 ark-ec = "0.5.0"
