@@ -212,16 +212,21 @@ fn run_garbler(
         .send(G2EMsg::OpenSeeds(seeds))
         .expect("send open_result");
 
+    // Single-machine demo: run stages sequentially to avoid resource contention.
+    info!("single-machine demo: joining regarbling before soldering/evaluation");
     threads.into_iter().for_each(|th| {
         if let Err(err) = th.join() {
             error!("while regarbling: {err:?}")
         }
     });
 
-    // Produce and send soldering proof if enabled
+    // Produce and send soldering proof if enabled (timed via span; no progress output)
     #[cfg(feature = "sp1-soldering")]
     {
+        let _span = tracing::info_span!("soldering").entered();
+        info!("start");
         let proof = g.do_soldering();
+        info!("end");
         g2e_tx
             .send(G2EMsg::SolderingProof(proof))
             .expect("send soldering proof");
