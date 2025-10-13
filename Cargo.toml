@@ -1,6 +1,6 @@
 [package]
 name = "garbled-snark-verifier"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 authors = ["BitVM Alliance"]
 license = "GPL-3.0-only"
@@ -19,16 +19,28 @@ description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusab
 members = [
     ".",
     "crates/circuit_component_macro",
+    "crates/soldering-core",
+    "crates/soldering-core/guest",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 circuit_component_macro = { path = "crates/circuit_component_macro" }
+ark-bn254 = "0.5.0"
+ark-crypto-primitives = "0.5.0"
+ark-ec = "0.5.0"
+ark-ff = "0.5.0"
+ark-groth16 = "0.5.0"
+ark-relations = "0.5.1"
+ark-snark = "0.5.1"
+ark-std = "0.5.0"
+ark-serialize = "0.5.0"
 
 [features]
-default = ["tracing_max_level", "tracing_scopes"]
+default = ["tracing_max_level", "tracing_scopes", "sp1-soldering"]
 tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
 tracing_scopes = []
+sp1-soldering = ["dep:gsv-soldering-core"]
 
 [dependencies]
 aes = "0.8"
@@ -66,6 +78,8 @@ ark-secp256k1 = "0.5.0"
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
 sha2 = "0.10.9"
 hex = "0.4.3"
+gsv-soldering-core = { path = "crates/soldering-core", optional = true }
+
 
 [dev-dependencies]
 ark-ec = "0.5.0"
@@ -93,3 +107,12 @@ panic = "abort"       # Faster execution, smaller binary
 # `cargo-husky` is intentionally present for git hooks and should be ignored by udeps
 development = ["cargo-husky"]
 normal = ["aes"]
+
+[[example]]
+name = "groth16_cut_and_choose"
+path = "examples/groth16_cut_and_choose.rs"
+required-features = ["sp1-soldering"]
+
+[[example]]
+name = "groth16_cut_and_choose_without_soldering"
+path = "examples/groth16_cut_and_choose_without_soldering.rs"

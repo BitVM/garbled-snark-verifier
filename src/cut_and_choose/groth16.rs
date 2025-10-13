@@ -1,13 +1,17 @@
+#[cfg(feature = "sp1-soldering")]
+use garbled_groth16::{EvaluatedCompressedG1Wires, EvaluatedCompressedG2Wires, EvaluatedFrWires};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 pub use crate::cut_and_choose::{GarbledInstanceCommit, LabelCommitHasher, OpenForInstance, Seed};
+#[cfg(feature = "sp1-soldering")]
+use crate::soldering::SolderInput;
 use crate::{
-    EvaluatedWire, GarbledWire,
+    EvaluatedWire, GarbledWire, S,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
-        ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
+        ConsistencyError, DefaultLabelCommitHasher, GarblerStage, LabelCommit,
     },
     garbled_groth16::{self, PublicParams},
 };
@@ -34,15 +38,14 @@ impl Garbler {
         Self { inner }
     }
 
-    pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
-        self.inner.commit()
-    }
-
-    pub fn commit_with_hasher<HHasher>(&self) -> Vec<GarbledInstanceCommit<HHasher>>
+    pub fn commit_with_hasher<HHasher>(
+        &self,
+        nonce: Option<S>,
+    ) -> Vec<GarbledInstanceCommit<HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
-        self.inner.commit_with_hasher::<HHasher>()
+        self.inner.commit_with_hasher::<HHasher>(&nonce)
     }
 
     pub fn open_commit<CTH: 'static + Send + CiphertextHandler>(
@@ -90,18 +93,18 @@ impl Garbler {
                     self.input_labels_for(*idx),
                 );
 
-                EvaluatorCaseInput {
-                    index: *idx,
-                    input,
-                    true_constant_wire: self.true_wire_constant_for(*idx),
-                    false_constant_wire: self.false_wire_constant_for(*idx),
-                }
+                EvaluatorCaseInput { index: *idx, input }
             })
             .collect()
     }
 
     pub fn output_wire(&self, index: usize) -> Option<&GarbledWire> {
         self.inner.output_wire(index)
+    }
+
+    #[cfg(feature = "sp1-soldering")]
+    pub fn do_soldering(&self, evaluator_nonce: S) -> crate::soldering::SolderingProof {
+        self.inner.do_soldering(evaluator_nonce)
     }
 }
 
@@ -120,8 +123,12 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         Self { inner }
     }
 
-    pub fn get_indexes_to_finalize(&self) -> &[usize] {
-        self.inner.get_indexes_to_finalize()
+    pub fn fill_second_commit(&mut self, commits: Vec<Vec<LabelCommit<H::Output>>>) {
+        self.inner.fill_second_commit(commits);
+    }
+
+    pub fn get_nonce(&self) -> S {
+        self.inner.get_nonce()
     }
 
     pub fn finalized_indexes(&self) -> &[usize] {
@@ -130,7 +137,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
 
     #[allow(clippy::result_unit_err)]
     pub fn run_regarbling<CSourceProvider, CHandlerProvider>(
-        &self,
+        &mut self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
         ciphertext_sink_provider: &CHandlerProvider,
@@ -148,10 +155,6 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         )
-    }
-
-    pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
-        self.inner.commits()
     }
 }
 
@@ -178,6 +181,97 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         self.inner.evaluate_from(
             ciphertext_repo,
             input_cases,
+            DEFAULT_CAPACITY,
+            garbled_groth16::verify_compressed,
+        )
+    }
+}
+
+#[cfg(feature = "sp1-soldering")]
+impl SolderInput for garbled_groth16::EvaluatorCompressedInput {
+    fn solder(
+        &self,
+        per_wire: &[(crate::S, crate::S)],
+    ) -> garbled_groth16::EvaluatorCompressedInput {
+        let mut it = per_wire.iter();
+
+        let mut map_wire = |ew: &EvaluatedWire| -> EvaluatedWire {
+            let (d0, d1) = *it.next().expect("delta length matches input wires");
+            let delta = if ew.value { d1 } else { d0 };
+            EvaluatedWire::new(ew.active_label ^ &delta, ew.value)
+        };
+
+        let map_fr =
+            |fr: &garbled_groth16::EvaluatedFrWires,
+             map_wire: &mut dyn FnMut(&EvaluatedWire) -> EvaluatedWire| {
+                EvaluatedFrWires(fr.0.iter().map(map_wire).collect())
+            };
+
+        let public = self
+            .public
+            .iter()
+            .map(|fr| map_fr(fr, &mut map_wire))
+            .collect();
+
+        let a_x = map_fr(&self.a.x, &mut map_wire);
+        let a_y_flag = map_wire(&self.a.y_flag);
+
+        let b_x0 = map_fr(&self.b.x[0], &mut map_wire);
+        let b_x1 = map_fr(&self.b.x[1], &mut map_wire);
+        let b_y_flag = map_wire(&self.b.y_flag);
+
+        let c_x = map_fr(&self.c.x, &mut map_wire);
+        let c_y_flag = map_wire(&self.c.y_flag);
+
+        garbled_groth16::EvaluatorCompressedInput {
+            public,
+            a: EvaluatedCompressedG1Wires {
+                x: a_x,
+                y_flag: a_y_flag,
+            },
+            b: EvaluatedCompressedG2Wires {
+                x: [b_x0, b_x1],
+                y_flag: b_y_flag,
+            },
+            c: EvaluatedCompressedG1Wires {
+                x: c_x,
+                y_flag: c_y_flag,
+            },
+            vk: self.vk.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "sp1-soldering")]
+impl Evaluator<generic::Sha256LabelCommitHasher> {
+    pub fn verify_soldering_against_commits(
+        &mut self,
+        proof: crate::soldering::SolderingProof,
+    ) -> Result<crate::soldering::SolderedLabels, generic::SolderingCheckError> {
+        self.inner.verify_soldering_against_commits(proof)
+    }
+
+    /// Evaluate all finalized instances using a single base set of input labels,
+    /// reconstructing the rest from previously verified soldering deltas.
+    ///
+    /// Requirements:
+    /// - Call `verify_soldering_against_commits` first; this stores the deltas.
+    /// - `base_case.index` must equal the first finalized index (the base).
+    /// - No additional constants are required; constants are derived from commits.
+    #[allow(clippy::result_large_err)]
+    pub fn run_evaluate_with_soldered_instances<
+        CR: 'static + CiphertextSourceProvider + Send + Sync,
+    >(
+        &self,
+        ciphertext_repo: &CR,
+        base_case: EvaluatorCaseInput,
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<generic::Sha256LabelCommitHasher>>
+    where
+        <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
+    {
+        self.inner.evaluate_with_soldered_instances_from(
+            ciphertext_repo,
+            base_case,
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         )

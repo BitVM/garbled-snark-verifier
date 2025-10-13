@@ -1,0 +1,9 @@
+[package]
+name = "soldering-guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rkyv = { version = "0.8", default-features = false, features = ["alloc"] }
+sha2 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", tag = "patch-sha2-0.10.9-sp1-4.0.0" }
+sp1-zkvm = "5.2.2"

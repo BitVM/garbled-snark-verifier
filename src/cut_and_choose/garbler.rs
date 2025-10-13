@@ -8,8 +8,10 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+#[cfg(feature = "sp1-soldering")]
+use crate::soldering::{self, SolderingProof};
 use crate::{
-    AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, WireId,
+    AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
@@ -66,8 +68,8 @@ pub struct GarbledInstanceCommit<H: LabelCommitHasher = DefaultLabelCommitHasher
     // Separate commits for output labels: one for label1 and one for label0
     output_label1_commit: H::Output,
     output_label0_commit: H::Output,
-    true_constant_commit: H::Output,
-    false_constant_commit: H::Output,
+    true_constant: u128,
+    false_constant: u128,
 }
 
 impl<H: LabelCommitHasher> PartialEq for GarbledInstanceCommit<H> {
@@ -76,39 +78,48 @@ impl<H: LabelCommitHasher> PartialEq for GarbledInstanceCommit<H> {
             && self.input_labels_commit == other.input_labels_commit
             && self.output_label1_commit == other.output_label1_commit
             && self.output_label0_commit == other.output_label0_commit
-            && self.true_constant_commit == other.true_constant_commit
-            && self.false_constant_commit == other.false_constant_commit
+            && self.true_constant == other.true_constant
+            && self.false_constant == other.false_constant
     }
 }
 
 impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
-    pub fn new(instance: &GarbledInstance) -> Self {
+    pub fn new(instance: &GarbledInstance, nonce: &Option<S>) -> Self {
         Self {
             ciphertext_commit: instance.ciphertext_handler_result,
-            input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values),
+            input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values, nonce),
 
             output_label1_commit: Self::commit_label1(&instance.output_wire_values),
 
             output_label0_commit: Self::commit_label0(&instance.output_wire_values),
 
-            true_constant_commit: commit_label_with::<H>(instance.true_wire_constant.select(true)),
-            false_constant_commit: commit_label_with::<H>(
-                instance.false_wire_constant.select(false),
-            ),
+            true_constant: instance.true_wire_constant.select(true).to_u128(),
+            false_constant: instance.false_wire_constant.select(false).to_u128(),
         }
     }
 
-    pub fn commit_garbled_wires(inputs: &[GarbledWire]) -> Vec<LabelCommit<H::Output>> {
+    pub fn commit_garbled_wires(
+        inputs: &[GarbledWire],
+        nonce: &Option<S>,
+    ) -> Vec<LabelCommit<H::Output>> {
         inputs
             .iter()
             .map(|GarbledWire { label0, label1 }| {
-                LabelCommit::<H::Output>::new::<H>(*label0, *label1)
+                LabelCommit::<H::Output>::new::<H>(*label0, *label1, nonce)
             })
             .collect()
     }
 
     fn commit_label1(input: &GarbledWire) -> H::Output {
         commit_label_with::<H>(input.label1)
+    }
+
+    pub fn true_constant(&self) -> u128 {
+        self.true_constant
+    }
+
+    pub fn false_constant(&self) -> u128 {
+        self.false_constant
     }
 
     fn commit_label0(input: &GarbledWire) -> H::Output {
@@ -121,14 +132,6 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
 
     pub fn output_label0_commit(&self) -> H::Output {
         self.output_label0_commit
-    }
-
-    pub fn true_consatnt_wire_commit(&self) -> H::Output {
-        self.true_constant_commit
-    }
-
-    pub fn false_consatnt_wire_commit(&self) -> H::Output {
-        self.false_constant_commit
     }
 
     pub fn ciphertext_commit(&self) -> CiphertextCommit {
@@ -241,18 +244,17 @@ where
         }
     }
 
-    pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
-        self.commit_with_hasher::<DefaultLabelCommitHasher>()
-    }
-
-    pub fn commit_with_hasher<HHasher>(&self) -> Vec<GarbledInstanceCommit<HHasher>>
+    pub fn commit_with_hasher<HHasher>(
+        &self,
+        nonce: &Option<S>,
+    ) -> Vec<GarbledInstanceCommit<HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
         // Build commits in parallel; independent per instance
         self.instances
             .iter()
-            .map(GarbledInstanceCommit::<HHasher>::new)
+            .map(|i| GarbledInstanceCommit::<HHasher>::new(i, nonce))
             .collect()
     }
 
@@ -316,6 +318,26 @@ where
                 }
             })
             .collect()
+    }
+
+    #[cfg(feature = "sp1-soldering")]
+    pub fn do_soldering(&self, evaluator_nonce: S) -> SolderingProof {
+        let GarblerStage::PreparedForEval { indexes_to_eval } = &self.stage else {
+            panic!("Garbler not ready to soldering")
+        };
+
+        let mut indexes_to_eval = indexes_to_eval.clone();
+        indexes_to_eval.sort();
+        let base_index = indexes_to_eval[0];
+        let base_wires = &self.instances[base_index].input_wire_values;
+
+        let additional = indexes_to_eval
+            .iter()
+            .skip(1)
+            .map(|index| self.instances[*index].input_wire_values.clone())
+            .collect::<Vec<_>>();
+
+        soldering::prove_soldering(base_wires, &additional, evaluator_nonce).unwrap()
     }
 
     /// Return the constant labels for true/false as u128 words for a given instance.

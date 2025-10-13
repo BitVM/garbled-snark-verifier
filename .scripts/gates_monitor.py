@@ -49,6 +49,9 @@ from typing import Dict, List, Optional, Tuple
 RE_GARBLE = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+garble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
+RE_SOLDERING = re.compile(
+    r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+soldering:.*$'
+)
 RE_REGARBLE = re.compile(
     r'^(?P<ts>[\d\-T:\.Z]+)\s+INFO\s+regarble:\s+garbled:\s*(?P<num>[\d\.]+)\s*(?P<unit>[mbMB])?\s+instance=(?P<instance>\d+)'
 )
@@ -70,15 +73,16 @@ RE_EVALUATED = re.compile(
 )
 
 # Selected mode (set in main). "auto" selects phases dynamically.
-MODE = "garbling"  # one of: auto, garbling, regarbling, evaluation
+MODE = "garbling"  # one of: auto, garbling, regarbling, evaluation, soldering
 
 # Phase ordering used for auto mode tie-breaking
-PHASES = ("garbling", "regarbling", "evaluation")
+PHASES = ("garbling", "regarbling", "evaluation", "soldering")
 PHASE_ORDER_INDEX = {phase: idx for idx, phase in enumerate(PHASES)}
 PHASE_LABELS = {
     "garbling": "GARBLING",
     "regarbling": "REGARBLING",
     "evaluation": "EVALUATION",
+    "soldering": "SOLDERING",
 }
 
 @dataclass
@@ -119,6 +123,12 @@ def to_gates(num_str: str, unit: Optional[str]) -> int:
     return int(num)
 
 def parse_line_auto(line: str) -> Optional[Sample]:
+    # Soldering span timing (no progress) – any line under `soldering` span
+    m = RE_SOLDERING.match(line)
+    if m:
+        ts = parse_iso_utc(m.group('ts'))
+        return Sample(ts, 0, 0, 'soldering')
+
     m = RE_GARBLE.match(line)
     if m:
         ts = parse_iso_utc(m.group('ts'))
@@ -159,19 +169,32 @@ def parse_line(line: str) -> Optional[Sample]:
     else:
         if MODE == "garbling":
             m = RE_GARBLE.match(line)
-        else:  # regarbling stage may include multiple spans
+        elif MODE == "regarbling":  # regarbling stage may include multiple spans
             m = (
                 RE_REGARBLE.match(line)
                 or RE_REGARBLE2SEND.match(line)
                 or RE_G2EVAL.match(line)
                 or RE_G2EVALUATOR.match(line)
             )
+        elif MODE == "soldering":
+            m = RE_SOLDERING.match(line)
+        else:
+            m = None
 
         if m:
             ts = parse_iso_utc(m.group('ts'))
-            instance = int(m.group('instance'))
-            v = to_gates(m.group('num'), m.group('unit'))
-            phase = 'garbling' if MODE == 'garbling' else 'regarbling'
+            if MODE == 'garbling':
+                instance = int(m.group('instance'))
+                v = to_gates(m.group('num'), m.group('unit'))
+                phase = 'garbling'
+            elif MODE == 'regarbling':
+                instance = int(m.group('instance'))
+                v = to_gates(m.group('num'), m.group('unit'))
+                phase = 'regarbling'
+            else:  # soldering
+                instance = 0
+                v = 0
+                phase = 'soldering'
             return Sample(ts, v, instance, phase)
         return None
 
@@ -323,6 +346,15 @@ def choose_active_phase(current_phase: str, last_activity: Dict[str, float]) -> 
 def build_phase_summary(phase: str, state: PhaseState, target_gates: int) -> str:
     if not state.samples and not state.completed_instances:
         return "pending"
+
+    if phase == 'soldering':
+        # Show elapsed time within current soldering span based on first/last sample timestamps
+        # No progress metrics; just timing.
+        ts_list = [s.t for s in state.samples]
+        if not ts_list:
+            return "pending"
+        elapsed = max(ts_list) - min(ts_list)
+        return f"elapsed {fmt_duration(elapsed)}"
 
     if phase == 'evaluation':
         if not state.samples:

@@ -77,7 +77,7 @@ pub struct CircuitBuilder<M: CircuitMode> {
     mode: M,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StreamingResult<M: CircuitMode, I: CircuitInput, O: CircuitOutput<M>> {
     /// Constant to represent false wire constant
     ///
