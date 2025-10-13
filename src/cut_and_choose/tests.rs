@@ -156,14 +156,11 @@ fn cut_and_choose_one_bit_e2e() {
         j.join().unwrap();
     }
 
-    // Gather constants + input labels for finalized instances
+    // Gather input labels for finalized instances
     let mut cases_true = Vec::new();
     let mut cases_false = Vec::new();
 
     for idx in finalize_indices {
-        let t = garbler.true_wire_constant_for(idx);
-        let f = garbler.false_wire_constant_for(idx);
-
         let input_labels = garbler.input_labels_for(idx);
 
         assert_eq!(input_labels.len(), 1);
@@ -181,15 +178,11 @@ fn cut_and_choose_one_bit_e2e() {
         cases_true.push(EvaluatorCaseInput {
             index: idx,
             input: e_true,
-            true_constant_wire: t,
-            false_constant_wire: f,
         });
 
         cases_false.push(EvaluatorCaseInput {
             index: idx,
             input: e_false,
-            true_constant_wire: t,
-            false_constant_wire: f,
         });
     }
 
@@ -424,9 +417,6 @@ fn cut_and_choose_fq12_mul_e2e() {
     let mut cases_true = Vec::new();
 
     for idx in to_finalize.iter().copied() {
-        let t = garbler.true_wire_constant_for(idx);
-        let f = garbler.false_wire_constant_for(idx);
-
         let labels = garbler.input_labels_for(idx);
         let input_true = Fq12MulInput {
             labels: labels.clone(),
@@ -436,8 +426,6 @@ fn cut_and_choose_fq12_mul_e2e() {
         cases_true.push(EvaluatorCaseInput {
             index: idx,
             input: input_true,
-            true_constant_wire: t,
-            false_constant_wire: f,
         });
     }
 
@@ -473,8 +461,6 @@ fn cut_and_choose_fq12_mul_e2e() {
         cases_false.push(EvaluatorCaseInput {
             index: idx,
             input: input_false,
-            true_constant_wire: garbler.true_wire_constant_for(idx),
-            false_constant_wire: garbler.false_wire_constant_for(idx),
         });
     }
 

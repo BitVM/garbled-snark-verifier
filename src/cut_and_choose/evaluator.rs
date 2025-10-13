@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, info};
 
 use super::{Config, garbler::GarbledInstanceCommit};
-#[cfg(feature = "sp1-soldering")]
-use crate::soldering::{SolderedLabels, SolderingProof};
 use crate::{
     AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
     circuit::{
@@ -19,6 +17,11 @@ use crate::{
         DefaultLabelCommitHasher, LabelCommit, LabelCommitHasher, Seed, commit_label_with,
         write_commit_hex,
     },
+};
+#[cfg(feature = "sp1-soldering")]
+use crate::{
+    cut_and_choose::Sha256LabelCommitHasher,
+    soldering::{SolderInput, SolderedLabels, SolderingProof},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,8 +199,6 @@ where
 pub struct EvaluatorCaseInput<I> {
     pub index: usize,
     pub input: I,
-    pub true_constant_wire: u128,
-    pub false_constant_wire: u128,
 }
 
 /// Errors that can occur during consistency checking.
@@ -365,33 +366,9 @@ where
                     let EvaluatorCaseInput {
                         index,
                         input: eval_input,
-                        true_constant_wire,
-                        false_constant_wire,
                     } = case;
 
                     let commit = &self.commits[index];
-
-                    let true_consatnt_wire_hash =
-                        commit_label_with::<H>(S::from_u128(true_constant_wire));
-
-                    if true_consatnt_wire_hash != commit.true_consatnt_wire_commit() {
-                        return Err(ConsistencyError::TrueConstantMismatch {
-                            index,
-                            expected: commit.true_consatnt_wire_commit(),
-                            actual: true_consatnt_wire_hash,
-                        });
-                    }
-
-                    let false_consatnt_wire_hash =
-                        commit_label_with::<H>(S::from_u128(false_constant_wire));
-
-                    if false_consatnt_wire_hash != commit.false_consatnt_wire_commit() {
-                        return Err(ConsistencyError::FalseConstantMismatch {
-                            index,
-                            expected: commit.false_consatnt_wire_commit(),
-                            actual: false_consatnt_wire_hash,
-                        });
-                    }
 
                     let expected_input_commits = commit.input_labels_commit();
 
@@ -411,8 +388,8 @@ where
                     >(
                         eval_input,
                         capacity,
-                        true_constant_wire,
-                        false_constant_wire,
+                        commit.true_constant(),
+                        commit.false_constant(),
                         source,
                         builder,
                     );
@@ -567,8 +544,6 @@ where
         &mut self,
         proof: SolderingProof,
     ) -> Result<SolderedLabels, SolderingCheckError> {
-        use tracing::info;
-
         let out = crate::soldering::verify_soldering(proof);
 
         let Some(&base_idx) = self.to_finalize.first() else {
@@ -577,7 +552,7 @@ where
             ));
         };
 
-        let add_indices = &self.to_finalize[1..];
+        let soldered_instances_indexes = &self.to_finalize[1..];
 
         // Shape checks
         let expected_wires = self.commits[base_idx].input_labels_commit().len();
@@ -586,17 +561,17 @@ where
                 "base commitment wire count",
             ));
         }
-        if out.deltas.len() != add_indices.len() {
+        if out.deltas.len() != soldered_instances_indexes.len() {
             return Err(SolderingCheckError::ShapeMismatch(
                 "deltas count vs additional instances",
             ));
         }
-        if out.commitments.len() != add_indices.len() {
+        if out.commitments.len() != soldered_instances_indexes.len() {
             return Err(SolderingCheckError::ShapeMismatch(
                 "commitments count vs additional instances",
             ));
         }
-        for (j, &inst_idx) in add_indices.iter().enumerate() {
+        for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
             if self.commits[inst_idx].input_labels_commit().len() != expected_wires
                 || out.commitments[j].len() != expected_wires
                 || out.deltas[j].len() != expected_wires
@@ -609,7 +584,7 @@ where
 
         info!(
             base = base_idx,
-            extra = add_indices.len(),
+            extra = soldered_instances_indexes.len(),
             wires = expected_wires,
             "verifying soldering commits against local commits"
         );
@@ -618,6 +593,7 @@ where
         let base_local = &self.commits[base_idx];
         for (wire_idx, base_pair) in base_local.input_labels_commit().iter().enumerate() {
             let [exp0, exp1] = out.base_commitment[wire_idx];
+
             if base_pair.commit_label0 != exp0 {
                 return Err(SolderingCheckError::BaseCommitMismatch {
                     wire_index: wire_idx,
@@ -626,6 +602,7 @@ where
                     actual: base_pair.commit_label0,
                 });
             }
+
             if base_pair.commit_label1 != exp1 {
                 return Err(SolderingCheckError::BaseCommitMismatch {
                     wire_index: wire_idx,
@@ -637,10 +614,12 @@ where
         }
 
         // Compare additional instances per-wire commitments
-        for (j, &inst_idx) in add_indices.iter().enumerate() {
+        for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
             let local = &self.commits[inst_idx];
+
             for (wire_idx, local_pair) in local.input_labels_commit().iter().enumerate() {
                 let (exp0, exp1) = out.commitments[j][wire_idx];
+
                 if local_pair.commit_label0 != exp0 {
                     return Err(SolderingCheckError::InstanceCommitMismatch {
                         instance_index: inst_idx,
@@ -650,6 +629,7 @@ where
                         actual: local_pair.commit_label0,
                     });
                 }
+
                 if local_pair.commit_label1 != exp1 {
                     return Err(SolderingCheckError::InstanceCommitMismatch {
                         instance_index: inst_idx,
@@ -670,13 +650,64 @@ where
 }
 
 #[cfg(feature = "sp1-soldering")]
-impl<I, H> Evaluator<I, H>
+impl<I> Evaluator<I, Sha256LabelCommitHasher>
 where
     I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
-    H: LabelCommitHasher,
 {
     /// Access previously verified soldering deltas, if available.
     pub fn soldering_deltas(&self) -> Option<&[Vec<(S, S)>]> {
         self.soldering_deltas.as_deref()
+    }
+
+    #[allow(clippy::result_large_err)]
+    pub fn evaluate_with_soldered_instances_from<E, F, CR>(
+        &self,
+        ciphertext_repo: &CR,
+        base_case: EvaluatorCaseInput<E>,
+        capacity: usize,
+        builder: F,
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<Sha256LabelCommitHasher>>
+    where
+        E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>> + SolderInput,
+        CR: 'static + CiphertextSourceProvider + Send + Sync,
+        <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
+        F: Fn(&mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>, &E::WireRepr) -> WireId
+            + Send
+            + Sync
+            + Copy,
+    {
+        let finalized = self.to_finalize.clone();
+        assert!(
+            !finalized.is_empty(),
+            "no finalized instances; evaluator not initialized?"
+        );
+
+        // Ensure base case index matches our base finalized index
+        let base_index = finalized[0];
+        assert_eq!(
+            base_case.index, base_index,
+            "base_case.index must equal first finalized index"
+        );
+
+        // Fetch soldering deltas captured during verification
+        let deltas = self
+            .soldering_deltas()
+            .expect("soldering deltas missing; call verify_soldering_against_commits first");
+
+        // Build input cases: base + derived for each additional finalized index
+        let mut cases: Vec<EvaluatorCaseInput<E>> = Vec::with_capacity(finalized.len());
+        cases.push(base_case);
+
+        for (j, &inst_idx) in finalized.iter().enumerate().skip(1) {
+            let per_wire = &deltas[j - 1];
+            let derived_input = cases[0].input.solder(per_wire);
+
+            cases.push(EvaluatorCaseInput {
+                index: inst_idx,
+                input: derived_input,
+            });
+        }
+
+        self.evaluate_from(ciphertext_repo, cases, capacity, builder)
     }
 }

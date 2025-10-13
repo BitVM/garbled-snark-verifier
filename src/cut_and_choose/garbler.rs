@@ -67,8 +67,8 @@ pub struct GarbledInstanceCommit<H: LabelCommitHasher = DefaultLabelCommitHasher
     // Separate commits for output labels: one for label1 and one for label0
     output_label1_commit: H::Output,
     output_label0_commit: H::Output,
-    true_constant_commit: H::Output,
-    false_constant_commit: H::Output,
+    true_constant: u128,
+    false_constant: u128,
 }
 
 impl<H: LabelCommitHasher> PartialEq for GarbledInstanceCommit<H> {
@@ -77,8 +77,8 @@ impl<H: LabelCommitHasher> PartialEq for GarbledInstanceCommit<H> {
             && self.input_labels_commit == other.input_labels_commit
             && self.output_label1_commit == other.output_label1_commit
             && self.output_label0_commit == other.output_label0_commit
-            && self.true_constant_commit == other.true_constant_commit
-            && self.false_constant_commit == other.false_constant_commit
+            && self.true_constant == other.true_constant
+            && self.false_constant == other.false_constant
     }
 }
 
@@ -92,10 +92,8 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
 
             output_label0_commit: Self::commit_label0(&instance.output_wire_values),
 
-            true_constant_commit: commit_label_with::<H>(instance.true_wire_constant.select(true)),
-            false_constant_commit: commit_label_with::<H>(
-                instance.false_wire_constant.select(false),
-            ),
+            true_constant: instance.true_wire_constant.select(true).to_u128(),
+            false_constant: instance.false_wire_constant.select(false).to_u128(),
         }
     }
 
@@ -112,6 +110,14 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
         commit_label_with::<H>(input.label1)
     }
 
+    pub fn true_constant(&self) -> u128 {
+        self.true_constant
+    }
+
+    pub fn false_constant(&self) -> u128 {
+        self.false_constant
+    }
+
     fn commit_label0(input: &GarbledWire) -> H::Output {
         commit_label_with::<H>(input.label0)
     }
@@ -122,14 +128,6 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
 
     pub fn output_label0_commit(&self) -> H::Output {
         self.output_label0_commit
-    }
-
-    pub fn true_consatnt_wire_commit(&self) -> H::Output {
-        self.true_constant_commit
-    }
-
-    pub fn false_consatnt_wire_commit(&self) -> H::Output {
-        self.false_constant_commit
     }
 
     pub fn ciphertext_commit(&self) -> CiphertextCommit {

@@ -13,7 +13,6 @@ use garbled_snark_verifier::{
     cut_and_choose::FileCiphertextHandlerProvider,
     garbled_groth16,
     groth16_cut_and_choose::{self as ccn, EvaluatorCaseInput},
-    soldering::SolderingProof,
 };
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -27,9 +26,6 @@ const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
 const IS_PRE_BOOLEAN_EXEC: bool = false;
 
-// Calculate and display total gates to process
-const GATES_PER_INSTANCE: u64 = 11_174_708_821;
-
 // Always use SHA-256 label commitments for this example
 type ExampleHasher = garbled_snark_verifier::cut_and_choose::Sha256LabelCommitHasher;
 
@@ -38,10 +34,8 @@ enum G2EMsg {
     Commits(Vec<GarbledInstanceCommit<ExampleHasher>>),
     // Garbler -> Evaluator: indices and seeds for instances to open
     OpenSeeds(Vec<(usize, ccn::Seed)>),
-    // Garbler -> Evaluator: soldering proof
-    SolderingProof(Box<SolderingProof>),
-    // Garbler -> Evaluator: base-case evaluator input (labels) for soldering
-    OpenInput(Box<EvaluatorCaseInput>),
+    // Garbler -> Evaluator: fully built evaluator inputs for finalized instances
+    OpenLabels(Vec<EvaluatorCaseInput>),
 }
 
 enum E2GMsg<CTH: 'static + Send + CiphertextHandler> {
@@ -87,6 +81,9 @@ impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
         Ok(())
     }
 }
+
+// Calculate and display total gates to process
+const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
 fn main() {
     if !garbled_snark_verifier::hardware_aes_available() {
@@ -186,7 +183,7 @@ fn run_garbler(
 
     let mut g = ccn::Garbler::create(&mut seed_rng, cfg.clone());
 
-    // Commit with the hasher used by evaluator; SHA-256 when soldering is enabled
+    // Commit with the hasher used by evaluator; SHA-256 for this example
     g2e_tx
         .send(G2EMsg::Commits(g.commit_with_hasher::<ExampleHasher>()))
         .expect("send commits");
@@ -211,22 +208,12 @@ fn run_garbler(
         .expect("send open_result");
 
     // Single-machine demo: run stages sequentially to avoid resource contention.
-    info!("single-machine demo: joining regarbling before soldering/evaluation");
+    info!("single-machine demo: joining regarbling before evaluation");
     threads.into_iter().for_each(|th| {
         if let Err(err) = th.join() {
             error!("while regarbling: {err:?}")
         }
     });
-
-    // Produce and send soldering proof (timed via span; no progress output)
-    {
-        let _span = tracing::info_span!("soldering").entered();
-        info!("start");
-        let proof = g.do_soldering();
-        g2e_tx
-            .send(G2EMsg::SolderingProof(Box::new(proof)))
-            .expect("send soldering proof");
-    }
 
     let challenge_proof =
         ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
@@ -239,6 +226,15 @@ fn run_garbler(
     assert_eq!(
         is_valid, IS_PROOF_CORRECT,
         "Proof must be valid before garbling!"
+    );
+
+    let is_valid = ArkGroth16::<Bn254>::verify(&cfg.input().vk, &[public_input], &challenge_proof)
+        .expect("verify");
+
+    info!("Proof is_valid: {is_valid}");
+    assert_eq!(
+        is_valid, IS_PROOF_CORRECT,
+        "Proof must be {IS_PROOF_CORRECT} before garbling!"
     );
 
     // Test only
@@ -265,13 +261,10 @@ fn run_garbler(
 
     let fin_inputs = g.prepare_input_labels(vec![public_input], challenge_proof);
 
-    // Only send base-case input labels; derive others via soldering deltas on evaluator side
-    assert!(!fin_inputs.is_empty(), "no finalized inputs prepared");
-    let base_case = fin_inputs.into_iter().next().expect("base case");
-
+    // Send fully built evaluator inputs for all finalized instances
     g2e_tx
-        .send(G2EMsg::OpenInput(Box::new(base_case)))
-        .expect("send base evaluator input labels")
+        .send(G2EMsg::OpenLabels(fin_inputs))
+        .expect("send finalized evaluator inputs");
 }
 
 fn run_evaluator(
@@ -288,7 +281,7 @@ fn run_evaluator(
         panic!("unexpected message; expected commits")
     };
 
-    let mut eval = ccn::Evaluator::<ExampleHasher>::create(&mut rng, cfg.clone(), commits);
+    let eval = ccn::Evaluator::<ExampleHasher>::create(&mut rng, cfg.clone(), commits);
 
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
@@ -328,20 +321,9 @@ fn run_evaluator(
     )
     .expect("regarbling checks");
 
-    // Verify soldering proof binds inputs to commits
-    let G2EMsg::SolderingProof(proof) = g2e_rx.recv().expect("recv soldering proof") else {
-        panic!("unexpected message; expected soldering proof")
+    // Legacy flow: receive full inputs for all finalized instances and evaluate
+    let Ok(G2EMsg::OpenLabels(cases)) = g2e_rx.recv() else {
+        panic!("unexpected message; expected finalized inputs")
     };
-
-    eval.verify_soldering_against_commits(*proof)
-        .expect("soldering verify");
-
-    // Receive constants for additional instances
-    // Receive the base-case evaluator input (labels)
-    let G2EMsg::OpenInput(base_case) = g2e_rx.recv().expect("recv base input") else {
-        panic!("unexpected message; expected base evaluator input")
-    };
-
-    eval.run_evaluate_with_soldered_instances(&out_dir, *base_case)
-        .expect("soldered evaluate")
+    eval.evaluate_from(&out_dir, cases).unwrap()
 }

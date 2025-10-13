@@ -108,6 +108,11 @@ panic = "abort"       # Faster execution, smaller binary
 development = ["cargo-husky"]
 normal = ["aes"]
 
-[profile.release]
-lto = "thin" 
-codegen-units = 1
+[[example]]
+name = "groth16_cut_and_choose"
+path = "examples/groth16_cut_and_choose.rs"
+required-features = ["sp1-soldering"]
+
+[[example]]
+name = "groth16_cut_and_choose_without_soldering"
+path = "examples/groth16_cut_and_choose_without_soldering.rs"

@@ -13,7 +13,7 @@
 //! - `verify_soldering`: verify the proof and return the public parameters
 //!   bound by the proof for consumer use.
 
-use crate::{GarbledWire, S};
+use crate::{GarbledWire, S, circuit::CircuitInput};
 
 /// SHA-256 commitment used for wire-label commitments.
 pub type Sha256Commit = [u8; 32];
@@ -146,6 +146,21 @@ fn convert_public_values(data: gsv_soldering_core::types::SolderedLabelsData) ->
         commitments: data.commitments,
     }
 }
+
+pub trait SolderInput: CircuitInput {
+    fn solder(&self, deltas: &[(S, S)]) -> Self;
+}
+
+//impl SolderInput for EvaluatedWire {
+//    fn solder(&self, deltas: &[(S, S)]) -> Self {
+//        let delta = if self.value { deltas[0] } else { deltas[1] };
+//
+//        EvaluatedWire {
+//            active_label: self.active_label.bitxor(delta),
+//            value: self.value,
+//        }
+//    }
+//}
 
 #[cfg(test)]
 mod tests {

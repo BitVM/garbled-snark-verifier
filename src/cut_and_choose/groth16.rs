@@ -1,3 +1,4 @@
+use garbled_groth16::{EvaluatedCompressedG1Wires, EvaluatedCompressedG2Wires, EvaluatedFrWires};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +11,7 @@ use crate::{
         ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
     },
     garbled_groth16::{self, PublicParams},
+    soldering::SolderInput,
 };
 
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
@@ -90,12 +92,7 @@ impl Garbler {
                     self.input_labels_for(*idx),
                 );
 
-                EvaluatorCaseInput {
-                    index: *idx,
-                    input,
-                    true_constant_wire: self.true_wire_constant_for(*idx),
-                    false_constant_wire: self.false_wire_constant_for(*idx),
-                }
+                EvaluatorCaseInput { index: *idx, input }
             })
             .collect()
     }
@@ -189,6 +186,60 @@ impl<H: LabelCommitHasher> Evaluator<H> {
     }
 }
 
+impl SolderInput for garbled_groth16::EvaluatorCompressedInput {
+    fn solder(
+        &self,
+        per_wire: &[(crate::S, crate::S)],
+    ) -> garbled_groth16::EvaluatorCompressedInput {
+        let mut it = per_wire.iter();
+
+        let mut map_wire = |ew: &EvaluatedWire| -> EvaluatedWire {
+            let (d0, d1) = *it.next().expect("delta length matches input wires");
+            let delta = if ew.value { d1 } else { d0 };
+            EvaluatedWire::new(ew.active_label ^ &delta, ew.value)
+        };
+
+        let map_fr =
+            |fr: &garbled_groth16::EvaluatedFrWires,
+             map_wire: &mut dyn FnMut(&EvaluatedWire) -> EvaluatedWire| {
+                EvaluatedFrWires(fr.0.iter().map(map_wire).collect())
+            };
+
+        let public = self
+            .public
+            .iter()
+            .map(|fr| map_fr(fr, &mut map_wire))
+            .collect();
+
+        let a_x = map_fr(&self.a.x, &mut map_wire);
+        let a_y_flag = map_wire(&self.a.y_flag);
+
+        let b_x0 = map_fr(&self.b.x[0], &mut map_wire);
+        let b_x1 = map_fr(&self.b.x[1], &mut map_wire);
+        let b_y_flag = map_wire(&self.b.y_flag);
+
+        let c_x = map_fr(&self.c.x, &mut map_wire);
+        let c_y_flag = map_wire(&self.c.y_flag);
+
+        garbled_groth16::EvaluatorCompressedInput {
+            public,
+            a: EvaluatedCompressedG1Wires {
+                x: a_x,
+                y_flag: a_y_flag,
+            },
+            b: EvaluatedCompressedG2Wires {
+                x: [b_x0, b_x1],
+                y_flag: b_y_flag,
+            },
+            c: EvaluatedCompressedG1Wires {
+                x: c_x,
+                y_flag: c_y_flag,
+            },
+            vk: self.vk.clone(),
+        }
+    }
+}
+
 #[cfg(feature = "sp1-soldering")]
 impl Evaluator<generic::Sha256LabelCommitHasher> {
     pub fn verify_soldering_against_commits(
@@ -196,5 +247,31 @@ impl Evaluator<generic::Sha256LabelCommitHasher> {
         proof: crate::soldering::SolderingProof,
     ) -> Result<crate::soldering::SolderedLabels, generic::SolderingCheckError> {
         self.inner.verify_soldering_against_commits(proof)
+    }
+
+    /// Evaluate all finalized instances using a single base set of input labels,
+    /// reconstructing the rest from previously verified soldering deltas.
+    ///
+    /// Requirements:
+    /// - Call `verify_soldering_against_commits` first; this stores the deltas.
+    /// - `base_case.index` must equal the first finalized index (the base).
+    /// - No additional constants are required; constants are derived from commits.
+    #[allow(clippy::result_large_err)]
+    pub fn run_evaluate_with_soldered_instances<
+        CR: 'static + CiphertextSourceProvider + Send + Sync,
+    >(
+        &self,
+        ciphertext_repo: &CR,
+        base_case: EvaluatorCaseInput,
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<generic::Sha256LabelCommitHasher>>
+    where
+        <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
+    {
+        self.inner.evaluate_with_soldered_instances_from(
+            ciphertext_repo,
+            base_case,
+            DEFAULT_CAPACITY,
+            garbled_groth16::verify_compressed,
+        )
     }
 }
