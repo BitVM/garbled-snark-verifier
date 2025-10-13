@@ -15,7 +15,13 @@ jobs:
       with:
         toolchain: "1.90.0"
         override: true
-    
+
+    - name: Install SP1 toolchain
+      run: |
+        curl -L https://sp1up.succinct.xyz | bash
+        echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+        $HOME/.sp1/bin/sp1up
+
     - name: Run sccache-cache
       uses: mozilla-actions/sccache-action@v0.0.9
     

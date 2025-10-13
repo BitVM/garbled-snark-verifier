@@ -14,6 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1up.succinct.xyz | bash
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+          $HOME/.sp1/bin/sp1up
+          $HOME/.sp1/bin/cargo-prove prove --version
+
       - name: Save build artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -29,6 +36,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1up.succinct.xyz | bash
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+          $HOME/.sp1/bin/sp1up
 
       - name: Restore cached build artifacts
         uses: Swatinem/rust-cache@v2

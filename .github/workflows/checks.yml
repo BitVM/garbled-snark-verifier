@@ -36,6 +36,11 @@ jobs:
           toolchain: 1.90.0
           override: true
           components: clippy
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1up.succinct.xyz | bash
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+          $HOME/.sp1/bin/sp1up
       - name: Run Cargo clippy
         run: cargo clippy --no-deps $CARGOFLAGS
 
@@ -52,6 +57,12 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
+
+      - name: Install SP1 toolchain
+        run: |
+          curl -L https://sp1up.succinct.xyz | bash
+          echo "$HOME/.sp1/bin" >> $GITHUB_PATH
+          $HOME/.sp1/bin/sp1up
 
       - name: Run cargo-udeps
         env:
