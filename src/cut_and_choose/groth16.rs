@@ -1,8 +1,11 @@
+#[cfg(feature = "sp1-soldering")]
 use garbled_groth16::{EvaluatedCompressedG1Wires, EvaluatedCompressedG2Wires, EvaluatedFrWires};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 pub use crate::cut_and_choose::{GarbledInstanceCommit, LabelCommitHasher, OpenForInstance, Seed};
+#[cfg(feature = "sp1-soldering")]
+use crate::soldering::SolderInput;
 use crate::{
     EvaluatedWire, GarbledWire, S,
     circuit::{CiphertextHandler, CiphertextSource},
@@ -11,7 +14,6 @@ use crate::{
         ConsistencyError, DefaultLabelCommitHasher, GarblerStage, LabelCommit,
     },
     garbled_groth16::{self, PublicParams},
-    soldering::SolderInput,
 };
 
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
@@ -185,6 +187,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
     }
 }
 
+#[cfg(feature = "sp1-soldering")]
 impl SolderInput for garbled_groth16::EvaluatorCompressedInput {
     fn solder(
         &self,

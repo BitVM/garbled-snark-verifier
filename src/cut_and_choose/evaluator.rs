@@ -639,14 +639,14 @@ where
     ) -> Result<SolderedLabels, SolderingCheckError> {
         let Stage::Filled {
             first: first_commits,
-            second,
+            second: second_commits,
             regarbled: true,
         } = mem::take(&mut self.stage)
         else {
             panic!()
         };
 
-        let out = crate::soldering::verify_soldering(proof);
+        let verified_public_params = crate::soldering::verify_soldering(proof);
 
         let Some(&base_idx) = self.to_finalize.first() else {
             return Err(SolderingCheckError::ShapeMismatch(
@@ -658,25 +658,25 @@ where
 
         // Shape checks
         let expected_wires = first_commits[base_idx].input_labels_commit().len();
-        if out.base_commitment.len() != expected_wires {
+        if verified_public_params.base_commitment.len() != expected_wires {
             return Err(SolderingCheckError::ShapeMismatch(
                 "base commitment wire count",
             ));
         }
-        if out.deltas.len() != soldered_instances_indexes.len() {
+        if verified_public_params.deltas.len() != soldered_instances_indexes.len() {
             return Err(SolderingCheckError::ShapeMismatch(
                 "deltas count vs additional instances",
             ));
         }
-        if out.commitments.len() != soldered_instances_indexes.len() {
+        if verified_public_params.commitments.len() != soldered_instances_indexes.len() {
             return Err(SolderingCheckError::ShapeMismatch(
                 "commitments count vs additional instances",
             ));
         }
         for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
             if first_commits[inst_idx].input_labels_commit().len() != expected_wires
-                || out.commitments[j].len() != expected_wires
-                || out.deltas[j].len() != expected_wires
+                || verified_public_params.commitments[j].len() != expected_wires
+                || verified_public_params.deltas[j].len() != expected_wires
             {
                 return Err(SolderingCheckError::ShapeMismatch(
                     "per-instance wire count",
@@ -694,7 +694,7 @@ where
         // Compare base instance per-wire commitments
         let base_local = &first_commits[base_idx];
         for (wire_idx, base_pair) in base_local.input_labels_commit().iter().enumerate() {
-            let [exp0, exp1] = out.base_commitment[wire_idx];
+            let [exp0, exp1] = verified_public_params.base_commitment[wire_idx];
 
             if base_pair.commit_label0 != exp0 {
                 return Err(SolderingCheckError::BaseCommitMismatch {
@@ -717,30 +717,30 @@ where
 
         // Verify nonce commitments for base instance
         // The second commit for base instance should have the nonce applied
-        let base_second = &second[base_idx];
+        let base_second = &second_commits[base_idx];
 
-        for (wire_idx, (nonce_commit, local_commit)) in out
+        for (wire_idx, (nonce_commit, nonce_local_commit)) in verified_public_params
             .base_nonce_commitment
             .iter()
             .zip(base_second.iter())
             .enumerate()
         {
             // Verify label0 with nonce
-            if nonce_commit[0] != local_commit.commit_label0 {
+            if nonce_commit[0] != nonce_local_commit.commit_label0 {
                 return Err(SolderingCheckError::BaseNonceCommitMismatch {
                     wire_index: wire_idx,
                     which: "label0_with_nonce",
-                    expected: local_commit.commit_label0,
+                    expected: nonce_local_commit.commit_label0,
                     actual: nonce_commit[0],
                 });
             }
 
             // Verify label1 with nonce
-            if nonce_commit[1] != local_commit.commit_label1 {
+            if nonce_commit[1] != nonce_local_commit.commit_label1 {
                 return Err(SolderingCheckError::BaseNonceCommitMismatch {
                     wire_index: wire_idx,
                     which: "label1_with_nonce",
-                    expected: local_commit.commit_label1,
+                    expected: nonce_local_commit.commit_label1,
                     actual: nonce_commit[1],
                 });
             }
@@ -751,7 +751,7 @@ where
             let local = &first_commits[inst_idx];
 
             for (wire_idx, local_pair) in local.input_labels_commit().iter().enumerate() {
-                let (exp0, exp1) = out.commitments[j][wire_idx];
+                let (exp0, exp1) = verified_public_params.commitments[j][wire_idx];
 
                 if local_pair.commit_label0 != exp0 {
                     return Err(SolderingCheckError::InstanceCommitMismatch {
@@ -778,11 +778,11 @@ where
         // Persist deltas for later evaluate step
         self.stage = Stage::Soldered {
             first: first_commits,
-            second,
-            soldering_deltas: out.deltas.clone(),
+            second: second_commits,
+            soldering_deltas: verified_public_params.deltas.clone(),
         };
 
-        Ok(out)
+        Ok(verified_public_params)
     }
 }
 

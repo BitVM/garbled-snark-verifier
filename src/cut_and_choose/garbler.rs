@@ -8,6 +8,8 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+#[cfg(feature = "sp1-soldering")]
+use crate::soldering::{self, SolderingProof};
 use crate::{
     AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, S, WireId,
     circuit::{
@@ -18,7 +20,6 @@ use crate::{
         CiphertextCommit, Config, DefaultLabelCommitHasher, LabelCommit, LabelCommitHasher, Seed,
         commit_label_with,
     },
-    soldering::{self, SolderingProof},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -319,6 +320,7 @@ where
             .collect()
     }
 
+    #[cfg(feature = "sp1-soldering")]
     pub fn do_soldering(&self, evaluator_nonce: S) -> SolderingProof {
         let GarblerStage::PreparedForEval { indexes_to_eval } = &self.stage else {
             panic!("Garbler not ready to soldering")
