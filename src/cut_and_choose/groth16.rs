@@ -135,7 +135,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
 
     #[allow(clippy::result_unit_err)]
     pub fn run_regarbling<CSourceProvider, CHandlerProvider>(
-        &self,
+        &mut self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
         ciphertext_sink_provider: &CHandlerProvider,
@@ -153,10 +153,6 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         )
-    }
-
-    pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
-        self.inner.commits()
     }
 }
 

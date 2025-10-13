@@ -1,4 +1,4 @@
-use std::{error, fmt};
+use std::{error, fmt, mem};
 
 use itertools::*;
 use rand::Rng;
@@ -25,6 +25,42 @@ use crate::{
     soldering::{SolderInput, SolderedLabels, SolderingProof},
 };
 
+#[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(bound = "H: LabelCommitHasher")]
+enum Stage<H: LabelCommitHasher> {
+    #[default]
+    Empty,
+    Created(Vec<GarbledInstanceCommit<H>>),
+    Filled {
+        first: Vec<GarbledInstanceCommit<H>>,
+        second: Vec<Vec<LabelCommit<H::Output>>>,
+        regarbled: bool,
+    },
+    #[cfg(feature = "sp1-soldering")]
+    Soldered {
+        first: Vec<GarbledInstanceCommit<H>>,
+        second: Vec<Vec<LabelCommit<H::Output>>>,
+        soldering_deltas: Vec<Vec<(S, S)>>,
+    },
+}
+
+impl<H: LabelCommitHasher> Stage<H> {
+    fn get_commit_if_ready(&self) -> Option<&[GarbledInstanceCommit<H>]> {
+        match self {
+            Stage::Empty => None,
+            Stage::Created(_) => None,
+            Stage::Filled {
+                first,
+                regarbled: true,
+                ..
+            } => Some(first),
+            #[cfg(feature = "sp1-soldering")]
+            Stage::Soldered { first, .. } => Some(first),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound = "H: LabelCommitHasher")]
 pub struct Evaluator<
@@ -32,19 +68,12 @@ pub struct Evaluator<
     H: LabelCommitHasher = DefaultLabelCommitHasher,
 > {
     config: Config<I>,
-    first_commits: Vec<GarbledInstanceCommit<H>>,
-
-    // Input labels commit with nonce labels
-    second_commits: Vec<Vec<LabelCommit<H::Output>>>,
-
-    to_finalize: Box<[usize]>,
-    #[cfg(feature = "sp1-soldering")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    soldering_deltas: Option<Vec<Vec<(S, S)>>>,
 
     /// To protect against the second-preimage of input-label hash, this nonce supplements the
     /// commit from `Garbler`
     nonce: S,
+    to_finalize: Box<[usize]>,
+    stage: Stage<H>,
 }
 
 impl<I, H> Evaluator<I, H>
@@ -80,18 +109,24 @@ where
         idxs.sort_unstable();
 
         Self {
-            first_commits: commits,
-            second_commits: vec![],
+            stage: Stage::Created(commits),
             to_finalize: idxs.into_boxed_slice(),
             config,
-            #[cfg(feature = "sp1-soldering")]
-            soldering_deltas: None,
             nonce: S::from_u128(rng.r#gen()),
         }
     }
 
     pub fn fill_second_commit(&mut self, commits: Vec<Vec<LabelCommit<H::Output>>>) {
-        self.second_commits = commits;
+        let first = match &mut self.stage {
+            Stage::Created(first) => mem::take(first),
+            _ => panic!("Can't fill second commit for filled `Evaluator`"),
+        };
+
+        self.stage = Stage::Filled {
+            first,
+            second: commits,
+            regarbled: false,
+        };
     }
 
     pub fn get_nonce(&self) -> S {
@@ -106,7 +141,7 @@ where
     // 2. For `Open` run `streaming_garbling` via rayon, where at the end it checks for a match with saved commits
     #[allow(clippy::result_unit_err)]
     pub fn run_regarbling<CSourceProvider, CHandlerProvider, F>(
-        &self,
+        &mut self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
         ciphertext_handler_provider: &CHandlerProvider,
@@ -126,14 +161,25 @@ where
             + Sync
             + Copy,
     {
+        let Stage::Filled {
+            first,
+            second,
+            regarbled,
+        } = &mut self.stage
+        else {
+            panic!("Can't run regarbling for not filled Evaluator");
+        };
+
+        let iter = first.iter().zip_eq(second.iter()).enumerate();
+
+        let inputs = self.config.input.clone();
+        let to_finalize = &self.to_finalize;
+        let nonce = self.nonce;
+
         super::get_optimized_pool().install(|| {
-            self.first_commits
-                .iter()
-                .zip_eq(self.second_commits.iter())
-                .enumerate()
-                .par_bridge()
+            iter.par_bridge()
                 .map(|(index, (first_commit, second_commit))| {
-                    if self.to_finalize.contains(&index) {
+                    if to_finalize.contains(&index) {
                         let mut source = match ciphertext_sources_provider.source_for(index) {
                             Ok(source) => source,
                             Err(err) => {
@@ -171,7 +217,7 @@ where
                             return Err(());
                         };
 
-                        let inputs = self.config.input.clone();
+                        let inputs = inputs.clone();
                         let hasher = AESAccumulatingHash::default();
 
                         let span = tracing::info_span!("regarble", instance = index);
@@ -199,8 +245,7 @@ where
                             return Err(());
                         }
 
-                        if GarbledInstanceCommit::<H>::new(&res, &Some(self.get_nonce()))
-                            .input_labels_commit()
+                        if GarbledInstanceCommit::<H>::new(&res, &Some(nonce)).input_labels_commit()
                             != second_commit
                         {
                             error!("regarbling failed, second commit not equal");
@@ -213,11 +258,9 @@ where
                 .collect::<Result<Vec<()>, ()>>()
         })?;
 
-        Ok(())
-    }
+        *regarbled = true;
 
-    pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
-        &self.first_commits
+        Ok(())
     }
 }
 
@@ -385,6 +428,8 @@ where
             + Sync
             + Copy,
     {
+        let commits = self.stage.get_commit_if_ready().unwrap();
+
         super::get_optimized_pool().install(|| {
             input_cases
                 .into_par_iter()
@@ -394,7 +439,7 @@ where
                         input: eval_input,
                     } = case;
 
-                    let commit = &self.first_commits[index];
+                    let commit = &commits[index];
 
                     let expected_input_commits = commit.input_labels_commit();
 
@@ -570,6 +615,15 @@ where
         &mut self,
         proof: SolderingProof,
     ) -> Result<SolderedLabels, SolderingCheckError> {
+        let Stage::Filled {
+            first: first_commits,
+            second,
+            regarbled: true,
+        } = mem::take(&mut self.stage)
+        else {
+            panic!()
+        };
+
         let out = crate::soldering::verify_soldering(proof);
 
         let Some(&base_idx) = self.to_finalize.first() else {
@@ -581,7 +635,7 @@ where
         let soldered_instances_indexes = &self.to_finalize[1..];
 
         // Shape checks
-        let expected_wires = self.first_commits[base_idx].input_labels_commit().len();
+        let expected_wires = first_commits[base_idx].input_labels_commit().len();
         if out.base_commitment.len() != expected_wires {
             return Err(SolderingCheckError::ShapeMismatch(
                 "base commitment wire count",
@@ -598,7 +652,7 @@ where
             ));
         }
         for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
-            if self.first_commits[inst_idx].input_labels_commit().len() != expected_wires
+            if first_commits[inst_idx].input_labels_commit().len() != expected_wires
                 || out.commitments[j].len() != expected_wires
                 || out.deltas[j].len() != expected_wires
             {
@@ -616,7 +670,7 @@ where
         );
 
         // Compare base instance per-wire commitments
-        let base_local = &self.first_commits[base_idx];
+        let base_local = &first_commits[base_idx];
         for (wire_idx, base_pair) in base_local.input_labels_commit().iter().enumerate() {
             let [exp0, exp1] = out.base_commitment[wire_idx];
 
@@ -641,7 +695,7 @@ where
 
         // Compare additional instances per-wire commitments
         for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
-            let local = &self.first_commits[inst_idx];
+            let local = &first_commits[inst_idx];
 
             for (wire_idx, local_pair) in local.input_labels_commit().iter().enumerate() {
                 let (exp0, exp1) = out.commitments[j][wire_idx];
@@ -669,7 +723,11 @@ where
         }
 
         // Persist deltas for later evaluate step
-        self.soldering_deltas = Some(out.deltas.clone());
+        self.stage = Stage::Soldered {
+            first: first_commits,
+            second,
+            soldering_deltas: out.deltas.clone(),
+        };
 
         Ok(out)
     }
@@ -680,11 +738,6 @@ impl<I> Evaluator<I, Sha256LabelCommitHasher>
 where
     I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
 {
-    /// Access previously verified soldering deltas, if available.
-    pub fn soldering_deltas(&self) -> Option<&[Vec<(S, S)>]> {
-        self.soldering_deltas.as_deref()
-    }
-
     #[allow(clippy::result_large_err)]
     pub fn evaluate_with_soldered_instances_from<E, F, CR>(
         &self,
@@ -715,10 +768,13 @@ where
             "base_case.index must equal first finalized index"
         );
 
-        // Fetch soldering deltas captured during verification
-        let deltas = self
-            .soldering_deltas()
-            .expect("soldering deltas missing; call verify_soldering_against_commits first");
+        let Stage::Soldered {
+            soldering_deltas: deltas,
+            ..
+        } = &self.stage
+        else {
+            panic!()
+        };
 
         // Build input cases: base + derived for each additional finalized index
         let mut cases: Vec<EvaluatorCaseInput<E>> = Vec::with_capacity(finalized.len());
