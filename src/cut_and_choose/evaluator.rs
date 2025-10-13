@@ -1,7 +1,8 @@
 use std::{error, fmt};
 
+use itertools::*;
 use rand::Rng;
-use rayon::{iter::IntoParallelRefIterator, prelude::*};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, info};
 
@@ -31,11 +32,19 @@ pub struct Evaluator<
     H: LabelCommitHasher = DefaultLabelCommitHasher,
 > {
     config: Config<I>,
-    commits: Vec<GarbledInstanceCommit<H>>,
+    first_commits: Vec<GarbledInstanceCommit<H>>,
+
+    // Input labels commit with nonce labels
+    second_commits: Vec<Vec<LabelCommit<H::Output>>>,
+
     to_finalize: Box<[usize]>,
     #[cfg(feature = "sp1-soldering")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     soldering_deltas: Option<Vec<Vec<(S, S)>>>,
+
+    /// To protect against the second-preimage of input-label hash, this nonce supplements the
+    /// commit from `Garbler`
+    nonce: S,
 }
 
 impl<I, H> Evaluator<I, H>
@@ -71,16 +80,22 @@ where
         idxs.sort_unstable();
 
         Self {
-            commits,
+            first_commits: commits,
+            second_commits: vec![],
             to_finalize: idxs.into_boxed_slice(),
             config,
             #[cfg(feature = "sp1-soldering")]
             soldering_deltas: None,
+            nonce: S::from_u128(rng.r#gen()),
         }
     }
 
-    pub fn get_indexes_to_finalize(&self) -> &[usize] {
-        &self.to_finalize
+    pub fn fill_second_commit(&mut self, commits: Vec<Vec<LabelCommit<H::Output>>>) {
+        self.second_commits = commits;
+    }
+
+    pub fn get_nonce(&self) -> S {
+        self.nonce
     }
 
     pub fn finalized_indexes(&self) -> &[usize] {
@@ -112,10 +127,12 @@ where
             + Copy,
     {
         super::get_optimized_pool().install(|| {
-            self.commits
-                .par_iter()
+            self.first_commits
+                .iter()
+                .zip_eq(self.second_commits.iter())
                 .enumerate()
-                .map(|(index, commit)| {
+                .par_bridge()
+                .map(|(index, (first_commit, second_commit))| {
                     if self.to_finalize.contains(&index) {
                         let mut source = match ciphertext_sources_provider.source_for(index) {
                             Ok(source) => source,
@@ -139,7 +156,7 @@ where
 
                         let computed_commit: CiphertextCommit = handler.finalize().into();
 
-                        if computed_commit != commit.ciphertext_commit() {
+                        if computed_commit != first_commit.ciphertext_commit() {
                             error!("ciphertext corrupted");
                             return Err(());
                         }
@@ -174,10 +191,19 @@ where
                             builder,
                         );
 
-                        let regarbling_commit = GarbledInstanceCommit::<H>::new(&res.into());
+                        let res = res.into();
+                        let regarbling_first_commit = GarbledInstanceCommit::<H>::new(&res, &None);
 
-                        if &regarbling_commit != commit {
-                            error!("regarbling failed");
+                        if &regarbling_first_commit != first_commit {
+                            error!("regarbling failed, first commit not equal");
+                            return Err(());
+                        }
+
+                        if GarbledInstanceCommit::<H>::new(&res, &Some(self.get_nonce()))
+                            .input_labels_commit()
+                            != second_commit
+                        {
+                            error!("regarbling failed, second commit not equal");
                             return Err(());
                         }
 
@@ -191,7 +217,7 @@ where
     }
 
     pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
-        &self.commits
+        &self.first_commits
     }
 }
 
@@ -368,7 +394,7 @@ where
                         input: eval_input,
                     } = case;
 
-                    let commit = &self.commits[index];
+                    let commit = &self.first_commits[index];
 
                     let expected_input_commits = commit.input_labels_commit();
 
@@ -555,7 +581,7 @@ where
         let soldered_instances_indexes = &self.to_finalize[1..];
 
         // Shape checks
-        let expected_wires = self.commits[base_idx].input_labels_commit().len();
+        let expected_wires = self.first_commits[base_idx].input_labels_commit().len();
         if out.base_commitment.len() != expected_wires {
             return Err(SolderingCheckError::ShapeMismatch(
                 "base commitment wire count",
@@ -572,7 +598,7 @@ where
             ));
         }
         for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
-            if self.commits[inst_idx].input_labels_commit().len() != expected_wires
+            if self.first_commits[inst_idx].input_labels_commit().len() != expected_wires
                 || out.commitments[j].len() != expected_wires
                 || out.deltas[j].len() != expected_wires
             {
@@ -590,7 +616,7 @@ where
         );
 
         // Compare base instance per-wire commitments
-        let base_local = &self.commits[base_idx];
+        let base_local = &self.first_commits[base_idx];
         for (wire_idx, base_pair) in base_local.input_labels_commit().iter().enumerate() {
             let [exp0, exp1] = out.base_commitment[wire_idx];
 
@@ -615,7 +641,7 @@ where
 
         // Compare additional instances per-wire commitments
         for (j, &inst_idx) in soldered_instances_indexes.iter().enumerate() {
-            let local = &self.commits[inst_idx];
+            let local = &self.first_commits[inst_idx];
 
             for (wire_idx, local_pair) in local.input_labels_commit().iter().enumerate() {
                 let (exp0, exp1) = out.commitments[j][wire_idx];

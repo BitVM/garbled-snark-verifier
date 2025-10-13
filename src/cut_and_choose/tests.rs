@@ -107,7 +107,7 @@ fn cut_and_choose_one_bit_e2e() {
     // Garbler creates all instances
     let cfg_g = Config::new(total, finalize, OneBitGarblerInput);
     let mut garbler = Garbler::create(&mut rng, cfg_g, CAPACITY, one_bit_circuit);
-    let commits = garbler.commit();
+    let commits = garbler.commit_with_hasher::<DefaultLabelCommitHasher>(&None);
 
     // Evaluator chooses which instances to finalize
     let cfg_e = Config::new(total, finalize, OneBitGarblerInput);
@@ -363,7 +363,7 @@ fn cut_and_choose_fq12_mul_e2e() {
     // Garbler flow
     let cfg_g = Config::new(total, finalize, input.clone());
     let mut garbler = Garbler::create(&mut rng, cfg_g, CAPACITY, build_fq12_mul_eq_const);
-    let commits = garbler.commit();
+    let commits = garbler.commit_with_hasher::<DefaultLabelCommitHasher>(&None);
 
     // Evaluator chooses to finalize instances
     let cfg_e = Config::new(total, finalize, input.clone());

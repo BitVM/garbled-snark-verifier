@@ -185,7 +185,7 @@ fn run_garbler(
 
     // Commit with the hasher used by evaluator; SHA-256 for this example
     g2e_tx
-        .send(G2EMsg::Commits(g.commit_with_hasher::<ExampleHasher>()))
+        .send(G2EMsg::Commits(g.commit_with_hasher::<ExampleHasher>(None)))
         .expect("send commits");
 
     let E2GMsg::Challenge(finalize_senders) = e2g_rx.recv().expect("recv finalize senders");

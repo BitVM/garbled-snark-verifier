@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
-    AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, WireId,
+    AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
@@ -83,10 +83,10 @@ impl<H: LabelCommitHasher> PartialEq for GarbledInstanceCommit<H> {
 }
 
 impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
-    pub fn new(instance: &GarbledInstance) -> Self {
+    pub fn new(instance: &GarbledInstance, nonce: &Option<S>) -> Self {
         Self {
             ciphertext_commit: instance.ciphertext_handler_result,
-            input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values),
+            input_labels_commit: Self::commit_garbled_wires(&instance.input_wire_values, nonce),
 
             output_label1_commit: Self::commit_label1(&instance.output_wire_values),
 
@@ -97,11 +97,14 @@ impl<H: LabelCommitHasher> GarbledInstanceCommit<H> {
         }
     }
 
-    pub fn commit_garbled_wires(inputs: &[GarbledWire]) -> Vec<LabelCommit<H::Output>> {
+    pub fn commit_garbled_wires(
+        inputs: &[GarbledWire],
+        nonce: &Option<S>,
+    ) -> Vec<LabelCommit<H::Output>> {
         inputs
             .iter()
             .map(|GarbledWire { label0, label1 }| {
-                LabelCommit::<H::Output>::new::<H>(*label0, *label1)
+                LabelCommit::<H::Output>::new::<H>(*label0, *label1, nonce)
             })
             .collect()
     }
@@ -240,18 +243,17 @@ where
         }
     }
 
-    pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
-        self.commit_with_hasher::<DefaultLabelCommitHasher>()
-    }
-
-    pub fn commit_with_hasher<HHasher>(&self) -> Vec<GarbledInstanceCommit<HHasher>>
+    pub fn commit_with_hasher<HHasher>(
+        &self,
+        nonce: &Option<S>,
+    ) -> Vec<GarbledInstanceCommit<HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
         // Build commits in parallel; independent per instance
         self.instances
             .iter()
-            .map(GarbledInstanceCommit::<HHasher>::new)
+            .map(|i| GarbledInstanceCommit::<HHasher>::new(i, nonce))
             .collect()
     }
 

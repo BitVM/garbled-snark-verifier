@@ -4,11 +4,11 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::cut_and_choose::{GarbledInstanceCommit, LabelCommitHasher, OpenForInstance, Seed};
 use crate::{
-    EvaluatedWire, GarbledWire,
+    EvaluatedWire, GarbledWire, S,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
-        ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
+        ConsistencyError, DefaultLabelCommitHasher, GarblerStage, LabelCommit,
     },
     garbled_groth16::{self, PublicParams},
     soldering::SolderInput,
@@ -36,15 +36,14 @@ impl Garbler {
         Self { inner }
     }
 
-    pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
-        self.inner.commit()
-    }
-
-    pub fn commit_with_hasher<HHasher>(&self) -> Vec<GarbledInstanceCommit<HHasher>>
+    pub fn commit_with_hasher<HHasher>(
+        &self,
+        nonce: Option<S>,
+    ) -> Vec<GarbledInstanceCommit<HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
-        self.inner.commit_with_hasher::<HHasher>()
+        self.inner.commit_with_hasher::<HHasher>(&nonce)
     }
 
     pub fn open_commit<CTH: 'static + Send + CiphertextHandler>(
@@ -122,8 +121,12 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         Self { inner }
     }
 
-    pub fn get_indexes_to_finalize(&self) -> &[usize] {
-        self.inner.get_indexes_to_finalize()
+    pub fn fill_second_commit(&mut self, commits: Vec<Vec<LabelCommit<H::Output>>>) {
+        self.inner.fill_second_commit(commits);
+    }
+
+    pub fn get_nonce(&self) -> S {
+        self.inner.get_nonce()
     }
 
     pub fn finalized_indexes(&self) -> &[usize] {

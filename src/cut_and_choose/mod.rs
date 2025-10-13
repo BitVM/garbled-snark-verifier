@@ -1,5 +1,6 @@
 use std::{
     fmt,
+    ops::BitXor,
     sync::{Arc, OnceLock},
 };
 
@@ -70,10 +71,20 @@ pub struct LabelCommit<H: Clone + Copy> {
 }
 
 impl<H: Clone + Copy> LabelCommit<H> {
-    pub fn new<Hasher: LabelCommitHasher<Output = H>>(label0: S, label1: S) -> Self {
-        Self {
-            commit_label0: commit_label_with::<Hasher>(label0),
-            commit_label1: commit_label_with::<Hasher>(label1),
+    pub fn new<Hasher: LabelCommitHasher<Output = H>>(
+        label0: S,
+        label1: S,
+        nonce: &Option<S>,
+    ) -> Self {
+        match nonce {
+            Some(nonce) => Self {
+                commit_label0: commit_label_with::<Hasher>(label0.bitxor(nonce)),
+                commit_label1: commit_label_with::<Hasher>(label1.bitxor(nonce)),
+            },
+            None => Self {
+                commit_label0: commit_label_with::<Hasher>(label0),
+                commit_label1: commit_label_with::<Hasher>(label1),
+            },
         }
     }
 

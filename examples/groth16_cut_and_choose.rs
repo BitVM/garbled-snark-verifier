@@ -10,7 +10,7 @@ use garbled_snark_verifier::{
         SNARK, UniformRand,
     },
     circuit::{CiphertextHandler, CiphertextSender, CircuitBuilder},
-    cut_and_choose::FileCiphertextHandlerProvider,
+    cut_and_choose::{FileCiphertextHandlerProvider, LabelCommit},
     garbled_groth16,
     groth16_cut_and_choose::{self as ccn, EvaluatorCaseInput},
     soldering::SolderingProof,
@@ -30,12 +30,13 @@ const IS_PRE_BOOLEAN_EXEC: bool = false;
 // Calculate and display total gates to process
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
-// Always use SHA-256 label commitments for this example
-type ExampleHasher = garbled_snark_verifier::cut_and_choose::Sha256LabelCommitHasher;
+use garbled_snark_verifier::cut_and_choose::Sha256LabelCommitHasher as ExampleHasher;
 
 enum G2EMsg {
     // Garbler -> Evaluator: commitments for all instances
-    Commits(Vec<GarbledInstanceCommit<ExampleHasher>>),
+    FirstCommits(Vec<GarbledInstanceCommit<ExampleHasher>>),
+    // Garbler -> Evaluator: commitments for all instances
+    SecondCommits(Vec<Vec<LabelCommit<[u8; 32]>>>),
     // Garbler -> Evaluator: indices and seeds for instances to open
     OpenSeeds(Vec<(usize, ccn::Seed)>),
     // Garbler -> Evaluator: soldering proof
@@ -45,6 +46,8 @@ enum G2EMsg {
 }
 
 enum E2GMsg<CTH: 'static + Send + CiphertextHandler> {
+    // Evaluator -> Garbler: nonce for complete the commit
+    Nonce(u128),
     // Evaluator -> Garbler: senders to forward ciphertexts for finalized instances
     Challenge(Vec<(usize, CTH)>),
 }
@@ -188,10 +191,28 @@ fn run_garbler(
 
     // Commit with the hasher used by evaluator; SHA-256 when soldering is enabled
     g2e_tx
-        .send(G2EMsg::Commits(g.commit_with_hasher::<ExampleHasher>()))
+        .send(G2EMsg::FirstCommits(
+            g.commit_with_hasher::<ExampleHasher>(None),
+        ))
         .expect("send commits");
 
-    let E2GMsg::Challenge(finalize_senders) = e2g_rx.recv().expect("recv finalize senders");
+    let E2GMsg::Nonce(nonce) = e2g_rx.recv().expect("recv nonce senders") else {
+        panic!("unexpected message; expected nonce")
+    };
+
+    // Commit with the hasher used by evaluator; SHA-256 when soldering is enabled
+    g2e_tx
+        .send(G2EMsg::SecondCommits(
+            g.commit_with_hasher::<ExampleHasher>(Some(S::from_u128(nonce)))
+                .into_iter()
+                .map(|commit| commit.input_labels_commit().to_vec())
+                .collect(),
+        ))
+        .expect("send commits");
+
+    let E2GMsg::Challenge(finalize_senders) = e2g_rx.recv().expect("recv finalize senders") else {
+        panic!("unexpected message; expected challenge")
+    };
 
     let mut seeds = vec![];
     let mut threads = vec![];
@@ -284,11 +305,23 @@ fn run_evaluator(
 
     let finalize = cfg.to_finalize();
 
-    let G2EMsg::Commits(commits) = g2e_rx.recv().expect("recv commits") else {
+    let G2EMsg::FirstCommits(commits) = g2e_rx.recv().expect("recv commits") else {
         panic!("unexpected message; expected commits")
     };
 
     let mut eval = ccn::Evaluator::<ExampleHasher>::create(&mut rng, cfg.clone(), commits);
+
+    let nonce = eval.get_nonce();
+
+    e2g_tx
+        .send(E2GMsg::Nonce(nonce.to_u128()))
+        .expect("send finalize senders to garbler");
+
+    let G2EMsg::SecondCommits(commits) = g2e_rx.recv().expect("recv second commit") else {
+        panic!("unexpected message; expected second commit")
+    };
+
+    eval.fill_second_commit(commits);
 
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
