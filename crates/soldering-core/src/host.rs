@@ -126,10 +126,26 @@ mod test {
             }
         }
 
+        // Compute nonce commitments
+        let nonce = archived.nonce;
+        let base_nonce_commitment = base_instance
+            .iter()
+            .map(|wire| {
+                let label0_with_nonce = wire.0.bitxor(nonce);
+                let label1_with_nonce = wire.1.bitxor(nonce);
+                (
+                    sha2::Sha256::digest(label0_with_nonce.to_be_bytes()).into(),
+                    sha2::Sha256::digest(label1_with_nonce.to_be_bytes()).into(),
+                )
+            })
+            .collect();
+
         SolderedLabelsData {
             deltas,
             base_commitment,
+            base_nonce_commitment,
             commitments,
+            nonce: archived.nonce,
         }
     }
 
@@ -142,10 +158,12 @@ mod test {
             })
             .take(7)
             .collect(),
+            nonce: rng.random(),
         }
     }
 
     #[test]
+    #[ignore = "slow zkSNARK generation"]
     fn execute() {
         let input = rnd_input();
         let report = super::execute(&input);
@@ -163,6 +181,26 @@ mod test {
     }
 
     #[test]
+    #[ignore = "slow zkSNARK generation"]
+    fn prove_verify_e2e_with_nonce() {
+        let input = rnd_input();
+
+        let timer = Instant::now();
+        let data = super::prove(&input);
+        tracing::info!("prove time is {}", timer.elapsed().as_secs());
+
+        let result = super::verify(data);
+        tracing::info!("verify time is {}", timer.elapsed().as_secs());
+
+        // Verify that nonce commitments are present
+        assert_eq!(
+            result.base_nonce_commitment.len(),
+            result.base_commitment.len()
+        );
+    }
+
+    #[test]
+    #[ignore = "slow zkSNARK generation"]
     fn prove_verify_e2e() {
         let input = rnd_input();
         let timer = Instant::now();

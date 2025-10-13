@@ -23,6 +23,7 @@ fn main() {
     // Generate a consistent Free-XOR delta and random wires for base and instances
     let mut rng = rand::thread_rng();
     let delta = Delta::generate(&mut rng);
+    let nonce = S::random(&mut rng);
 
     let base: Vec<GarbledWire> = (0..wires)
         .map(|_| GarbledWire::random(&mut rng, &delta))
@@ -36,7 +37,7 @@ fn main() {
         .collect();
 
     // Prove and verify with SP1; requires `--features sp1-soldering` and SP1 artifacts
-    let proof = prove_soldering(&base, &additional).expect("prove");
+    let proof = prove_soldering(&base, &additional, nonce).expect("prove");
     let out = verify_soldering(proof);
     tracing::info!("soldering_e2e: proof verified");
 

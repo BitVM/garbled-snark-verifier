@@ -243,7 +243,7 @@ fn run_garbler(
     {
         let _span = tracing::info_span!("soldering").entered();
         info!("start");
-        let proof = g.do_soldering();
+        let proof = g.do_soldering(S::from_u128(nonce));
         g2e_tx
             .send(G2EMsg::SolderingProof(Box::new(proof)))
             .expect("send soldering proof");

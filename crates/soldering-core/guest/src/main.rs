@@ -28,10 +28,12 @@ pub fn main() {
 
     let (base_instance, remaining) = archived.instances_wires.split_first().unwrap();
     let soldered_instances_count = remaining.len();
+    let nonce = archived.nonce;
 
     let wires_count = base_instance.len();
 
     let mut base_commitment = vec![([0u8; 32], [0u8; 32]); wires_count];
+    let mut base_nonce_commitment = vec![([0u8; 32], [0u8; 32]); wires_count];
 
     // Initialize commitments for each instance with proper capacity
     let mut commitments: Vec<Vec<([u8; 32], [u8; 32])>> =
@@ -45,8 +47,26 @@ pub fn main() {
     for wire_id in 0..wires_count {
         let base_wire = &base_instance[wire_id];
 
+        // Compute base commitments
         hash_label_into(&mut hasher, &base_wire.0, &mut base_commitment[wire_id].0);
         hash_label_into(&mut hasher, &base_wire.1, &mut base_commitment[wire_id].1);
+
+        // Compute base nonce commitments in the same loop
+        let label0_with_nonce = base_wire.0.bitxor(nonce);
+        let label0_le = rkyv::rend::u128_le::from_native(label0_with_nonce);
+        hash_label_into(
+            &mut hasher,
+            &label0_le,
+            &mut base_nonce_commitment[wire_id].0,
+        );
+
+        let label1_with_nonce = base_wire.1.bitxor(nonce);
+        let label1_le = rkyv::rend::u128_le::from_native(label1_with_nonce);
+        hash_label_into(
+            &mut hasher,
+            &label1_le,
+            &mut base_nonce_commitment[wire_id].1,
+        );
 
         // Get corresponding wire from each remaining instance
         for idx in 0..soldered_instances_count {
@@ -73,7 +93,9 @@ pub fn main() {
     let data = SolderedLabelsData {
         deltas,
         base_commitment,
+        base_nonce_commitment,
         commitments,
+        nonce: nonce.to_native(),
     };
 
     sp1_zkvm::io::commit(&rkyv::to_bytes::<rancor::Error>(&data).unwrap().as_slice());

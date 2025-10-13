@@ -319,7 +319,7 @@ where
             .collect()
     }
 
-    pub fn do_soldering(&self) -> SolderingProof {
+    pub fn do_soldering(&self, evaluator_nonce: S) -> SolderingProof {
         let GarblerStage::PreparedForEval { indexes_to_eval } = &self.stage else {
             panic!("Garbler not ready to soldering")
         };
@@ -335,7 +335,7 @@ where
             .map(|index| self.instances[*index].input_wire_values.clone())
             .collect::<Vec<_>>();
 
-        soldering::prove_soldering(base_wires, &additional).unwrap()
+        soldering::prove_soldering(base_wires, &additional, evaluator_nonce).unwrap()
     }
 
     /// Return the constant labels for true/false as u128 words for a given instance.

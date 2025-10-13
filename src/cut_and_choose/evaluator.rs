@@ -544,6 +544,13 @@ pub enum SolderingCheckError {
         expected: [u8; 32],
         actual: [u8; 32],
     },
+    /// Base instance per-wire nonce commit mismatch
+    BaseNonceCommitMismatch {
+        wire_index: usize,
+        which: &'static str,
+        expected: [u8; 32],
+        actual: [u8; 32],
+    },
     /// Additional instance per-wire commit mismatch
     InstanceCommitMismatch {
         instance_index: usize,
@@ -571,6 +578,21 @@ impl fmt::Display for SolderingCheckError {
                 write!(
                     f,
                     "base commit mismatch at wire {} ({}): expected 0x",
+                    wire_index, which
+                )?;
+                super::write_commit_hex(f, expected)?;
+                write!(f, ", got 0x")?;
+                super::write_commit_hex(f, actual)
+            }
+            Self::BaseNonceCommitMismatch {
+                wire_index,
+                which,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "base nonce commit mismatch at wire {} ({}): expected 0x",
                     wire_index, which
                 )?;
                 super::write_commit_hex(f, expected)?;
@@ -689,6 +711,37 @@ where
                     which: "label1",
                     expected: exp1,
                     actual: base_pair.commit_label1,
+                });
+            }
+        }
+
+        // Verify nonce commitments for base instance
+        // The second commit for base instance should have the nonce applied
+        let base_second = &second[base_idx];
+
+        for (wire_idx, (nonce_commit, local_commit)) in out
+            .base_nonce_commitment
+            .iter()
+            .zip(base_second.iter())
+            .enumerate()
+        {
+            // Verify label0 with nonce
+            if nonce_commit[0] != local_commit.commit_label0 {
+                return Err(SolderingCheckError::BaseNonceCommitMismatch {
+                    wire_index: wire_idx,
+                    which: "label0_with_nonce",
+                    expected: local_commit.commit_label0,
+                    actual: nonce_commit[0],
+                });
+            }
+
+            // Verify label1 with nonce
+            if nonce_commit[1] != local_commit.commit_label1 {
+                return Err(SolderingCheckError::BaseNonceCommitMismatch {
+                    wire_index: wire_idx,
+                    which: "label1_with_nonce",
+                    expected: local_commit.commit_label1,
+                    actual: nonce_commit[1],
                 });
             }
         }

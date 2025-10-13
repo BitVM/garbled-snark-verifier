@@ -101,8 +101,8 @@ impl Garbler {
     }
 
     #[cfg(feature = "sp1-soldering")]
-    pub fn do_soldering(&self) -> crate::soldering::SolderingProof {
-        self.inner.do_soldering()
+    pub fn do_soldering(&self, evaluator_nonce: S) -> crate::soldering::SolderingProof {
+        self.inner.do_soldering(evaluator_nonce)
     }
 }
 

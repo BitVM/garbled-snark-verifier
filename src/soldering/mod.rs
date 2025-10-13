@@ -31,8 +31,13 @@ pub struct SolderedLabels {
     /// For each input wire of the base instance, commitment to both labels.
     /// The entry is ordered as `[commit(label0), commit(label1)]`.
     pub base_commitment: Vec<[Sha256Commit; 2]>,
+    /// For each input wire of the base instance, commitment to both labels XORed with nonce.
+    /// The entry is ordered as `[commit(label0 XOR nonce), commit(label1 XOR nonce)]`.
+    pub base_nonce_commitment: Vec<[Sha256Commit; 2]>,
     /// Commitment per additional instance, binding all its input wires.
     pub commitments: Vec<Vec<(Sha256Commit, Sha256Commit)>>,
+    /// Used for `base_nonce_commitment`
+    pub nonce: S,
 }
 
 /// Error surface for soldering operations.
@@ -69,6 +74,7 @@ impl core::fmt::Debug for SolderingProof {
 /// - `base`: the base/core instance input wires (each is a `GarbledWire` with two labels `S`)
 /// - `additional`: the list of additional instances to be soldered; each must
 ///   contain exactly the same number of wires as `base`.
+/// - `nonce`: public nonce from evaluator for second-preimage protection
 ///
 /// Returns an opaque `SolderingProof` handle which must be passed to
 /// `verify_soldering`. Use the return value of `verify_soldering` as the source
@@ -76,6 +82,7 @@ impl core::fmt::Debug for SolderingProof {
 pub fn prove_soldering(
     base: &[GarbledWire],
     additional: &[Vec<GarbledWire>],
+    nonce: S,
 ) -> Result<SolderingProof, SolderingError> {
     let base_len = base.len();
     if additional.is_empty() {
@@ -104,6 +111,7 @@ pub fn prove_soldering(
 
     let input = gsv_soldering_core::types::WiresInput {
         instances_wires: instances,
+        nonce: nonce.to_u128(),
     };
 
     let inner = gsv_soldering_core::host::prove(&input);
@@ -116,6 +124,7 @@ pub fn prove_soldering(
 /// On success, the returned `SolderedLabels` contains:
 /// - per-instance, per-wire deltas in `S` form
 /// - base instance per-wire commitments to both labels
+/// - base instance per-wire commitments with nonce
 /// - per-instance commitments
 pub fn verify_soldering(proof: SolderingProof) -> SolderedLabels {
     let data = gsv_soldering_core::host::verify(proof.inner);
@@ -140,10 +149,18 @@ fn convert_public_values(data: gsv_soldering_core::types::SolderedLabelsData) ->
         .map(|(c0, c1)| [c0, c1])
         .collect();
 
+    let base_nonce_commitment = data
+        .base_nonce_commitment
+        .into_iter()
+        .map(|(c0, c1)| [c0, c1])
+        .collect();
+
     SolderedLabels {
         deltas,
         base_commitment,
+        base_nonce_commitment,
         commitments: data.commitments,
+        nonce: S::from_u128(data.nonce),
     }
 }
 
@@ -164,6 +181,7 @@ pub trait SolderInput: CircuitInput {
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
     use test_log::test;
 
     use super::*;
@@ -173,7 +191,62 @@ mod tests {
     // It is ignored by default and only runs when the `sp1-soldering` feature
     // is enabled and the environment has the required artifacts.
     #[test]
-    #[ignore = "slow"]
+    #[ignore = "slow zkSNARK generation"]
+    fn round_trip_prove_verify_with_nonce() {
+        use sha2::Digest;
+
+        let mut rng = rand::thread_rng();
+        let delta = Delta::generate(&mut rng);
+        let nonce = S::from_u128(rng.r#gen());
+
+        let input_wires_count = 64usize;
+        let soldered_instances = 3usize;
+
+        let base: Vec<GarbledWire> = (0..input_wires_count)
+            .map(|_| GarbledWire::random(&mut rng, &delta))
+            .collect();
+
+        let additional: Vec<Vec<GarbledWire>> = (0..soldered_instances)
+            .map(|_| {
+                (0..input_wires_count)
+                    .map(|_| GarbledWire::random(&mut rng, &delta))
+                    .collect()
+            })
+            .collect();
+
+        let proof = prove_soldering(&base, &additional, nonce).expect("prove");
+        let out = verify_soldering(proof);
+
+        // Verify nonce commitments are present
+        assert_eq!(out.base_nonce_commitment.len(), input_wires_count);
+
+        // Verify nonce commitments are correct
+        for (wire_idx, (base_wire, nonce_commit)) in base
+            .iter()
+            .zip(out.base_nonce_commitment.iter())
+            .enumerate()
+        {
+            // Compute expected commitments
+            let expected_commit0 =
+                sha2::Sha256::digest((base_wire.label0 ^ &nonce).to_u128().to_be_bytes());
+            let expected_commit1 =
+                sha2::Sha256::digest((base_wire.label1 ^ &nonce).to_u128().to_be_bytes());
+
+            assert_eq!(
+                nonce_commit[0].as_slice(),
+                expected_commit0.as_slice(),
+                "wire {wire_idx}: label0 nonce commitment mismatch",
+            );
+            assert_eq!(
+                nonce_commit[1].as_slice(),
+                expected_commit1.as_slice(),
+                "wire {wire_idx}: label1 nonce commitment mismatch",
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "slow zkSNARK generation"]
     fn round_trip_prove_verify() {
         use sha2::Digest;
 
@@ -195,7 +268,10 @@ mod tests {
             })
             .collect();
 
-        let proof = prove_soldering(&base, &additional).expect("prove");
+        // Use a dummy nonce (could be zero or random)
+        let nonce = S::from_u128(rng.r#gen());
+
+        let proof = prove_soldering(&base, &additional, nonce).expect("prove");
         let out = verify_soldering(proof);
 
         assert_eq!(out.deltas.len(), soldered_instances);
