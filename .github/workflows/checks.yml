@@ -5,6 +5,8 @@ on: [push]
 env:
   CARGO_TERM_COLOR: always
   CARGOFLAGS: --workspace --all-targets --all-features
+  # Use conservative CPU features for CI compatibility (no AVX-512)
+  RUSTFLAGS: -C target-cpu=x86-64-v2
 
 jobs:
   formatting:
@@ -66,7 +68,7 @@ jobs:
 
       - name: Run cargo-udeps
         env:
-          RUSTFLAGS: -A warnings
+          RUSTFLAGS: -A warnings -C target-cpu=x86-64-v2
         uses: aig787/cargo-udeps-action@v1
         with:
           version: "latest"

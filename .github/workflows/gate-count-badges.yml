@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ]
 
+env:
+  # Use conservative CPU features for CI compatibility (no AVX-512)
+  RUSTFLAGS: -C target-cpu=x86-64-v2
+
 jobs:
   gate-count:
     runs-on: ubuntu-latest
