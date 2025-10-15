@@ -1,15 +1,17 @@
 use super::*;
-use crate::{GateType, hashers::GateHasher};
+use crate::{
+    GateType,
+    hashers::{GateHasher, aes_ni, to_tweak},
+};
 
 #[inline(always)]
 pub fn garble_gate<H: GateHasher>(
-    gate_type: crate::GateType,
+    gate_type: GateType,
     a_label0: S,
     b_label0: S,
     delta: &Delta,
     gate_id: usize,
 ) -> (S, Option<S>) {
-    use crate::GateType;
     match gate_type {
         GateType::Xor => (a_label0 ^ &b_label0, None),
         GateType::Xnor => (a_label0 ^ &b_label0 ^ delta, None),
@@ -68,9 +70,8 @@ pub fn garble_gate_batch<const N: usize>(
             (c, None)
         }
         _ => {
-            use crate::hashers::aes_ni;
             let (alpha_a, alpha_b, alpha_c) = gate_type.alphas_const();
-            let tweak = hashers::to_tweak(gate_id);
+            let tweak = to_tweak(gate_id);
 
             let mut h_sel = [S::ZERO; N];
             let mut h_oth = [S::ZERO; N];

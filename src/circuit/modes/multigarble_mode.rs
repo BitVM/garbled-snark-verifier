@@ -7,56 +7,66 @@ use crate::{
     Delta, Gate, GateType, S, WireId,
     circuit::{CiphertextHandler, CircuitMode, FALSE_WIRE, TRUE_WIRE},
     core::progress::maybe_log_progress,
-    hashers::GateHasher,
+    hashers::{GateHasher, aes_ni, to_tweak},
     storage::{Credits, Storage},
 };
 
 use super::garble_mode::{GarbledWire, halfgates_garbling};
 
+#[derive(Debug)]
+struct LaneCtx {
+    rng: ChaChaRng,
+    delta: Delta,
+    false_wire_label0: S,
+    true_wire_label0: S,
+}
+
 pub struct MultigarblingMode<H: GateHasher, CTH: CiphertextHandler, const N: usize> {
-    rngs: [ChaChaRng; N],
-    deltas: [Delta; N],
+    lanes: [LaneCtx; N],
     gate_index: usize,
-    output_handler: CTH,
+    output_handlers: [CTH; N],
     storage: Storage<WireId, Option<[S; N]>>,
-    false_label0s: [S; N],
-    true_label0s: [S; N],
     _hasher: PhantomData<H>,
     // Cross-gate batching queue for non-free gates
     non_free_queue: Vec<QueuedGate<N>>,
     // Target number of 16-byte blocks to batch per AES call series
     queue_target_blocks: usize,
+    // Enable/disable cross-gate batching queue (for clean baseline measurements)
+    queue_enabled: bool,
 }
 
 impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H, CTH, N> {
-    pub fn new(capacity: usize, seeds: [u64; N], output_handler: CTH) -> Self {
-        let mut rngs: [ChaChaRng; N] = array::from_fn(|i| ChaChaRng::seed_from_u64(seeds[i]));
-        let deltas: [Delta; N] = array::from_fn(|i| Delta::generate(&mut rngs[i]));
-        let false_label0s = array::from_fn(|i| {
-            let gw = GarbledWire::random(&mut rngs[i], &deltas[i]);
-            gw.label0
+    pub fn new(capacity: usize, seeds: [u64; N], output_handlers: [CTH; N]) -> Self {
+        let lanes: [LaneCtx; N] = array::from_fn(|i| {
+            let mut rng = ChaChaRng::seed_from_u64(seeds[i]);
+            let delta = Delta::generate(&mut rng);
+            let false_wire_label0 = GarbledWire::random(&mut rng, &delta).label0;
+            let true_wire_label0 = false_wire_label0 ^ &delta;
+            LaneCtx {
+                rng,
+                delta,
+                false_wire_label0,
+                true_wire_label0,
+            }
         });
-        let true_label0s = array::from_fn(|i| false_label0s[i] ^ &deltas[i]);
 
         const DEFAULT_QUEUE_TARGET: usize = 1024;
 
         Self {
             storage: Storage::new(capacity),
-            rngs,
-            deltas,
+            lanes,
             gate_index: 0,
-            output_handler,
-            false_label0s,
-            true_label0s,
+            output_handlers,
             _hasher: PhantomData,
             non_free_queue: Vec::with_capacity(32),
             queue_target_blocks: DEFAULT_QUEUE_TARGET,
+            queue_enabled: true,
         }
     }
 
     #[inline]
     pub fn issue_garbled_wire_batch(&mut self) -> [GarbledWire; N] {
-        array::from_fn(|i| GarbledWire::random(&mut self.rngs[i], &self.deltas[i]))
+        array::from_fn(|i| GarbledWire::random(&mut self.lanes[i].rng, &self.lanes[i].delta))
     }
 
     #[inline]
@@ -71,21 +81,26 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H,
         self.queue_target_blocks = b;
     }
 
+    #[inline]
+    pub fn set_queue_enabled(&mut self, enabled: bool) {
+        self.queue_enabled = enabled;
+    }
+
     fn stream_table_entries(&mut self, _gate_id: usize, entries: Option<[S; N]>) {
         if let Some(cts) = entries {
-            for ct in cts {
-                self.output_handler.handle(ct);
+            for (i, ct) in cts.into_iter().enumerate() {
+                self.output_handlers[i].handle(ct);
             }
         }
     }
 
     #[inline]
-    fn read_label0s_or_flush(&mut self, wire: WireId) -> [S; N] {
+    fn read_label0s_with_flush(&mut self, wire: WireId) -> [S; N] {
         match wire {
-            FALSE_WIRE => self.false_label0s,
-            TRUE_WIRE => self.true_label0s,
+            FALSE_WIRE => array::from_fn(|i| self.lanes[i].false_wire_label0),
+            TRUE_WIRE => array::from_fn(|i| self.lanes[i].true_wire_label0),
             _ => {
-                if self.non_free_queue.iter().any(|q| q.wire_c == wire) {
+                if self.queue_enabled && self.non_free_queue.iter().any(|q| q.wire_c == wire) {
                     self.flush_non_free_queue();
                 }
 
@@ -111,7 +126,7 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H,
         wire_c: WireId,
     ) {
         let (alpha_a, alpha_b, alpha_c) = gate_type.alphas_const();
-        let tweak = crate::hashers::to_tweak(gate_id);
+        let tweak = to_tweak(gate_id);
         self.non_free_queue.push(QueuedGate {
             alpha_a,
             alpha_b,
@@ -129,16 +144,22 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H,
     }
 
     fn flush_non_free_queue(&mut self) {
-        use crate::hashers::aes_ni;
         if self.non_free_queue.is_empty() {
             return;
         }
 
         let qlen = self.non_free_queue.len();
-        let mut h_sel: Vec<[S; N]> = (0..qlen).map(|_| [S::ZERO; N]).collect();
-        let mut h_oth: Vec<[S; N]> = (0..qlen).map(|_| [S::ZERO; N]).collect();
+        let mut h_sel: Vec<[S; N]> = vec![[S::ZERO; N]; qlen];
+        let mut h_oth: Vec<[S; N]> = vec![[S::ZERO; N]; qlen];
 
         // We iterate gates in insertion order to preserve ciphertext stream order.
+        // process_path(selected):
+        // - Traversal is gate-major, lane-minor: advance lanes 0..N-1 within a gate, then next gate.
+        // - We batch up to 16/8/4/2 blocks per AES call via *_xor_masks to amortize per-call overhead.
+        // - For each batch of K inputs, we temporarily advance (gate_idx, lane_idx) while filling buffers.
+        //   After encryption returns K outputs, we rewind the indices by K and backfill results to
+        //   the exact (gate, lane) positions they were sourced from. This preserves insertion order.
+        // - Running twice (selected=true/false) yields h_sel/h_oth without altering ciphertext order.
         let mut process_path = |selected: bool| {
             // Working buffers for up to 16/8/4/2 blocks
             let mut buf16 = [[0u8; 16]; 16];
@@ -161,7 +182,7 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H,
                 ($K:expr, $buf:ident, $masks:ident, $enc:path) => {{
                     for t in 0..$K {
                         let qg = &self.non_free_queue[gate_idx];
-                        let (a, delta) = (qg.a_label0s[lane_idx], self.deltas[lane_idx]);
+                        let (a, delta) = (qg.a_label0s[lane_idx], self.lanes[lane_idx].delta);
                         let input = if selected == qg.alpha_a {
                             a ^ &delta
                         } else {
@@ -229,7 +250,7 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H,
                 }
                 {
                     let qg = &self.non_free_queue[gate_idx];
-                    let (a, delta) = (qg.a_label0s[lane_idx], self.deltas[lane_idx]);
+                    let (a, delta) = (qg.a_label0s[lane_idx], self.lanes[lane_idx].delta);
                     let input = if selected == qg.alpha_a {
                         a ^ &delta
                     } else {
@@ -267,13 +288,13 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> MultigarblingMode<H,
                 let mut ct = [S::ZERO; N];
                 for i in 0..N {
                     let b_sel = if alpha_b {
-                        qg.b_label0s[i] ^ &self.deltas[i]
+                        qg.b_label0s[i] ^ &self.lanes[i].delta
                     } else {
                         qg.b_label0s[i]
                     };
                     ct[i] = h_sel[gix][i] ^ &h_oth[gix][i] ^ &b_sel;
                     w0[i] = if alpha_c {
-                        h_sel[gix][i] ^ &self.deltas[i]
+                        h_sel[gix][i] ^ &self.lanes[i].delta
                     } else {
                         h_sel[gix][i]
                     };
@@ -313,12 +334,12 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> CircuitMode
     for MultigarblingMode<H, CTH, N>
 {
     type WireValue = [GarbledWire; N];
-    type CiphertextAcc = CTH::Result;
+    type CiphertextAcc = Vec<CTH::Result>;
 
     fn false_value(&self) -> Self::WireValue {
         array::from_fn(|i| {
-            let l0 = self.false_label0s[i];
-            let l1 = l0 ^ &self.deltas[i];
+            let l0 = self.lanes[i].false_wire_label0;
+            let l1 = l0 ^ &self.lanes[i].delta;
             GarbledWire::new(l0, l1)
         })
     }
@@ -329,16 +350,16 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> CircuitMode
 
     fn true_value(&self) -> Self::WireValue {
         array::from_fn(|i| {
-            let l0 = self.true_label0s[i];
-            let l1 = l0 ^ &self.deltas[i];
+            let l0 = self.lanes[i].true_wire_label0;
+            let l1 = l0 ^ &self.lanes[i].delta;
             GarbledWire::new(l0, l1)
         })
     }
 
     fn evaluate_gate(&mut self, gate: &Gate) {
-        let a_label0s: [S; N] = self.read_label0s_or_flush(gate.wire_a);
+        let a_label0s: [S; N] = self.read_label0s_with_flush(gate.wire_a);
 
-        let b_label0s: [S; N] = self.read_label0s_or_flush(gate.wire_b);
+        let b_label0s: [S; N] = self.read_label0s_with_flush(gate.wire_b);
 
         if gate.wire_c == WireId::UNREACHABLE {
             return;
@@ -353,7 +374,7 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> CircuitMode
                         gate.gate_type,
                         a_label0s,
                         b_label0s,
-                        &self.deltas,
+                        &array::from_fn(|i| self.lanes[i].delta),
                         gate_id,
                     );
                 debug_assert!(ciphertext.is_none());
@@ -367,8 +388,31 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> CircuitMode
                     .unwrap();
             }
             _ => {
-                // Enqueue non-free gate to batch across multiple gates
-                self.enqueue_non_free(gate.gate_type, a_label0s, b_label0s, gate_id, gate.wire_c);
+                if self.queue_enabled {
+                    // Enqueue non-free gate to batch across multiple gates
+                    self.enqueue_non_free(
+                        gate.gate_type,
+                        a_label0s,
+                        b_label0s,
+                        gate_id,
+                        gate.wire_c,
+                    );
+                } else {
+                    let (c_base, ciphertext): ([S; N], Option<[S; N]>) =
+                        halfgates_garbling::garble_gate_batch::<N>(
+                            gate.gate_type,
+                            a_label0s,
+                            b_label0s,
+                            &array::from_fn(|i| self.lanes[i].delta),
+                            gate_id,
+                        );
+                    self.stream_table_entries(gate_id, ciphertext);
+                    self.storage
+                        .set(gate.wire_c, |slot| {
+                            *slot = Some(c_base);
+                        })
+                        .unwrap();
+                }
             }
         }
     }
@@ -393,22 +437,24 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> CircuitMode
         }
 
         // If this wire is scheduled as an output of a queued non-free gate, ensure it's flushed
-        if self.non_free_queue.iter().any(|q| q.wire_c == wire_id) {
+        if self.queue_enabled && self.non_free_queue.iter().any(|q| q.wire_c == wire_id) {
             self.flush_non_free_queue();
         }
 
         match self.storage.get(wire_id).map(|lbls| lbls.to_owned()) {
             Ok(Some(label0s)) => Some(array::from_fn(|i| {
                 let l0 = label0s[i];
-                GarbledWire::new(l0, l0 ^ &self.deltas[i])
+                GarbledWire::new(l0, l0 ^ &self.lanes[i].delta)
             })),
             Ok(None) => {
                 // One more attempt after a flush in case of late enqueues
-                self.flush_non_free_queue();
+                if self.queue_enabled {
+                    self.flush_non_free_queue();
+                }
                 match self.storage.get(wire_id).map(|lbls| lbls.to_owned()) {
                     Ok(Some(label0s)) => Some(array::from_fn(|i| {
                         let l0 = label0s[i];
-                        GarbledWire::new(l0, l0 ^ &self.deltas[i])
+                        GarbledWire::new(l0, l0 ^ &self.lanes[i].delta)
                     })),
                     Ok(None) => panic!(
                         "Called `lookup_wire` for a WireId {wire_id} that was created but not initialized"
@@ -426,10 +472,14 @@ impl<H: GateHasher, CTH: CiphertextHandler, const N: usize> CircuitMode
         }
     }
 
-    fn finalize_ciphertext_accumulator(self) -> Self::CiphertextAcc {
-        let mut this = self;
-        this.flush_non_free_queue();
-        this.output_handler.finalize()
+    fn finalize_ciphertext_accumulator(mut self) -> Self::CiphertextAcc {
+        if self.queue_enabled {
+            self.flush_non_free_queue();
+        }
+        self.output_handlers
+            .into_iter()
+            .map(|h| h.finalize())
+            .collect()
     }
 }
 

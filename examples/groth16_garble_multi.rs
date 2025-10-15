@@ -73,7 +73,11 @@ fn main() {
             AesNiHasher,
             AESAccumulatingHash,
             N,
-        >::new(cap, seeds, AESAccumulatingHash::default()),
+        >::new(
+            cap,
+            seeds,
+            std::array::from_fn(|_| AESAccumulatingHash::default()),
+        ),
         |root, input| {
             if let garbled_snark_verifier::circuit::StreamingMode::ExecutionPass(ctx) = root {
                 ctx.mode.set_queue_target_blocks(4096);
