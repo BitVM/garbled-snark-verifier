@@ -177,6 +177,12 @@ impl CiphertextHandler for () {
     fn finalize(self) -> Self::Result {}
 }
 
+pub trait MultiCiphertextHandler<const N: usize>: Sized {
+    type Result;
+    fn handle(&mut self, cts: [S; N]);
+    fn finalize(self) -> Self::Result;
+}
+
 impl<H: GateHasher, CTH: CiphertextHandler> CircuitBuilder<GarbleMode<H, CTH>> {
     /// Streaming garbling with a generic handler for ciphertexts.
     ///

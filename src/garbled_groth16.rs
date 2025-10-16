@@ -17,7 +17,10 @@ pub type SnarkProof = ark_groth16::Proof<Bn254>;
 use crate::{
     EvaluatedWire, Fq2Wire, FqWire, FrWire, G1Wire, G2Wire, GarbleMode, GarbledWire, GateHasher,
     WireId, bits_from_biguint_with_len,
-    circuit::{CiphertextHandler, CircuitInput, CircuitMode, EncodeInput, WiresObject},
+    circuit::{
+        CiphertextHandler, CircuitInput, CircuitMode, EncodeInput, MultiCiphertextHandler,
+        WiresObject,
+    },
     gadgets::{
         bn254::Fp254Impl,
         groth16::{
@@ -110,10 +113,12 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>> for 
     }
 }
 
-impl<H: GateHasher, CTH: CiphertextHandler, const N: usize>
-    EncodeInput<MultigarblingMode<H, CTH, N>> for GarblerInput
+impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize>
+    EncodeInput<MultigarblingMode<H, MCTH, N>> for GarblerInput
+where
+    MCTH::Result: Default,
 {
-    fn encode(&self, repr: &Self::WireRepr, cache: &mut MultigarblingMode<H, CTH, N>) {
+    fn encode(&self, repr: &Self::WireRepr, cache: &mut MultigarblingMode<H, MCTH, N>) {
         for w in &repr.public {
             for &wire in w.iter() {
                 let gwb = cache.issue_garbled_wire_batch();

@@ -1,11 +1,20 @@
+// An example demonstrating batch garbled circuit verification using MultigarblingMode.
+// Creates a Groth16 proof (BN254), then verifies it 181 times in parallel using
+// the new multigarbling mode with AES accumulating hash batching.
+//
+// This example showcases:
+// - Batch processing of multiple garbled circuit instances
+// - Parallel verification using optimized thread pools with CPU core affinity
+// - AES-based ciphertext accumulation across multiple garbling lanes
+
 use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 use std::time::Instant;
 
 use garbled_snark_verifier::{
-    AESAccumulatingHash, GarbledWire,
+    AESAccumulatingHashBatch,
     ark::{self, CircuitSpecificSetupSNARK, UniformRand},
-    circuit::{CircuitBuilder, StreamingMode, StreamingResult},
+    circuit::CircuitBuilder,
     garbled_groth16,
     hashers::AesNiHasher,
 };
@@ -45,6 +54,42 @@ impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
         cs.enforce_constraint(ark::lc!(), ark::lc!(), ark::lc!())?;
         Ok(())
     }
+}
+
+/// Run a batch of N garbled circuit verifications in parallel.
+///
+/// This function creates N garbling lanes, each with its own seed,
+/// and runs them simultaneously using MultigarblingMode. The AES accumulating
+/// hash batch collects ciphertexts from all lanes.
+///
+fn run_batch<const N: usize>(
+    inputs: &garbled_groth16::GarblerInput,
+    cap: usize,
+    seeds: &[u64],
+) -> Vec<[u8; 16]> {
+    let mut seeds_array: [u64; N] = [0; N];
+    let len = seeds.len();
+    for (j, &s) in seeds.iter().enumerate() {
+        seeds_array[j] = s;
+    }
+    let last_seed = seeds[len - 1];
+    for item in seeds_array.iter_mut().skip(len) {
+        *item = last_seed;
+    }
+
+    CircuitBuilder::run_streaming::<_, _, Vec<_>>(
+        inputs.clone(),
+        garbled_snark_verifier::circuit::modes::MultigarblingMode::<
+            AesNiHasher,
+            AESAccumulatingHashBatch<N>,
+            N,
+        >::new(cap, seeds_array, AESAccumulatingHashBatch::<N>::default()),
+        |root, input| vec![garbled_groth16::verify(root, input)],
+    )
+    .ciphertext_handler_result
+    .into_iter()
+    .take(len)
+    .collect::<Vec<[u8; 16]>>()
 }
 
 fn main() {
@@ -100,65 +145,7 @@ fn main() {
     let results: Vec<[u8; 16]> = pool.install(|| {
         all_seeds
             .par_chunks(N)
-            .flat_map(|chunk| {
-                if chunk.len() == N {
-                    let seeds_array: [u64; N] = chunk.try_into().unwrap();
-
-                    CircuitBuilder::run_streaming::<_, _, Vec<_>>(
-                        inputs.clone(),
-                        garbled_snark_verifier::circuit::modes::MultigarblingMode::<
-                            AesNiHasher,
-                            AESAccumulatingHash,
-                            N,
-                        >::new(
-                            cap,
-                            seeds_array,
-                            std::array::from_fn(|_| AESAccumulatingHash::default()),
-                        ),
-                        |root, input| {
-                            if let StreamingMode::ExecutionPass(ctx) = root {
-                                ctx.mode.set_queue_enabled(false);
-                            }
-                            vec![garbled_groth16::verify(root, input)]
-                        },
-                    )
-                    .ciphertext_handler_result
-                } else {
-                    {
-                        let mut seeds_array: [u64; N] = [0; N];
-                        for (j, &s) in chunk.iter().enumerate() {
-                            seeds_array[j] = s;
-                        }
-                        let last_seed = chunk[chunk.len() - 1];
-                        for j in chunk.len()..N {
-                            seeds_array[j] = last_seed;
-                        }
-
-                        CircuitBuilder::run_streaming::<_, _, Vec<_>>(
-                            inputs.clone(),
-                            garbled_snark_verifier::circuit::modes::MultigarblingMode::<
-                                AesNiHasher,
-                                AESAccumulatingHash,
-                                N,
-                            >::new(
-                                cap,
-                                seeds_array,
-                                std::array::from_fn(|_| AESAccumulatingHash::default()),
-                            ),
-                            |root, input| {
-                                if let StreamingMode::ExecutionPass(ctx) = root {
-                                    ctx.mode.set_queue_enabled(false);
-                                }
-                                vec![garbled_groth16::verify(root, input)]
-                            },
-                        )
-                        .ciphertext_handler_result
-                        .into_iter()
-                        .take(chunk.len())
-                        .collect::<Vec<[u8; 16]>>()
-                    }
-                }
-            })
+            .flat_map(|chunk| run_batch::<N>(&inputs, cap, chunk))
             .collect::<Vec<[u8; 16]>>()
     });
 
