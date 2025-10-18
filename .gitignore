@@ -1,3 +1,4 @@
 /target
 .DS_Store
 /circuit_component_macro/target
+/sp1-soldering-program/target

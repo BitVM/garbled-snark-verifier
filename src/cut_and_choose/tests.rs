@@ -107,12 +107,24 @@ fn cut_and_choose_one_bit_e2e() {
     // Garbler creates all instances
     let cfg_g = Config::new(total, finalize, OneBitGarblerInput);
     let mut garbler = Garbler::create(&mut rng, cfg_g, CAPACITY, one_bit_circuit);
-    let commits = garbler.commit();
 
-    // Evaluator chooses which instances to finalize
+    // First phase: commit without nonce
+    let first_commits = garbler.commit_phase_one::<DefaultLabelCommitHasher>();
+
+    // Evaluator chooses which instances to finalize with first commits
     let cfg_e = Config::new(total, finalize, OneBitGarblerInput);
-    let evaluator: Evaluator<OneBitGarblerInput> =
-        Evaluator::create(&mut rng, cfg_e, commits.clone());
+    let mut evaluator: Evaluator<OneBitGarblerInput> =
+        Evaluator::create(&mut rng, cfg_e, first_commits.clone());
+
+    // Get nonce from evaluator
+    let nonce = evaluator.get_nonce();
+
+    // Second phase: commit with nonce
+    let second_commits = garbler.commit_phase_two::<DefaultLabelCommitHasher>(nonce);
+
+    // Fill evaluator with second commits
+    evaluator.fill_second_commit(second_commits.clone());
+
     let finalize_indices: Vec<usize> = evaluator.finalized_indexes().to_vec();
 
     // Build channels for finalized instances using iterator + unzip
@@ -156,14 +168,11 @@ fn cut_and_choose_one_bit_e2e() {
         j.join().unwrap();
     }
 
-    // Gather constants + input labels for finalized instances
+    // Gather input labels for finalized instances
     let mut cases_true = Vec::new();
     let mut cases_false = Vec::new();
 
     for idx in finalize_indices {
-        let t = garbler.true_wire_constant_for(idx);
-        let f = garbler.false_wire_constant_for(idx);
-
         let input_labels = garbler.input_labels_for(idx);
 
         assert_eq!(input_labels.len(), 1);
@@ -181,15 +190,11 @@ fn cut_and_choose_one_bit_e2e() {
         cases_true.push(EvaluatorCaseInput {
             index: idx,
             input: e_true,
-            true_constant_wire: t,
-            false_constant_wire: f,
         });
 
         cases_false.push(EvaluatorCaseInput {
             index: idx,
             input: e_false,
-            true_constant_wire: t,
-            false_constant_wire: f,
         });
     }
 
@@ -370,11 +375,24 @@ fn cut_and_choose_fq12_mul_e2e() {
     // Garbler flow
     let cfg_g = Config::new(total, finalize, input.clone());
     let mut garbler = Garbler::create(&mut rng, cfg_g, CAPACITY, build_fq12_mul_eq_const);
-    let commits = garbler.commit();
 
-    // Evaluator chooses to finalize instances
+    // First phase: commit without nonce
+    let first_commits = garbler.commit_phase_one::<DefaultLabelCommitHasher>();
+
+    // Evaluator chooses to finalize instances with first commits
     let cfg_e = Config::new(total, finalize, input.clone());
-    let evaluator: Evaluator<Fq12MulInput> = Evaluator::create(&mut rng, cfg_e, commits.clone());
+    let mut evaluator: Evaluator<Fq12MulInput> =
+        Evaluator::create(&mut rng, cfg_e, first_commits.clone());
+
+    // Get nonce from evaluator
+    let nonce = evaluator.get_nonce();
+
+    // Second phase: commit with nonce
+    let second_commits = garbler.commit_phase_two::<DefaultLabelCommitHasher>(nonce);
+
+    // Fill evaluator with second commits
+    evaluator.fill_second_commit(second_commits.clone());
+
     let to_finalize = evaluator.finalized_indexes().to_vec().into_boxed_slice();
 
     // Prepare channels for finalized instances using iterator + unzip
@@ -424,9 +442,6 @@ fn cut_and_choose_fq12_mul_e2e() {
     let mut cases_true = Vec::new();
 
     for idx in to_finalize.iter().copied() {
-        let t = garbler.true_wire_constant_for(idx);
-        let f = garbler.false_wire_constant_for(idx);
-
         let labels = garbler.input_labels_for(idx);
         let input_true = Fq12MulInput {
             labels: labels.clone(),
@@ -436,8 +451,6 @@ fn cut_and_choose_fq12_mul_e2e() {
         cases_true.push(EvaluatorCaseInput {
             index: idx,
             input: input_true,
-            true_constant_wire: t,
-            false_constant_wire: f,
         });
     }
 
@@ -450,7 +463,7 @@ fn cut_and_choose_fq12_mul_e2e() {
         assert!(out.value, "a*b == prod_m should be true");
         assert_eq!(
             super::commit_label(out.active_label),
-            commits[idx].output_label1_commit()
+            first_commits[idx].output_commit_true()
         );
     }
 
@@ -473,8 +486,6 @@ fn cut_and_choose_fq12_mul_e2e() {
         cases_false.push(EvaluatorCaseInput {
             index: idx,
             input: input_false,
-            true_constant_wire: garbler.true_wire_constant_for(idx),
-            false_constant_wire: garbler.false_wire_constant_for(idx),
         });
     }
 
@@ -486,7 +497,7 @@ fn cut_and_choose_fq12_mul_e2e() {
         assert!(!out.value, "a*b_alt == prod_m should be false");
         assert_eq!(
             super::commit_label(out.active_label),
-            commits[idx].output_label0_commit()
+            first_commits[idx].output_commit_false()
         );
     }
 }

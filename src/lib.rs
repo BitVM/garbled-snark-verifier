@@ -17,7 +17,16 @@ pub use crate::circuit::modes::EvaluatedWire;
 // Re-export GarbledWire from mode locality while keeping public path stable
 pub use crate::circuit::modes::GarbledWire;
 // Root-level hasher exports
-pub use crate::hashers::{AesNiHasher, Blake3Hasher, GateHasher, HasherKind};
+pub use crate::hashers::{
+    AesLabelCommitHasher,
+    AesNiHasher,
+    Blake3Hasher,
+    GateHasher,
+    HasherKind,
+    // Label commit hashers for cut-and-choose
+    LabelCommitHasher,
+    Sha256LabelCommitHasher,
+};
 pub type DefaultHasher = crate::hashers::Blake3Hasher;
 
 pub use ciphertext_hasher::AESAccumulatingHash;
@@ -72,4 +81,7 @@ pub mod ark {
 }
 
 pub use cut_and_choose::groth16 as groth16_cut_and_choose;
-pub use groth16_cut_and_choose::{GarbledInstanceCommit, Garbler, OpenForInstance};
+pub use groth16_cut_and_choose::{CommitPhaseOne, CommitPhaseTwo, Garbler, OpenForInstance};
+
+#[cfg(feature = "sp1-soldering")]
+pub mod sp1_soldering;

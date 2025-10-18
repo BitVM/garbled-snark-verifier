@@ -14,9 +14,12 @@ keywords = [
     "groth16",
 ]
 description = "Garbled-circuit SNARK verifier using Groth16 (BN254), with reusable gadgets and ergonomic circuit composition."
+resolver = "2"
 
 [features]
-default = ["tracing_max_level", "tracing_scopes"]
+default = ["tracing_max_level", "tracing_scopes", "sp1-soldering"]
+sp1-soldering = ["sp1-prover", "sp1-core-machine", "sp1-core-executor", "sp1-primitives", "sp1-stark"]
+
 tracing_max_level = ["tracing/max_level_trace", "tracing/release_max_level_info"]
 tracing_scopes = []
 
@@ -28,43 +31,54 @@ ark-ec = "0.5.0"
 ark-ff = "0.5.0"
 ark-groth16 = "0.5.0"
 ark-relations = "0.5.1"
+ark-secp256k1 = "0.5.0"
+ark-serialize = "0.5.0"
 ark-snark = "0.5.1"
 ark-std = "0.5.0"
 bitvec = "1.0.1"
 blake3 = { version = "1.6.1", features = ["traits-preview"] }
 circuit_component_macro = { path = "circuit_component_macro" }
+core_affinity = "0.8"
 crossbeam = "0.8"
 digest = "0.10"
 itertools = "0.14.0"
-tracing = { version = "0.1.41", features = ["attributes", "std"] }
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "registry"] }
-tracing-log = "0.2"
 num-bigint = { version = "0.4", features = ["rand"] }
 num-traits = "0.2"
+num_cpus = "1.16"
 rand = "0.8" # using old version for consistency with ark
 rand_chacha = "0.3" # using old version for consistency with ark
 rayon = "1.10.0"
-core_affinity = "0.8"
-num_cpus = "1.16"
+rkyv = { version = "0.8", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.225", features = ["derive"] }
+serde_json = "1.0"
 slab = "0.4.11"
 thiserror = "2.0.12"
-serde_json = "1.0"
-serde = { version = "1.0.225", features = ["derive"] }
-ark-serialize = "0.5.0"
-ark-secp256k1 = "0.5.0"
+tracing = { version = "0.1.41", features = ["attributes", "std"] }
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "registry"] }
 
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
 sha2 = "0.10.9"
 hex = "0.4.3"
 
+sp1-prover = { version = "5.2", features = ["native-gnark"], optional = true }
+sp1-core-machine = { version = "5.2", optional = true }
+sp1-core-executor = { version = "5.2", optional = true }
+sp1-primitives = { version = "5.2", optional = true }
+sp1-stark = { version = "5.2", optional = true }
+dirs = "6.0.0"
+
+[build-dependencies]
+sp1-build = "5.2"
+
 [dev-dependencies]
 ark-ec = "0.5.0"
 ark-relations = "0.5.0"
-serde_json = "1.0"
-test-log = { version = "0.2.8", default-features = false, features = ["trace"] }
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitvm = { git = "https://github.com/BitVM/BitVM", branch = "main" }
 k256 = "0.13.4"
+serde_json = "1.0"
+test-log = { version = "0.2.8", default-features = false, features = ["trace"] }
 
 # Install Git hooks via cargo-husky
 [dev-dependencies.cargo-husky]
@@ -83,3 +97,11 @@ panic = "abort"       # Faster execution, smaller binary
 # `cargo-husky` is intentionally present for git hooks and should be ignored by udeps
 development = ["cargo-husky"]
 normal = ["aes"]
+
+[profile.release]
+lto = "thin"        # try "fat" if you can afford link time
+codegen-units = 1   # maximize inlining decisions
+panic = "abort"
+incremental = false
+strip = "symbols"   # if you don't need debug symbols in release
+

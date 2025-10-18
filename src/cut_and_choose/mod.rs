@@ -1,12 +1,21 @@
+//! Cut-and-choose protocol primitives that implement the Setup and Evaluate
+//! phases described in `docs/gsv_spec.md`. The submodules expose garbler and
+//! evaluator roles plus utilities for ciphertext storage.
 use std::{
     fmt,
+    ops::BitXor,
     sync::{Arc, OnceLock},
 };
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::{Deserialize, Serialize};
 
-use crate::{S, circuit::CircuitInput, hashers};
+// Re-export the label commit hashers from hashers module
+pub use crate::hashers::{
+    AesLabelCommitHasher, Commit, DefaultLabelCommitHasher, LabelCommitHasher,
+    Sha256LabelCommitHasher, commit_label_with,
+};
+use crate::{S, circuit::CircuitInput};
 
 pub mod ciphertext_repository;
 pub mod evaluator;
@@ -22,34 +31,7 @@ pub type Seed = u64;
 
 pub type CiphertextCommit = [u8; 16];
 
-pub trait LabelCommitHasher: fmt::Debug {
-    type Output: Copy
-        + fmt::Debug
-        + Eq
-        + Send
-        + Sync
-        + Serialize
-        + for<'de> serde::Deserialize<'de>
-        + AsRef<[u8]>;
-
-    fn hash_label(label: S) -> Self::Output;
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AesLabelCommitHasher;
-
-impl LabelCommitHasher for AesLabelCommitHasher {
-    type Output = [u8; 16];
-
-    fn hash_label(label: S) -> Self::Output {
-        hashers::aes_ni::aes128_encrypt_block_static(label.to_bytes())
-            .expect("AES backend should be available (HW or software)")
-    }
-}
-
-pub type DefaultLabelCommitHasher = AesLabelCommitHasher;
-pub type Commit = <DefaultLabelCommitHasher as LabelCommitHasher>::Output;
-
+/// Per-wire label commitments used in both `Commit₁` and `Commit₂`.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LabelCommit<H: Clone + Copy> {
     pub commit_label0: H,
@@ -57,10 +39,21 @@ pub struct LabelCommit<H: Clone + Copy> {
 }
 
 impl<H: Clone + Copy> LabelCommit<H> {
-    pub fn new<Hasher: LabelCommitHasher<Output = H>>(label0: S, label1: S) -> Self {
-        Self {
-            commit_label0: commit_label_with::<Hasher>(label0),
-            commit_label1: commit_label_with::<Hasher>(label1),
+    /// Hash both labels, optionally XOR-ing a nonce before hashing (spec Step 1.4).
+    pub fn new<Hasher: LabelCommitHasher<Output = H>>(
+        label0: S,
+        label1: S,
+        nonce: &Option<S>,
+    ) -> Self {
+        match nonce {
+            Some(nonce) => Self {
+                commit_label0: commit_label_with::<Hasher>(label0.bitxor(nonce)),
+                commit_label1: commit_label_with::<Hasher>(label1.bitxor(nonce)),
+            },
+            None => Self {
+                commit_label0: commit_label_with::<Hasher>(label0),
+                commit_label1: commit_label_with::<Hasher>(label1),
+            },
         }
     }
 
@@ -87,10 +80,6 @@ pub fn commit_label(label: S) -> Commit {
     commit_label_with::<DefaultLabelCommitHasher>(label)
 }
 
-pub fn commit_label_with<H: LabelCommitHasher>(label: S) -> H::Output {
-    H::hash_label(label)
-}
-
 pub(crate) fn write_commit_hex(f: &mut fmt::Formatter<'_>, bytes: &[u8]) -> fmt::Result {
     for byte in bytes.iter() {
         write!(f, "{:02x}", byte)?;
@@ -98,7 +87,11 @@ pub(crate) fn write_commit_hex(f: &mut fmt::Formatter<'_>, bytes: &[u8]) -> fmt:
     Ok(())
 }
 
-/// Protocol configuration shared by Garbler/Evaluator.
+/// Protocol configuration shared by Garbler and Evaluator.
+///
+/// Corresponds to the `(n, f, input)` tuple in `docs/gsv_spec.md`, where `n`
+/// is the total number of garbled instances and `f` is the size of the
+/// evaluation set selected during Step 2 (challenging).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config<I: CircuitInput> {
     total: usize,
@@ -107,6 +100,9 @@ pub struct Config<I: CircuitInput> {
 }
 
 impl<I: CircuitInput> Config<I> {
+    /// Create a new configuration with the total instance count, the number
+    /// of finalized instances, and the compressed circuit input shared between
+    /// garbler and evaluator.
     pub fn new(total: usize, to_finalize: usize, input: I) -> Self {
         Self {
             total,
@@ -115,14 +111,17 @@ impl<I: CircuitInput> Config<I> {
         }
     }
 
+    /// Total number of garbled circuits `n`.
     pub fn total(&self) -> usize {
         self.total
     }
 
+    /// Number of circuits `f` that will remain closed/finalized.
     pub fn to_finalize(&self) -> usize {
         self.to_finalize
     }
 
+    /// Immutable access to the shared circuit input payload.
     pub fn input(&self) -> &I {
         &self.input
     }
