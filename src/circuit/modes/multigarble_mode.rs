@@ -35,7 +35,7 @@ impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize> Multigarbli
             let mut rng = ChaChaRng::seed_from_u64(seeds[i]);
             let delta = Delta::generate(&mut rng);
             let false_wire_label0 = GarbledWire::random(&mut rng, &delta).label0;
-            let true_wire_label0 = false_wire_label0 ^ &delta;
+            let true_wire_label0 = GarbledWire::random(&mut rng, &delta).label0;
             LaneCtx {
                 rng,
                 delta,
@@ -134,11 +134,10 @@ where
 
         let b_label0s: [S; N] = self.read_label0s(gate.wire_b);
 
+        let gate_id = self.next_gate_index();
         if gate.wire_c == WireId::UNREACHABLE {
             return;
         }
-
-        let gate_id = self.next_gate_index();
         maybe_log_progress("garbled", gate_id);
         match gate.gate_type {
             GateType::Xor | GateType::Xnor | GateType::Not => {

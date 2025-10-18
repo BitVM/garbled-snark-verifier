@@ -110,6 +110,7 @@ fn main() {
         vk: vk.clone(),
     };
 
+    // Number of parallel garbling lanes (batch size).
     const N: usize = 8;
 
     let all_seeds: Vec<u64> = (0..181usize)
@@ -142,14 +143,12 @@ fn main() {
                 .expect("failed to create fallback thread pool")
         });
 
-    let results: Vec<[u8; 16]> = pool.install(|| {
+    pool.install(|| {
         all_seeds
             .par_chunks(N)
             .flat_map(|chunk| run_batch::<N>(&inputs, cap, chunk))
             .collect::<Vec<[u8; 16]>>()
     });
-
-    println!("{} instances total", results.len());
 
     let ms = t.elapsed().as_secs_f64() * 1000.0;
     println!("181 instances: {:.2} ms", ms);

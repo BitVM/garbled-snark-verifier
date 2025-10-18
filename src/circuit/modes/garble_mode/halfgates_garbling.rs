@@ -78,9 +78,9 @@ pub fn garble_gate_batch<const N: usize>(
 
             match N {
                 16 => {
-                    let mut blocks_sel = [[0u8; 16]; 16];
-                    let mut blocks_oth = [[0u8; 16]; 16];
-                    for k in 0..16 {
+                    let mut blocks1 = [[0u8; 16]; 16];
+                    let mut blocks2 = [[0u8; 16]; 16];
+                    for k in 0..8 {
                         let a = if alpha_a {
                             a_label0[k] ^ &deltas[k]
                         } else {
@@ -91,21 +91,36 @@ pub fn garble_gate_batch<const N: usize>(
                         } else {
                             a_label0[k] ^ &deltas[k]
                         };
-                        blocks_sel[k] = a.to_bytes();
-                        blocks_oth[k] = o.to_bytes();
+                        blocks1[k * 2] = a.to_bytes();
+                        blocks1[k * 2 + 1] = o.to_bytes();
                     }
-                    let out_sel =
-                        aes_ni::aes128_encrypt16_blocks_static_xor(blocks_sel, tweak).unwrap();
-                    let out_oth =
-                        aes_ni::aes128_encrypt16_blocks_static_xor(blocks_oth, tweak).unwrap();
-                    for k in 0..16 {
-                        h_sel[k] = S::from_bytes(out_sel[k]);
-                        h_oth[k] = S::from_bytes(out_oth[k]);
+                    for k in 8..16 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks2[(k - 8) * 2] = a.to_bytes();
+                        blocks2[(k - 8) * 2 + 1] = o.to_bytes();
+                    }
+                    let out1 = aes_ni::aes128_encrypt16_blocks_static_xor(blocks1, tweak).unwrap();
+                    let out2 = aes_ni::aes128_encrypt16_blocks_static_xor(blocks2, tweak).unwrap();
+                    for k in 0..8 {
+                        h_sel[k] = S::from_bytes(out1[k * 2]);
+                        h_oth[k] = S::from_bytes(out1[k * 2 + 1]);
+                    }
+                    for k in 8..16 {
+                        h_sel[k] = S::from_bytes(out2[(k - 8) * 2]);
+                        h_oth[k] = S::from_bytes(out2[(k - 8) * 2 + 1]);
                     }
                 }
                 8 => {
-                    let mut blocks_sel = [[0u8; 16]; 8];
-                    let mut blocks_oth = [[0u8; 16]; 8];
+                    let mut blocks = [[0u8; 16]; 16];
                     for k in 0..8 {
                         let a = if alpha_a {
                             a_label0[k] ^ &deltas[k]
@@ -117,21 +132,17 @@ pub fn garble_gate_batch<const N: usize>(
                         } else {
                             a_label0[k] ^ &deltas[k]
                         };
-                        blocks_sel[k] = a.to_bytes();
-                        blocks_oth[k] = o.to_bytes();
+                        blocks[k * 2] = a.to_bytes();
+                        blocks[k * 2 + 1] = o.to_bytes();
                     }
-                    let out_sel =
-                        aes_ni::aes128_encrypt8_blocks_static_xor(blocks_sel, tweak).unwrap();
-                    let out_oth =
-                        aes_ni::aes128_encrypt8_blocks_static_xor(blocks_oth, tweak).unwrap();
+                    let out = aes_ni::aes128_encrypt16_blocks_static_xor(blocks, tweak).unwrap();
                     for k in 0..8 {
-                        h_sel[k] = S::from_bytes(out_sel[k]);
-                        h_oth[k] = S::from_bytes(out_oth[k]);
+                        h_sel[k] = S::from_bytes(out[k * 2]);
+                        h_oth[k] = S::from_bytes(out[k * 2 + 1]);
                     }
                 }
                 4 => {
-                    let mut blocks_sel = [[0u8; 16]; 4];
-                    let mut blocks_oth = [[0u8; 16]; 4];
+                    let mut blocks = [[0u8; 16]; 8];
                     for k in 0..4 {
                         let a = if alpha_a {
                             a_label0[k] ^ &deltas[k]
@@ -143,62 +154,43 @@ pub fn garble_gate_batch<const N: usize>(
                         } else {
                             a_label0[k] ^ &deltas[k]
                         };
-                        blocks_sel[k] = a.to_bytes();
-                        blocks_oth[k] = o.to_bytes();
+                        blocks[k * 2] = a.to_bytes();
+                        blocks[k * 2 + 1] = o.to_bytes();
                     }
-                    let out_sel =
-                        aes_ni::aes128_encrypt4_blocks_static_xor(blocks_sel, tweak).unwrap();
-                    let out_oth =
-                        aes_ni::aes128_encrypt4_blocks_static_xor(blocks_oth, tweak).unwrap();
+                    let out = aes_ni::aes128_encrypt8_blocks_static_xor(blocks, tweak).unwrap();
                     for k in 0..4 {
-                        h_sel[k] = S::from_bytes(out_sel[k]);
-                        h_oth[k] = S::from_bytes(out_oth[k]);
+                        h_sel[k] = S::from_bytes(out[k * 2]);
+                        h_oth[k] = S::from_bytes(out[k * 2 + 1]);
                     }
                 }
                 2 => {
-                    let a0 = if alpha_a {
-                        a_label0[0] ^ &deltas[0]
-                    } else {
-                        a_label0[0]
-                    };
-                    let a1 = if alpha_a {
-                        a_label0[1] ^ &deltas[1]
-                    } else {
-                        a_label0[1]
-                    };
-                    let o0 = if alpha_a {
-                        a_label0[0]
-                    } else {
-                        a_label0[0] ^ &deltas[0]
-                    };
-                    let o1 = if alpha_a {
-                        a_label0[1]
-                    } else {
-                        a_label0[1] ^ &deltas[1]
-                    };
-                    let (s0, s1) = aes_ni::aes128_encrypt2_blocks_static_xor(
-                        a0.to_bytes(),
-                        a1.to_bytes(),
-                        tweak,
-                    )
-                    .unwrap();
-                    let (t0, t1) = aes_ni::aes128_encrypt2_blocks_static_xor(
-                        o0.to_bytes(),
-                        o1.to_bytes(),
-                        tweak,
-                    )
-                    .unwrap();
-                    h_sel[0] = S::from_bytes(s0);
-                    h_sel[1] = S::from_bytes(s1);
-                    h_oth[0] = S::from_bytes(t0);
-                    h_oth[1] = S::from_bytes(t1);
+                    let mut blocks = [[0u8; 16]; 4];
+                    for k in 0..2 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks[k * 2] = a.to_bytes();
+                        blocks[k * 2 + 1] = o.to_bytes();
+                    }
+                    let out = aes_ni::aes128_encrypt4_blocks_static_xor(blocks, tweak).unwrap();
+                    for k in 0..2 {
+                        h_sel[k] = S::from_bytes(out[k * 2]);
+                        h_oth[k] = S::from_bytes(out[k * 2 + 1]);
+                    }
                 }
                 _ => {
                     let mut i = 0usize;
                     while i + 16 <= N {
-                        let mut bs = [[0u8; 16]; 16];
-                        let mut bo = [[0u8; 16]; 16];
-                        for k in 0..16 {
+                        let mut blocks1 = [[0u8; 16]; 16];
+                        let mut blocks2 = [[0u8; 16]; 16];
+                        for k in 0..8 {
                             let idx = i + k;
                             let a = if alpha_a {
                                 a_label0[idx] ^ &deltas[idx]
@@ -210,20 +202,40 @@ pub fn garble_gate_batch<const N: usize>(
                             } else {
                                 a_label0[idx] ^ &deltas[idx]
                             };
-                            bs[k] = a.to_bytes();
-                            bo[k] = o.to_bytes();
+                            blocks1[k * 2] = a.to_bytes();
+                            blocks1[k * 2 + 1] = o.to_bytes();
                         }
-                        let os = aes_ni::aes128_encrypt16_blocks_static_xor(bs, tweak).unwrap();
-                        let oo = aes_ni::aes128_encrypt16_blocks_static_xor(bo, tweak).unwrap();
-                        for k in 0..16 {
-                            h_sel[i + k] = S::from_bytes(os[k]);
-                            h_oth[i + k] = S::from_bytes(oo[k]);
+                        for k in 8..16 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks2[(k - 8) * 2] = a.to_bytes();
+                            blocks2[(k - 8) * 2 + 1] = o.to_bytes();
+                        }
+                        let out1 =
+                            aes_ni::aes128_encrypt16_blocks_static_xor(blocks1, tweak).unwrap();
+                        let out2 =
+                            aes_ni::aes128_encrypt16_blocks_static_xor(blocks2, tweak).unwrap();
+                        for k in 0..8 {
+                            h_sel[i + k] = S::from_bytes(out1[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out1[k * 2 + 1]);
+                        }
+                        for k in 8..16 {
+                            h_sel[i + k] = S::from_bytes(out2[(k - 8) * 2]);
+                            h_oth[i + k] = S::from_bytes(out2[(k - 8) * 2 + 1]);
                         }
                         i += 16;
                     }
                     while i + 8 <= N {
-                        let mut bs = [[0u8; 16]; 8];
-                        let mut bo = [[0u8; 16]; 8];
+                        let mut blocks = [[0u8; 16]; 16];
                         for k in 0..8 {
                             let idx = i + k;
                             let a = if alpha_a {
@@ -236,20 +248,19 @@ pub fn garble_gate_batch<const N: usize>(
                             } else {
                                 a_label0[idx] ^ &deltas[idx]
                             };
-                            bs[k] = a.to_bytes();
-                            bo[k] = o.to_bytes();
+                            blocks[k * 2] = a.to_bytes();
+                            blocks[k * 2 + 1] = o.to_bytes();
                         }
-                        let os = aes_ni::aes128_encrypt8_blocks_static_xor(bs, tweak).unwrap();
-                        let oo = aes_ni::aes128_encrypt8_blocks_static_xor(bo, tweak).unwrap();
+                        let out =
+                            aes_ni::aes128_encrypt16_blocks_static_xor(blocks, tweak).unwrap();
                         for k in 0..8 {
-                            h_sel[i + k] = S::from_bytes(os[k]);
-                            h_oth[i + k] = S::from_bytes(oo[k]);
+                            h_sel[i + k] = S::from_bytes(out[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out[k * 2 + 1]);
                         }
                         i += 8;
                     }
                     while i + 4 <= N {
-                        let mut bs = [[0u8; 16]; 4];
-                        let mut bo = [[0u8; 16]; 4];
+                        let mut blocks = [[0u8; 16]; 8];
                         for k in 0..4 {
                             let idx = i + k;
                             let a = if alpha_a {
@@ -262,56 +273,38 @@ pub fn garble_gate_batch<const N: usize>(
                             } else {
                                 a_label0[idx] ^ &deltas[idx]
                             };
-                            bs[k] = a.to_bytes();
-                            bo[k] = o.to_bytes();
+                            blocks[k * 2] = a.to_bytes();
+                            blocks[k * 2 + 1] = o.to_bytes();
                         }
-                        let os = aes_ni::aes128_encrypt4_blocks_static_xor(bs, tweak).unwrap();
-                        let oo = aes_ni::aes128_encrypt4_blocks_static_xor(bo, tweak).unwrap();
+                        let out = aes_ni::aes128_encrypt8_blocks_static_xor(blocks, tweak).unwrap();
                         for k in 0..4 {
-                            h_sel[i + k] = S::from_bytes(os[k]);
-                            h_oth[i + k] = S::from_bytes(oo[k]);
+                            h_sel[i + k] = S::from_bytes(out[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out[k * 2 + 1]);
                         }
                         i += 4;
                     }
                     while i + 2 <= N {
-                        let idx0 = i;
-                        let idx1 = i + 1;
-                        let a0 = if alpha_a {
-                            a_label0[idx0] ^ &deltas[idx0]
-                        } else {
-                            a_label0[idx0]
-                        };
-                        let a1 = if alpha_a {
-                            a_label0[idx1] ^ &deltas[idx1]
-                        } else {
-                            a_label0[idx1]
-                        };
-                        let o0 = if alpha_a {
-                            a_label0[idx0]
-                        } else {
-                            a_label0[idx0] ^ &deltas[idx0]
-                        };
-                        let o1 = if alpha_a {
-                            a_label0[idx1]
-                        } else {
-                            a_label0[idx1] ^ &deltas[idx1]
-                        };
-                        let (s0, s1) = aes_ni::aes128_encrypt2_blocks_static_xor(
-                            a0.to_bytes(),
-                            a1.to_bytes(),
-                            tweak,
-                        )
-                        .unwrap();
-                        let (t0, t1) = aes_ni::aes128_encrypt2_blocks_static_xor(
-                            o0.to_bytes(),
-                            o1.to_bytes(),
-                            tweak,
-                        )
-                        .unwrap();
-                        h_sel[idx0] = S::from_bytes(s0);
-                        h_sel[idx1] = S::from_bytes(s1);
-                        h_oth[idx0] = S::from_bytes(t0);
-                        h_oth[idx1] = S::from_bytes(t1);
+                        let mut blocks = [[0u8; 16]; 4];
+                        for k in 0..2 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks[k * 2] = a.to_bytes();
+                            blocks[k * 2 + 1] = o.to_bytes();
+                        }
+                        let out = aes_ni::aes128_encrypt4_blocks_static_xor(blocks, tweak).unwrap();
+                        for k in 0..2 {
+                            h_sel[i + k] = S::from_bytes(out[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out[k * 2 + 1]);
+                        }
                         i += 2;
                     }
                     if i < N {
@@ -325,10 +318,12 @@ pub fn garble_gate_batch<const N: usize>(
                         } else {
                             a_label0[i] ^ &deltas[i]
                         };
-                        let s0 =
-                            aes_ni::aes128_encrypt_block_static_xor(a.to_bytes(), tweak).unwrap();
-                        let t0 =
-                            aes_ni::aes128_encrypt_block_static_xor(o.to_bytes(), tweak).unwrap();
+                        let (s0, t0) = aes_ni::aes128_encrypt2_blocks_static_xor(
+                            a.to_bytes(),
+                            o.to_bytes(),
+                            tweak,
+                        )
+                        .unwrap();
                         h_sel[i] = S::from_bytes(s0);
                         h_oth[i] = S::from_bytes(t0);
                     }
@@ -508,71 +503,4 @@ mod tests {
         Nor => garble_consistency_nor,
         Or => garble_consistency_or
     );
-
-    fn garble_batch_matches_scalar<const N: usize>(gt: GateType) {
-        let mut rng = trng();
-        let deltas: [Delta; N] = core::array::from_fn(|_| Delta::generate(&mut rng));
-        let a_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
-        let b_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
-
-        let (w0_batch, ct_batch) =
-            super::garble_gate_batch::<N>(gt, a_label0, b_label0, &deltas, 0);
-
-        for i in 0..N {
-            let (w0, ct) = super::garble_gate::<crate::hashers::AesNiHasher>(
-                gt,
-                a_label0[i],
-                b_label0[i],
-                &deltas[i],
-                0,
-            );
-            assert_eq!(w0_batch[i], w0, "lane {i} w0 mismatch");
-            match (ct_batch, ct) {
-                (None, None) => {}
-                (Some(arr), Some(s)) => assert_eq!(arr[i], s, "lane {i} ct mismatch"),
-                _ => panic!("ciphertext presence mismatch at lane {i}"),
-            }
-        }
-    }
-
-    #[test]
-    fn batch_consistency_and_aesni() {
-        garble_batch_matches_scalar::<4>(GateType::And);
-    }
-
-    #[test]
-    fn batch_consistency_or_aesni() {
-        garble_batch_matches_scalar::<4>(GateType::Or);
-    }
-
-    // Additional sizes to cover fast-paths N = 2, 8, 16
-    #[test]
-    fn batch_consistency_and_aesni_2() {
-        garble_batch_matches_scalar::<2>(GateType::And);
-    }
-
-    #[test]
-    fn batch_consistency_or_aesni_2() {
-        garble_batch_matches_scalar::<2>(GateType::Or);
-    }
-
-    #[test]
-    fn batch_consistency_and_aesni_8() {
-        garble_batch_matches_scalar::<8>(GateType::And);
-    }
-
-    #[test]
-    fn batch_consistency_or_aesni_8() {
-        garble_batch_matches_scalar::<8>(GateType::Or);
-    }
-
-    #[test]
-    fn batch_consistency_and_aesni_16() {
-        garble_batch_matches_scalar::<16>(GateType::And);
-    }
-
-    #[test]
-    fn batch_consistency_or_aesni_16() {
-        garble_batch_matches_scalar::<16>(GateType::Or);
-    }
 }

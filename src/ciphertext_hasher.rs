@@ -71,7 +71,7 @@ impl<const N: usize> MultiCiphertextHandler<N> for AESAccumulatingHashBatch<N> {
     type Result = AESHashBatchResult<N>;
 
     fn handle(&mut self, cts: [S; N]) {
-        let blocks: [[u8; 16]; N] = array::from_fn(|i| cts[i].to_u128().to_le_bytes());
+        let blocks: [[u8; 16]; N] = array::from_fn(|i| cts[i].to_bytes());
         let masks: [[u8; 16]; N] = self.running_hashes;
         let out = aes128_encrypt_blocks_static_xor_masks::<N>(blocks, masks)
             .expect("AES backend should be available (HW or software)");
