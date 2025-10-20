@@ -6,6 +6,7 @@ fn main() {
         println!("cargo:rerun-if-env-changed=SP1_DEV_MODE");
 
         sp1_build::build_program_with_args("sp1-soldering-program", Default::default());
+        _ = sp1_sdk::install::try_install_circuit_artifacts("groth16");
     } else {
         println!("no soldering");
     }
