@@ -47,7 +47,7 @@ impl Garbler {
         self.inner.commit_phase_one::<HHasher>()
     }
 
-    pub fn commit_phase_two<HHasher>(&self, nonce: S) -> Vec<CommitPhaseTwo<HHasher>>
+    pub fn commit_phase_two<HHasher>(&mut self, nonce: S) -> Vec<CommitPhaseTwo<HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
@@ -109,8 +109,8 @@ impl Garbler {
     }
 
     #[cfg(feature = "sp1-soldering")]
-    pub fn do_soldering(&self, evaluator_nonce: S) -> crate::sp1_soldering::SolderingProof {
-        self.inner.do_soldering(evaluator_nonce)
+    pub fn do_soldering(&self) -> crate::sp1_soldering::SolderingProof {
+        self.inner.do_soldering()
     }
 }
 

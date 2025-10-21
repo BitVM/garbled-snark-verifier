@@ -248,7 +248,7 @@ fn run_garbler(
     {
         let _span = tracing::info_span!("soldering").entered();
         info!("start");
-        let proof = g.do_soldering(nonce);
+        let proof = g.do_soldering();
         g2e_tx
             .send(SetupBroadcast::SolderingProof(Box::new(proof)))
             .expect("send soldering proof");

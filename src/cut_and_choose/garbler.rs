@@ -208,6 +208,8 @@ pub struct Garbler<I: CircuitInput + Clone> {
     instances: Vec<GarbledInstance>,
     config: Config<I>,
     live_capacity: usize,
+    /// Nonce received from evaluator, stored for internal use in `commit_phase_two` and `do_soldering`
+    nonce: Option<S>,
 }
 
 impl<I> Garbler<I>
@@ -271,6 +273,7 @@ where
             instances,
             live_capacity,
             config,
+            nonce: None,
         }
     }
 
@@ -286,13 +289,23 @@ where
     }
 
     /// Produce the `Commit₂` transcript (nonce-injected input commitments; spec Step 1.4).
-    pub fn commit_phase_two<HHasher>(&self, nonce: S) -> Vec<CommitPhaseTwo<HHasher>>
+    /// Stores the nonce internally for use in `do_soldering`.
+    /// If called multiple times, the nonce must be the same; otherwise panics.
+    pub fn commit_phase_two<HHasher>(&mut self, nonce: S) -> Vec<CommitPhaseTwo<HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
+        if let Some(existing_nonce) = self.nonce {
+            if existing_nonce != nonce {
+                panic!("Different nonce provided to commit_phase_two; nonce must be consistent");
+            }
+        } else {
+            self.nonce = Some(nonce);
+        }
+
         self.instances
             .iter()
-            .map(|instance| CommitPhaseTwo::<HHasher>::from_instance(instance, nonce))
+            .map(|instance| CommitPhaseTwo::<HHasher>::from_instance(instance, self.nonce.unwrap()))
             .collect()
     }
 
@@ -359,7 +372,10 @@ where
     }
 
     #[cfg(feature = "sp1-soldering")]
-    pub fn do_soldering(&self, evaluator_nonce: S) -> SolderingProof {
+    pub fn do_soldering(&self) -> SolderingProof {
+        let nonce = self
+            .nonce
+            .expect("Nonce must be set before calling do_soldering");
         let GarblerStage::PreparedForEval { indexes_to_eval } = &self.stage else {
             panic!("Garbler not ready to soldering")
         };
@@ -374,7 +390,7 @@ where
         }
 
         // Convert nonce from S to u128
-        let nonce = evaluator_nonce.to_u128();
+        let nonce = nonce.to_u128();
 
         sp1_soldering::prove_soldering(all_instances, nonce)
     }
