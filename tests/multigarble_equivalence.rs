@@ -85,7 +85,7 @@ fn multigarble_vs_sequential_equivalence() {
     let multi_hashes: Vec<[u8; 16]> = multi.ciphertext_handler_result.into_iter().collect();
 
     let mut seq_hashes: Vec<[u8; 16]> = Vec::with_capacity(N);
-    for i in 0..N {
+    for &seed in seeds.iter() {
         let seq: StreamingResult<
             garbled_snark_verifier::circuit::modes::GarbleMode<AesNiHasher, AESAccumulatingHash>,
             _,
@@ -95,7 +95,7 @@ fn multigarble_vs_sequential_equivalence() {
         >::streaming_garbling(
             inputs.clone(),
             cap,
-            seeds[i],
+            seed,
             AESAccumulatingHash::default(),
             garbled_groth16::verify,
         );

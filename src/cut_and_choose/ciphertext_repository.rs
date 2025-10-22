@@ -88,10 +88,11 @@ impl FileCiphertextHandler {
     }
 }
 
-impl CiphertextHandler for FileCiphertextHandler {
+impl crate::circuit::MultiCiphertextHandler<1> for FileCiphertextHandler {
     type Result = CiphertextCommit;
 
-    fn handle(&mut self, ct: S) {
+    fn handle(&mut self, cts: [S; 1]) {
+        let ct = cts[0];
         self.hasher.update(ct);
 
         let bytes = ct.to_bytes();
@@ -131,7 +132,7 @@ impl CiphertextHandler for FileCiphertextHandler {
             );
         }
 
-        self.hasher.finalize()
+        AESAccumulatingHash::finalize(&self.hasher)
     }
 }
 

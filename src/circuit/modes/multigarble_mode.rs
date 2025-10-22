@@ -26,6 +26,9 @@ pub struct MultigarblingMode<H: GateHasher, MCTH: MultiCiphertextHandler<N>, con
     gate_index: usize,
     output_handler: MCTH,
     storage: Storage<WireId, Option<[S; N]>>,
+    deltas_arr: [Delta; N],
+    false_label0s: [S; N],
+    true_label0s: [S; N],
     _hasher: PhantomData<H>,
 }
 
@@ -44,11 +47,18 @@ impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize> Multigarbli
             }
         });
 
+        let deltas_arr: [Delta; N] = array::from_fn(|i| lanes[i].delta);
+        let false_label0s: [S; N] = array::from_fn(|i| lanes[i].false_wire_label0);
+        let true_label0s: [S; N] = array::from_fn(|i| lanes[i].true_wire_label0);
+
         Self {
             storage: Storage::new(capacity),
             lanes,
             gate_index: 0,
             output_handler,
+            deltas_arr,
+            false_label0s,
+            true_label0s,
             _hasher: PhantomData,
         }
     }
@@ -74,8 +84,8 @@ impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize> Multigarbli
     #[inline]
     fn read_label0s(&mut self, wire: WireId) -> [S; N] {
         match wire {
-            FALSE_WIRE => array::from_fn(|i| self.lanes[i].false_wire_label0),
-            TRUE_WIRE => array::from_fn(|i| self.lanes[i].true_wire_label0),
+            FALSE_WIRE => self.false_label0s,
+            TRUE_WIRE => self.true_label0s,
             _ => match self.storage.get(wire).map(|d| d.to_owned()) {
                 Ok(Some(arr)) => arr,
                 Ok(None) => panic!(
@@ -131,51 +141,41 @@ where
 
     fn evaluate_gate(&mut self, gate: &Gate) {
         let a_label0s: [S; N] = self.read_label0s(gate.wire_a);
-
         let b_label0s: [S; N] = self.read_label0s(gate.wire_b);
 
-        let gate_id = self.next_gate_index();
         if gate.wire_c == WireId::UNREACHABLE {
             return;
         }
+
+        let gate_id = self.next_gate_index();
         maybe_log_progress("garbled", gate_id);
+
+        let (c_base, ciphertext): ([S; N], Option<[S; N]>) =
+            halfgates_garbling::garble_gate_batch::<N>(
+                gate.gate_type,
+                a_label0s,
+                b_label0s,
+                &self.deltas_arr,
+                gate_id,
+            );
+
         match gate.gate_type {
             GateType::Xor | GateType::Xnor | GateType::Not => {
-                let (c_base, ciphertext): ([S; N], Option<[S; N]>) =
-                    halfgates_garbling::garble_gate_batch::<N>(
-                        gate.gate_type,
-                        a_label0s,
-                        b_label0s,
-                        &array::from_fn(|i| self.lanes[i].delta),
-                        gate_id,
-                    );
                 debug_assert!(ciphertext.is_none());
-                assert_ne!(gate.wire_c, FALSE_WIRE);
-                assert_ne!(gate.wire_c, TRUE_WIRE);
-                assert_ne!(gate.wire_c, WireId::UNREACHABLE);
-                self.storage
-                    .set(gate.wire_c, |slot| {
-                        *slot = Some(c_base);
-                    })
-                    .unwrap();
             }
             _ => {
-                let (c_base, ciphertext): ([S; N], Option<[S; N]>) =
-                    halfgates_garbling::garble_gate_batch::<N>(
-                        gate.gate_type,
-                        a_label0s,
-                        b_label0s,
-                        &array::from_fn(|i| self.lanes[i].delta),
-                        gate_id,
-                    );
                 self.stream_table_entries(gate_id, ciphertext);
-                self.storage
-                    .set(gate.wire_c, |slot| {
-                        *slot = Some(c_base);
-                    })
-                    .unwrap();
             }
         }
+
+        assert_ne!(gate.wire_c, FALSE_WIRE);
+        assert_ne!(gate.wire_c, TRUE_WIRE);
+        assert_ne!(gate.wire_c, WireId::UNREACHABLE);
+        self.storage
+            .set(gate.wire_c, |slot| {
+                *slot = Some(c_base);
+            })
+            .unwrap();
     }
 
     fn feed_wire(&mut self, wire_id: crate::WireId, value: Self::WireValue) {

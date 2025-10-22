@@ -125,13 +125,12 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> 
         let a = self.lookup_wire(gate.wire_a).unwrap();
         let b = self.lookup_wire(gate.wire_b).unwrap();
 
-        let gate_id = self.next_gate_index();
-
         // If C is unreachable, skip evaluation and do not advance gate index.
         if gate.wire_c == WireId::UNREACHABLE {
             return;
         }
 
+        let gate_id = self.next_gate_index();
         maybe_log_progress("evaluated", gate_id);
 
         let expected_label = halfgates_garbling::degarble_gate::<H>(

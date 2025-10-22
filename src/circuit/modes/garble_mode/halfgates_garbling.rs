@@ -39,6 +39,20 @@ pub fn garble_gate<H: GateHasher>(
     }
 }
 
+/// Batched garbling routine for the Half-Gates construction over `N` lanes.
+///
+/// For each lane `k`, AES-PRF inputs are derived from `a_label0[k]` and `a_label0[k] ^ delta[k]`,
+/// based on the `alpha_*` bits of the `GateType`. Before AES-128 rounds, each 16-byte block is
+/// XORed with a tweak `to_tweak(gate_id)` for domain separation.
+///
+/// We produce `2*N` input blocks (2 per lane) and encrypt them efficiently:
+/// - **N = 16**: two 16-block AES calls (~5–6% faster than a packed 32-block wrapper,
+///   which internally splits into 2×16 and adds packing overhead)
+/// - **N = 8**: one 16-block AES call
+/// - **Other N**: processed in sequential loops with smaller AES calls
+///
+/// Uses AES-NI if available, otherwise falls back to constant-time software AES.
+/// Large batches (N ≥ 8) are split due to backend API constraints.
 #[inline(always)]
 pub fn garble_gate_batch<const N: usize>(
     gate_type: GateType,
@@ -503,4 +517,71 @@ mod tests {
         Nor => garble_consistency_nor,
         Or => garble_consistency_or
     );
+
+    fn garble_batch_consistency<const N: usize>(gt: GateType) {
+        let mut rng = trng();
+        let deltas: [Delta; N] = core::array::from_fn(|_| Delta::generate(&mut rng));
+        let a_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
+        let b_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
+
+        let (w0_batch, ct_batch) =
+            super::garble_gate_batch::<N>(gt, a_label0, b_label0, &deltas, 0);
+
+        let ct_arr = ct_batch.as_ref();
+
+        for i in 0..N {
+            let (w0, ct) = super::garble_gate::<crate::hashers::AesNiHasher>(
+                gt,
+                a_label0[i],
+                b_label0[i],
+                &deltas[i],
+                0,
+            );
+            assert_eq!(w0_batch[i], w0, "lane {i} w0 mismatch");
+            match (ct_arr, ct) {
+                (None, None) => {}
+                (Some(arr), Some(s)) => assert_eq!(arr[i], s, "lane {i} ct mismatch"),
+                _ => panic!("ciphertext presence mismatch at lane {i}"),
+            }
+        }
+    }
+
+    macro_rules! batch_consistency {
+        ($gt:ident, $name:ident) => {
+            #[test]
+            fn $name() {
+                garble_batch_consistency::<1>(GateType::$gt);
+                garble_batch_consistency::<2>(GateType::$gt);
+                garble_batch_consistency::<3>(GateType::$gt);
+                garble_batch_consistency::<4>(GateType::$gt);
+                garble_batch_consistency::<5>(GateType::$gt);
+                garble_batch_consistency::<6>(GateType::$gt);
+                garble_batch_consistency::<7>(GateType::$gt);
+                garble_batch_consistency::<8>(GateType::$gt);
+                garble_batch_consistency::<9>(GateType::$gt);
+                garble_batch_consistency::<10>(GateType::$gt);
+                garble_batch_consistency::<11>(GateType::$gt);
+                garble_batch_consistency::<12>(GateType::$gt);
+                garble_batch_consistency::<13>(GateType::$gt);
+                garble_batch_consistency::<14>(GateType::$gt);
+                garble_batch_consistency::<15>(GateType::$gt);
+                garble_batch_consistency::<16>(GateType::$gt);
+                garble_batch_consistency::<17>(GateType::$gt);
+                garble_batch_consistency::<18>(GateType::$gt);
+                garble_batch_consistency::<19>(GateType::$gt);
+            }
+        };
+    }
+
+    batch_consistency!(And, batch_consistency_and);
+    batch_consistency!(Nand, batch_consistency_nand);
+    batch_consistency!(Imp, batch_consistency_imp);
+    batch_consistency!(Ncimp, batch_consistency_ncimp);
+    batch_consistency!(Cimp, batch_consistency_cimp);
+    batch_consistency!(Nor, batch_consistency_nor);
+    batch_consistency!(Or, batch_consistency_or);
+    batch_consistency!(Xor, batch_consistency_xor);
+    batch_consistency!(Xnor, batch_consistency_xnor);
+    batch_consistency!(Not, batch_consistency_not);
+    batch_consistency!(Nimp, batch_consistency_nimp);
 }
