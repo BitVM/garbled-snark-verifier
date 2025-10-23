@@ -15,6 +15,8 @@ use garbled_snark_verifier::{
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
+const LANES: usize = 8;
+
 #[derive(Copy, Clone)]
 struct DummyCircuit<F: ark::PrimeField> {
     pub a: Option<F>,
@@ -67,22 +69,19 @@ fn main() {
         vk: vk.clone(),
     };
 
-    // Number of parallel garbling lanes (batch size).
-    const N: usize = 8;
     let garbling_seed: u64 = rand::random::<u64>();
-    let seeds: [u64; N] = std::array::from_fn(|i| garbling_seed.wrapping_add(i as u64));
+    let seeds: [u64; LANES] = std::array::from_fn(|i| garbling_seed.wrapping_add(i as u64));
     let t_multi = Instant::now();
     let _multi = CircuitBuilder::run_streaming::<_, _, Vec<_>>(
         inputs.clone(),
         garbled_snark_verifier::circuit::modes::MultigarblingMode::<
             AesNiHasher,
-            AESAccumulatingHashBatch<N>,
-            N,
-        >::new(cap, seeds, AESAccumulatingHashBatch::<N>::default()),
+            AESAccumulatingHashBatch<LANES>,
+            LANES,
+        >::new(cap, seeds, AESAccumulatingHashBatch::<LANES>::default()),
         |root, input| vec![garbled_groth16::verify(root, input)],
     );
     let multi_ms = t_multi.elapsed().as_secs_f64() * 1000.0;
 
-    println!("\nGroth16 basic multigarbling timing:");
-    println!("  N={} multigarble: {:.2} ms", N, multi_ms);
+    println!("\nGroth16 (N={}) multigarble: {:.2} ms", LANES, multi_ms);
 }

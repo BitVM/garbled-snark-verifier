@@ -174,6 +174,11 @@ impl MultiCiphertextHandler<1> for () {
     fn finalize(self) -> Self::Result {}
 }
 
+/// Streaming handler for single ciphertext labels.
+///
+/// Thin wrapper over [`MultiCiphertextHandler<1>`] for one-at-a-time processing.
+/// Automatically delegates via blanket implementation.
+/// Allows no-op, side-effect-only, or result-producing implementations.
 pub trait CiphertextHandler: Sized {
     type Result: Default;
 

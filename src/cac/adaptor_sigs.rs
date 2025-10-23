@@ -461,7 +461,7 @@ mod bitvm_tests {
 
         // Test with different order of sigs: should fail
         tx.input[0].witness = [
-            sigs.iter().cloned().collect::<Vec<_>>(), // note: omitted .rev()
+            sigs.clone(), // note: omitted .rev()
             vec![script.to_bytes(), control_block.clone()],
         ]
         .concat()

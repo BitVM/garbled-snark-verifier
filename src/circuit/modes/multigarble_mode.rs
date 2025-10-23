@@ -143,11 +143,12 @@ where
         let a_label0s: [S; N] = self.read_label0s(gate.wire_a);
         let b_label0s: [S; N] = self.read_label0s(gate.wire_b);
 
+        let gate_id = self.next_gate_index();
+
+        // If C is unreachable, skip evaluation and do not advance gate index.
         if gate.wire_c == WireId::UNREACHABLE {
             return;
         }
-
-        let gate_id = self.next_gate_index();
         maybe_log_progress("garbled", gate_id);
 
         let (c_base, ciphertext): ([S; N], Option<[S; N]>) =

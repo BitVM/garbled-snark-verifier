@@ -21,6 +21,9 @@ use garbled_snark_verifier::{
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 
+const INSTANCES: usize = 181;
+const LANES: usize = 8;
+
 #[derive(Copy, Clone)]
 struct DummyCircuit<F: ark::PrimeField> {
     pub a: Option<F>,
@@ -92,6 +95,31 @@ fn run_batch<const N: usize>(
     .collect::<Vec<[u8; 16]>>()
 }
 
+fn build_pool(n_threads: usize) -> rayon::ThreadPool {
+    let chosen_cores = match core_affinity::get_core_ids() {
+        Some(cores) if cores.len() >= 2 * n_threads => {
+            cores.into_iter().step_by(2).take(n_threads).collect()
+        }
+        Some(cores) => cores.into_iter().take(n_threads).collect(),
+        None => Vec::new(),
+    };
+
+    ThreadPoolBuilder::new()
+        .num_threads(n_threads)
+        .start_handler(move |thread_idx| {
+            if let Some(core_id) = chosen_cores.get(thread_idx).cloned() {
+                let _ = core_affinity::set_for_current(core_id);
+            }
+        })
+        .build()
+        .unwrap_or_else(|_| {
+            ThreadPoolBuilder::new()
+                .num_threads(n_threads)
+                .build()
+                .expect("failed to create fallback thread pool")
+        })
+}
+
 fn main() {
     garbled_snark_verifier::init_tracing();
 
@@ -110,46 +138,22 @@ fn main() {
         vk: vk.clone(),
     };
 
-    // Number of parallel garbling lanes (batch size).
-    const N: usize = 8;
-
-    let all_seeds: Vec<u64> = (0..181usize)
+    let all_seeds: Vec<u64> = (0..INSTANCES)
         .map(|i| rand::random::<u64>().wrapping_add(i as u64))
         .collect();
 
     let t = Instant::now();
 
     let n_threads = num_cpus::get_physical().max(1);
-    let chosen_cores = match core_affinity::get_core_ids() {
-        Some(cores) if cores.len() >= 2 * n_threads => {
-            cores.into_iter().take(n_threads).collect::<Vec<_>>()
-        }
-        Some(cores) => cores.into_iter().take(n_threads).collect::<Vec<_>>(),
-        None => Vec::new(),
-    };
-
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(n_threads)
-        .start_handler(move |thread_idx| {
-            if let Some(core_id) = chosen_cores.get(thread_idx).cloned() {
-                let _ = core_affinity::set_for_current(core_id);
-            }
-        })
-        .build()
-        .unwrap_or_else(|_| {
-            ThreadPoolBuilder::new()
-                .num_threads(n_threads)
-                .build()
-                .expect("failed to create fallback thread pool")
-        });
+    let pool = build_pool(n_threads);
 
     pool.install(|| {
         all_seeds
-            .par_chunks(N)
-            .flat_map(|chunk| run_batch::<N>(&inputs, cap, chunk))
+            .par_chunks(LANES)
+            .flat_map(|chunk| run_batch::<LANES>(&inputs, cap, chunk))
             .collect::<Vec<[u8; 16]>>()
     });
 
     let ms = t.elapsed().as_secs_f64() * 1000.0;
-    println!("181 instances: {:.2} ms", ms);
+    println!("{INSTANCES} instances: {:.2} ms", ms);
 }
