@@ -8,8 +8,9 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use crate::circuit::modes::MultigarblingMode;
 use crate::{
-    AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, WireId,
+    AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, GarbleMode, GarbledWire, WireId,
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
@@ -241,6 +242,116 @@ where
         }
     }
 
+    pub fn create_multi<const N: usize, F>(
+        mut rng: impl Rng,
+        config: Config<I>,
+        live_capacity: usize,
+        builder: F,
+    ) -> Self
+    where
+        F: Fn(
+                &mut StreamingMode<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+                &I::WireRepr,
+            ) -> WireId
+            + Send
+            + Sync
+            + Copy,
+        I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+    {
+        let seeds: Box<[Seed]> = (0..config.total).map(|_| rng.r#gen()).collect();
+
+        fn process_chunk<const N: usize, F, I>(
+            chunk: &[Seed],
+            live_capacity: usize,
+            input: &I,
+            builder: F,
+        ) -> Vec<GarbledInstance>
+        where
+            F: Fn(
+                    &mut StreamingMode<
+                        MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>,
+                    >,
+                    &I::WireRepr,
+                ) -> WireId
+                + Send
+                + Sync
+                + Copy,
+            I: CircuitInput
+                + Clone
+                + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+        {
+            let m = chunk.len();
+            debug_assert!(m <= N);
+
+            let seed_arr: [Seed; N] = {
+                let last = chunk.get(m.saturating_sub(1)).copied().unwrap_or(0);
+                core::array::from_fn(|i| if i < m { chunk[i] } else { last })
+            };
+
+            let mode = MultigarblingMode::<AesNiHasher, AESAccumulatingHashBatch<N>, N>::new(
+                live_capacity,
+                seed_arr,
+                AESAccumulatingHashBatch::<N>::default(),
+            );
+
+            let res = CircuitBuilder::run_streaming::<_, _, Vec<[GarbledWire; N]>>(
+                (*input).clone(),
+                mode,
+                |root, irepr| vec![builder(root, irepr)],
+            );
+
+            let out_arr = res
+                .output_value
+                .into_iter()
+                .next()
+                .expect("no output value produced by circuit");
+
+            let false_arr = res.false_wire_constant;
+            let true_arr = res.true_wire_constant;
+            let commits = res.ciphertext_handler_result.0;
+
+            let mut per_lane_inputs: [Vec<GarbledWire>; N] =
+                core::array::from_fn(|_| Vec::with_capacity(res.input_wire_values.len()));
+            for row in res.input_wire_values.into_iter() {
+                for (dst, v) in per_lane_inputs.iter_mut().zip(row) {
+                    dst.push(v);
+                }
+            }
+
+            false_arr
+                .into_iter()
+                .zip(true_arr)
+                .zip(out_arr)
+                .zip(per_lane_inputs)
+                .zip(commits)
+                .take(m)
+                .map(|((((f, t), out), inps), ct)| GarbledInstance {
+                    false_wire_constant: f,
+                    true_wire_constant: t,
+                    output_wire_values: out,
+                    input_wire_values: inps,
+                    ciphertext_handler_result: ct,
+                })
+                .collect()
+        }
+
+        let instances: Vec<GarbledInstance> = super::get_optimized_pool().install(|| {
+            seeds
+                .par_chunks(N)
+                .flat_map(|chunk| {
+                    process_chunk::<N, F, I>(chunk, live_capacity, &config.input, builder)
+                })
+                .collect()
+        });
+
+        Self {
+            stage: GarblerStage::Generating { seeds },
+            instances,
+            live_capacity,
+            config,
+        }
+    }
+
     pub fn commit(&self) -> Vec<GarbledInstanceCommit> {
         self.commit_with_hasher::<DefaultLabelCommitHasher>()
     }
@@ -251,7 +362,7 @@ where
     {
         // Build commits in parallel; independent per instance
         self.instances
-            .iter()
+            .par_iter()
             .map(GarbledInstanceCommit::<HHasher>::new)
             .collect()
     }

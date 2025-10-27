@@ -249,6 +249,48 @@ impl<H: GateHasher, CTH: CiphertextHandler> EncodeInput<GarbleMode<H, CTH>>
     }
 }
 
+impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize>
+    EncodeInput<MultigarblingMode<H, MCTH, N>> for GarblerCompressedInput
+where
+    MCTH::Result: Default,
+{
+    fn encode(&self, repr: &ProofCompressedWires, cache: &mut MultigarblingMode<H, MCTH, N>) {
+        for w in &repr.public {
+            for &wire in w.iter() {
+                let gwb = cache.issue_garbled_wire_batch();
+                cache.feed_wire(wire, gwb);
+            }
+        }
+
+        for &wire_id in repr.a.x_m.iter() {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(wire_id, gwb);
+        }
+        {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(repr.a.y_flag, gwb);
+        }
+
+        for &wire_id in repr.b.p.iter() {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(wire_id, gwb);
+        }
+        {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(repr.b.y_flag, gwb);
+        }
+
+        for &wire_id in repr.c.x_m.iter() {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(wire_id, gwb);
+        }
+        {
+            let gwb = cache.issue_garbled_wire_batch();
+            cache.feed_wire(repr.c.y_flag, gwb);
+        }
+    }
+}
+
 // ============================================================================
 // Evaluation helpers (map provided labels + semantic proof into EvaluatedWire inputs)
 // ============================================================================

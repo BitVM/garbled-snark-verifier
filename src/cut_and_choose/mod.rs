@@ -12,7 +12,9 @@ pub mod ciphertext_repository;
 pub mod evaluator;
 pub mod garbler;
 
-pub use ciphertext_repository::*;
+pub use ciphertext_repository::{
+    CiphertextHandlerProvider, CiphertextSourceProvider, FileCiphertextHandlerProvider,
+};
 pub use evaluator::*;
 pub use garbler::*;
 

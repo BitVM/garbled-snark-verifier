@@ -7,10 +7,13 @@ use tracing::{error, info};
 
 use super::{Config, garbler::GarbledInstanceCommit};
 use crate::{
-    AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
+    AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, EvaluatedWire, GarbledWire, S,
+    WireId,
     circuit::{
-        CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
-        StreamingMode, StreamingResult, modes::EvaluateMode,
+        CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, GarbleMode, StreamingMode,
+        StreamingResult,
+        ciphertext_source::CiphertextSource,
+        modes::{EvaluateMode, MultigarblingMode},
     },
     cut_and_choose::{
         CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
@@ -180,8 +183,183 @@ where
         Ok(())
     }
 
+    #[allow(clippy::result_unit_err)]
+    pub fn run_regarbling_multi<const N: usize, CSourceProvider, CHandlerProvider, F>(
+        &self,
+        seeds: Vec<(usize, Seed)>,
+        ciphertext_sources_provider: &CSourceProvider,
+        ciphertext_handler_provider: &CHandlerProvider,
+        live_capacity: usize,
+        builder: F,
+    ) -> Result<(), ()>
+    where
+        CSourceProvider: CiphertextSourceProvider + Send + Sync,
+        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
+        CHandlerProvider::Handler: 'static,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
+        F: Fn(
+                &mut StreamingMode<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+                &I::WireRepr,
+            ) -> WireId
+            + Send
+            + Sync
+            + Copy,
+        I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+    {
+        let finalize_indexes: &[usize] = &self.to_finalize;
+
+        let (finalize_res, opened_res) =
+            super::get_optimized_pool().install(|| {
+                rayon::join(
+                    || {
+                        finalize_indexes.par_iter().try_for_each(|&index| {
+                            let mut source = ciphertext_sources_provider
+                                .source_for(index)
+                                .map_err(|err| {
+                                    error!(index, ?err, "failed to get ciphertext source");
+                                })?;
+
+                            let mut handler = ciphertext_handler_provider
+                                .handler_for(index)
+                                .map_err(|err| {
+                                    error!(index, ?err, "failed to create ciphertext handler");
+                                })?;
+
+                            while let Some(s) = source.recv() {
+                                handler.handle(s);
+                            }
+
+                            let computed_commit: CiphertextCommit = handler.finalize().into();
+                            let expected_commit = &self.commits[index];
+                            if computed_commit != expected_commit.ciphertext_commit() {
+                                error!(index, "ciphertext corrupted");
+                                Err(())
+                            } else {
+                                Ok(())
+                            }
+                        })
+                    },
+                    || {
+                        let mut seeds_sorted = seeds.clone();
+                        seeds_sorted.sort_unstable_by_key(|(i, _)| *i);
+
+                        seeds_sorted.par_chunks(N).try_for_each(|batch| {
+                            self.process_batch::<N, F>(batch, live_capacity, builder)
+                        })
+                    },
+                )
+            });
+
+        finalize_res?;
+        opened_res?;
+        Ok(())
+    }
+
     pub fn commits(&self) -> &[GarbledInstanceCommit<H>] {
         &self.commits
+    }
+}
+
+impl<I, H> Evaluator<I, H>
+where
+    I: CircuitInput
+        + Clone
+        + Send
+        + Sync
+        + EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>
+        + Serialize
+        + DeserializeOwned,
+    <I as CircuitInput>::WireRepr: Send + Sync,
+    H: LabelCommitHasher,
+{
+    fn process_batch<const N: usize, F>(
+        &self,
+        batch: &[(usize, Seed)],
+        live_capacity: usize,
+        builder: F,
+    ) -> Result<(), ()>
+    where
+        F: Fn(
+                &mut StreamingMode<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+                &I::WireRepr,
+            ) -> WireId
+            + Send
+            + Sync
+            + Copy,
+        I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+    {
+        let m = batch.len();
+        debug_assert!(m <= N);
+
+        let seed_arr: [Seed; N] = {
+            let last = batch.get(m.saturating_sub(1)).map(|b| b.1).unwrap_or(0);
+            core::array::from_fn(|i| if i < m { batch[i].1 } else { last })
+        };
+
+        let span = tracing::info_span!("regarble_multi", opened = m);
+        let _enter = span.enter();
+        info!("Starting multigarbling regarble batch");
+
+        let mode = MultigarblingMode::<AesNiHasher, AESAccumulatingHashBatch<N>, N>::new(
+            live_capacity,
+            seed_arr,
+            AESAccumulatingHashBatch::<N>::default(),
+        );
+
+        let res = CircuitBuilder::run_streaming::<_, _, Vec<[GarbledWire; N]>>(
+            self.config.input.clone(),
+            mode,
+            |root, irepr| vec![builder(root, irepr)],
+        );
+
+        let out_arr = match res.output_value.into_iter().next() {
+            Some(v) => v,
+            None => {
+                error!("no output value produced by circuit");
+                return Err(());
+            }
+        };
+
+        let mut per_lane_inputs: [Vec<GarbledWire>; N] =
+            core::array::from_fn(|_| Vec::with_capacity(res.input_wire_values.len()));
+        for row in res.input_wire_values.into_iter() {
+            for (lane, v) in row.into_iter().enumerate() {
+                per_lane_inputs[lane].push(v);
+            }
+        }
+        let false_arr = res.false_wire_constant;
+        let true_arr = res.true_wire_constant;
+        let commits_batch = res.ciphertext_handler_result.0;
+
+        let mut check_iter = false_arr[..m]
+            .iter()
+            .zip(&true_arr[..m])
+            .zip(&out_arr[..m])
+            .zip(&per_lane_inputs[..m])
+            .zip(&commits_batch[..m])
+            .zip(batch.iter());
+
+        check_iter.try_for_each(|(((((f, t), out), inps), ct), (index, _seed))| {
+            let expected_commit = &self.commits[*index];
+
+            let instance = super::garbler::GarbledInstance {
+                false_wire_constant: f.clone(),
+                true_wire_constant: t.clone(),
+                output_wire_values: out.clone(),
+                input_wire_values: inps.clone(),
+                ciphertext_handler_result: *ct,
+            };
+
+            let actual_commit = GarbledInstanceCommit::<H>::new(&instance);
+            if &actual_commit != expected_commit {
+                error!(index, "regarbling failed: commit mismatch");
+                Err(())
+            } else {
+                Ok(())
+            }
+        })?;
+
+        Ok(())
     }
 }
 
