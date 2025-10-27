@@ -331,33 +331,33 @@ where
         let true_arr = res.true_wire_constant;
         let commits_batch = res.ciphertext_handler_result.0;
 
-        let mut check_iter = false_arr[..m]
-            .iter()
-            .zip(&true_arr[..m])
-            .zip(&out_arr[..m])
-            .zip(&per_lane_inputs[..m])
-            .zip(&commits_batch[..m])
-            .zip(batch.iter());
+        false_arr
+            .into_iter()
+            .zip(true_arr)
+            .zip(out_arr)
+            .zip(per_lane_inputs)
+            .zip(commits_batch)
+            .take(m)
+            .zip(batch.iter())
+            .try_for_each(|(((((f, t), out), inps), ct), (index, _seed))| {
+                let expected_commit = &self.commits[*index];
 
-        check_iter.try_for_each(|(((((f, t), out), inps), ct), (index, _seed))| {
-            let expected_commit = &self.commits[*index];
+                let instance = super::garbler::GarbledInstance {
+                    false_wire_constant: f,
+                    true_wire_constant: t,
+                    output_wire_values: out,
+                    input_wire_values: inps,
+                    ciphertext_handler_result: ct,
+                };
 
-            let instance = super::garbler::GarbledInstance {
-                false_wire_constant: f.clone(),
-                true_wire_constant: t.clone(),
-                output_wire_values: out.clone(),
-                input_wire_values: inps.clone(),
-                ciphertext_handler_result: *ct,
-            };
-
-            let actual_commit = GarbledInstanceCommit::<H>::new(&instance);
-            if &actual_commit != expected_commit {
-                error!(index, "regarbling failed: commit mismatch");
-                Err(())
-            } else {
-                Ok(())
-            }
-        })?;
+                let actual_commit = GarbledInstanceCommit::<H>::new(&instance);
+                if &actual_commit != expected_commit {
+                    error!(index, "regarbling failed: commit mismatch");
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            })?;
 
         Ok(())
     }
