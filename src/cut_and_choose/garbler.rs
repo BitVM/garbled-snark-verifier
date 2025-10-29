@@ -3,11 +3,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use num_cpus;
 use rand::Rng;
 use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use super::{AutoBuilder, pick_lanes};
 use crate::circuit::modes::MultigarblingMode;
 use crate::{
     AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, GarbleMode, GarbledWire, WireId,
@@ -242,6 +244,243 @@ where
         }
     }
 
+    pub fn create_auto<B>(
+        rng: impl Rng,
+        config: Config<I>,
+        live_capacity: usize,
+        builder: B,
+    ) -> Self
+    where
+        B: AutoBuilder<I>,
+        I: EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<2>, 2>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<4>, 4>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<8>, 8>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<16>, 16>>,
+    {
+        let instances = config.total();
+        let threads = num_cpus::get_physical().max(1);
+        let lanes = 8usize;
+        let lanes = pick_lanes(instances, threads, lanes);
+        info!("auto garbler lanes: {}", lanes);
+
+        if lanes == 1 {
+            return Self::create(rng, config, live_capacity, move |root, irepr| {
+                builder.build_single(root, irepr)
+            });
+        }
+
+        let mut rng = rng;
+        let seeds: Box<[Seed]> = (0..config.total).map(|_| rng.r#gen()).collect();
+
+        fn garble_multilane_chunk<const N: usize, F, I>(
+            chunk: &[Seed],
+            live_capacity: usize,
+            input: &I,
+            builder: F,
+        ) -> Vec<GarbledInstance>
+        where
+            F: Fn(
+                    &mut StreamingMode<
+                        MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>,
+                    >,
+                    &I::WireRepr,
+                ) -> WireId
+                + Send
+                + Sync
+                + Copy,
+            I: CircuitInput
+                + Clone
+                + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
+        {
+            let m = chunk.len();
+            debug_assert!(m <= N);
+
+            let seed_arr: [Seed; N] = {
+                let last = chunk.get(m.saturating_sub(1)).copied().unwrap_or(0);
+                core::array::from_fn(|i| if i < m { chunk[i] } else { last })
+            };
+
+            let mode = MultigarblingMode::<AesNiHasher, AESAccumulatingHashBatch<N>, N>::new(
+                live_capacity,
+                seed_arr,
+                AESAccumulatingHashBatch::<N>::default(),
+            );
+
+            let res = CircuitBuilder::run_streaming::<_, _, Vec<[GarbledWire; N]>>(
+                (*input).clone(),
+                mode,
+                |root, irepr| vec![builder(root, irepr)],
+            );
+
+            let out_arr = res
+                .output_value
+                .into_iter()
+                .next()
+                .expect("no output value produced by circuit");
+
+            let false_arr = res.false_wire_constant;
+            let true_arr = res.true_wire_constant;
+            let commits = res.ciphertext_handler_result.0;
+
+            let mut per_lane_inputs: [Vec<GarbledWire>; N] =
+                core::array::from_fn(|_| Vec::with_capacity(res.input_wire_values.len()));
+            for row in res.input_wire_values.into_iter() {
+                for (lane, v) in row.into_iter().enumerate() {
+                    per_lane_inputs[lane].push(v);
+                }
+            }
+
+            let mut false_arr = false_arr;
+            let mut true_arr = true_arr;
+            let mut out_arr = out_arr;
+            let commits_arr = commits;
+
+            let mut out_vec = Vec::with_capacity(m);
+            for i in 0..m {
+                let f = mem::take(&mut false_arr[i]);
+                let t = mem::take(&mut true_arr[i]);
+                let outw = mem::take(&mut out_arr[i]);
+                let inps = mem::take(&mut per_lane_inputs[i]);
+                let ct = commits_arr[i];
+
+                out_vec.push(GarbledInstance {
+                    false_wire_constant: f,
+                    true_wire_constant: t,
+                    output_wire_values: outw,
+                    input_wire_values: inps,
+                    ciphertext_handler_result: ct,
+                });
+            }
+
+            out_vec
+        }
+
+        let head_len = (seeds.len() / lanes) * lanes;
+        let mut instances: Vec<GarbledInstance> =
+            super::get_optimized_pool().install(|| match lanes {
+                16 => seeds[..head_len]
+                    .par_chunks(16)
+                    .flat_map(|chunk| {
+                        garble_multilane_chunk::<16, _, I>(
+                            chunk,
+                            live_capacity,
+                            &config.input,
+                            move |root, irepr| builder.build_multi::<16>(root, irepr),
+                        )
+                    })
+                    .collect(),
+                8 => seeds[..head_len]
+                    .par_chunks(8)
+                    .flat_map(|chunk| {
+                        garble_multilane_chunk::<8, _, I>(
+                            chunk,
+                            live_capacity,
+                            &config.input,
+                            move |root, irepr| builder.build_multi::<8>(root, irepr),
+                        )
+                    })
+                    .collect(),
+                4 => seeds[..head_len]
+                    .par_chunks(4)
+                    .flat_map(|chunk| {
+                        garble_multilane_chunk::<4, _, I>(
+                            chunk,
+                            live_capacity,
+                            &config.input,
+                            move |root, irepr| builder.build_multi::<4>(root, irepr),
+                        )
+                    })
+                    .collect(),
+                _ => seeds[..head_len]
+                    .par_chunks(2)
+                    .flat_map(|chunk| {
+                        garble_multilane_chunk::<2, _, I>(
+                            chunk,
+                            live_capacity,
+                            &config.input,
+                            move |root, irepr| builder.build_multi::<2>(root, irepr),
+                        )
+                    })
+                    .collect(),
+            });
+
+        let mut rem = &seeds[head_len..];
+        while !rem.is_empty() {
+            let take = if lanes >= 16 && rem.len() >= 16 {
+                16
+            } else if lanes >= 8 && rem.len() >= 8 {
+                8
+            } else if lanes >= 4 && rem.len() >= 4 {
+                4
+            } else if lanes >= 2 && rem.len() >= 2 {
+                2
+            } else {
+                1
+            };
+            let batch = &rem[..take];
+            match take {
+                16 => {
+                    instances.extend(garble_multilane_chunk::<16, _, I>(
+                        batch,
+                        live_capacity,
+                        &config.input,
+                        move |root, irepr| builder.build_multi::<16>(root, irepr),
+                    ));
+                }
+                8 => {
+                    instances.extend(garble_multilane_chunk::<8, _, I>(
+                        batch,
+                        live_capacity,
+                        &config.input,
+                        move |root, irepr| builder.build_multi::<8>(root, irepr),
+                    ));
+                }
+                4 => {
+                    instances.extend(garble_multilane_chunk::<4, _, I>(
+                        batch,
+                        live_capacity,
+                        &config.input,
+                        move |root, irepr| builder.build_multi::<4>(root, irepr),
+                    ));
+                }
+                2 => {
+                    instances.extend(garble_multilane_chunk::<2, _, I>(
+                        batch,
+                        live_capacity,
+                        &config.input,
+                        move |root, irepr| builder.build_multi::<2>(root, irepr),
+                    ));
+                }
+                _ => {
+                    let seed = batch[0];
+                    let inputs = config.input.clone();
+                    let hasher = AESAccumulatingHash::default();
+                    let res: StreamingResult<
+                        GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                        I,
+                        GarbledWire,
+                    > = CircuitBuilder::streaming_garbling(
+                        inputs,
+                        live_capacity,
+                        seed,
+                        hasher,
+                        move |root, irepr| builder.build_single(root, irepr),
+                    );
+                    instances.push(GarbledInstance::from(res));
+                }
+            }
+            rem = &rem[take..];
+        }
+
+        Self {
+            stage: GarblerStage::Generating { seeds },
+            instances,
+            live_capacity,
+            config,
+        }
+    }
+
     pub fn create_multi<const N: usize, F>(
         mut rng: impl Rng,
         config: Config<I>,
@@ -260,7 +499,7 @@ where
     {
         let seeds: Box<[Seed]> = (0..config.total).map(|_| rng.r#gen()).collect();
 
-        fn process_chunk<const N: usize, F, I>(
+        fn garble_multilane_chunk<const N: usize, F, I>(
             chunk: &[Seed],
             live_capacity: usize,
             input: &I,
@@ -318,28 +557,36 @@ where
                 }
             }
 
-            false_arr
-                .into_iter()
-                .zip(true_arr)
-                .zip(out_arr)
-                .zip(per_lane_inputs)
-                .zip(commits)
-                .take(m)
-                .map(|((((f, t), out), inps), ct)| GarbledInstance {
+            let mut false_arr = false_arr;
+            let mut true_arr = true_arr;
+            let mut out_arr = out_arr;
+            let commits_arr = commits;
+
+            let mut out_vec = Vec::with_capacity(m);
+            for i in 0..m {
+                let f = mem::take(&mut false_arr[i]);
+                let t = mem::take(&mut true_arr[i]);
+                let out = mem::take(&mut out_arr[i]);
+                let inps = mem::take(&mut per_lane_inputs[i]);
+                let ct = commits_arr[i];
+
+                out_vec.push(GarbledInstance {
                     false_wire_constant: f,
                     true_wire_constant: t,
                     output_wire_values: out,
                     input_wire_values: inps,
                     ciphertext_handler_result: ct,
-                })
-                .collect()
+                });
+            }
+
+            out_vec
         }
 
         let instances: Vec<GarbledInstance> = super::get_optimized_pool().install(|| {
             seeds
                 .par_chunks(N)
                 .flat_map(|chunk| {
-                    process_chunk::<N, F, I>(chunk, live_capacity, &config.input, builder)
+                    garble_multilane_chunk::<N, F, I>(chunk, live_capacity, &config.input, builder)
                 })
                 .collect()
         });

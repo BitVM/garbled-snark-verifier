@@ -37,6 +37,28 @@ pub trait LabelCommitHasher: fmt::Debug {
     fn hash_label(label: S) -> Self::Output;
 }
 
+pub trait AutoBuilder<I: CircuitInput>: Send + Sync + Copy {
+    fn build_single(
+        &self,
+        root: &mut crate::circuit::StreamingMode<
+            crate::circuit::modes::GarbleMode<crate::AesNiHasher, crate::AESAccumulatingHash>,
+        >,
+        irepr: &I::WireRepr,
+    ) -> crate::WireId;
+
+    fn build_multi<const N: usize>(
+        &self,
+        root: &mut crate::circuit::StreamingMode<
+            crate::circuit::modes::MultigarblingMode<
+                crate::AesNiHasher,
+                crate::AESAccumulatingHashBatch<N>,
+                N,
+            >,
+        >,
+        irepr: &I::WireRepr,
+    ) -> crate::WireId;
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AesLabelCommitHasher;
 
@@ -185,6 +207,25 @@ fn select_cores_for_affinity(n: usize) -> Vec<core_affinity::CoreId> {
             Vec::new()
         }
     }
+}
+
+/// Heuristic to choose lanes N ∈ {1,2,4,8,16} up to `lanes`
+/// - If instances <= threads: choose 1 (maximize per-instance parallelism)
+/// - Else choose the largest N in {16,8,4,2} with N <= lanes s.t. ceil(instances/N) >= threads
+/// - Else fall back to min(8, lanes)
+pub(crate) fn pick_lanes(instances: usize, threads: usize, lanes: usize) -> usize {
+    if instances <= threads {
+        return 1;
+    }
+    for &n in [16usize, 8, 4, 2].iter() {
+        if n <= lanes {
+            let groups = instances.div_ceil(n);
+            if groups >= threads {
+                return n;
+            }
+        }
+    }
+    lanes.min(8)
 }
 
 #[cfg(test)]

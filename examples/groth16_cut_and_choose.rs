@@ -22,7 +22,6 @@ use tracing::{error, info};
 const TOTAL_INSTANCES: usize = 4;
 const FINALIZE_INSTANCES: usize = 2;
 const OUT_DIR: &str = "target/cut_and_choose";
-const LANES: usize = 8;
 const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
 const IS_PRE_BOOLEAN_EXEC: bool = false;
@@ -179,7 +178,7 @@ fn run_garbler(
         to_finalize = cfg.to_finalize(),
     );
 
-    let mut g = ccn::Garbler::create_multi::<LANES>(&mut seed_rng, cfg.clone());
+    let mut g = ccn::Garbler::create_auto(&mut seed_rng, cfg.clone());
 
     g2e_tx
         .send(G2EMsg::Commits(g.commit()))
@@ -308,7 +307,7 @@ fn run_evaluator(
 
     info!("Output dir: {}", out_dir.display());
 
-    eval.run_regarbling_multi::<LANES, _, _>(
+    eval.run_regarbling_auto(
         open_result,
         &receivers,
         &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),

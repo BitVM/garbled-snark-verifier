@@ -3,11 +3,12 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::cut_and_choose::{GarbledInstanceCommit, LabelCommitHasher, OpenForInstance, Seed};
 use crate::{
-    EvaluatedWire, GarbledWire,
-    circuit::{CiphertextHandler, CiphertextSource},
+    AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, EvaluatedWire, GarbleMode,
+    GarbledWire, WireId,
+    circuit::{CiphertextHandler, CiphertextSource, StreamingMode, modes::MultigarblingMode},
     cut_and_choose::{
-        self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
-        ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
+        self as generic, AutoBuilder, CiphertextCommit, CiphertextHandlerProvider,
+        CiphertextSourceProvider, ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
     },
     garbled_groth16::{self, PublicParams},
 };
@@ -41,6 +42,34 @@ impl Garbler {
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
         );
+        Self { inner }
+    }
+
+    pub fn create_auto(rng: impl Rng, config: Config) -> Self {
+        #[derive(Clone, Copy, Debug, Default)]
+        struct GrothAuto;
+
+        impl AutoBuilder<garbled_groth16::GarblerCompressedInput> for GrothAuto {
+            fn build_single(
+                &self,
+                root: &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                irepr: &<garbled_groth16::GarblerCompressedInput as crate::circuit::CircuitInput>::WireRepr,
+            ) -> WireId {
+                garbled_groth16::verify_compressed(root, irepr)
+            }
+
+            fn build_multi<const N: usize>(
+                &self,
+                root: &mut StreamingMode<
+                    MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>,
+                >,
+                irepr: &<garbled_groth16::GarblerCompressedInput as crate::circuit::CircuitInput>::WireRepr,
+            ) -> WireId {
+                garbled_groth16::verify_compressed(root, irepr)
+            }
+        }
+
+        let inner = generic::Garbler::create_auto(rng, config, DEFAULT_CAPACITY, GrothAuto);
         Self { inner }
     }
 
@@ -157,6 +186,51 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             ciphertext_sink_provider,
             DEFAULT_CAPACITY,
             garbled_groth16::verify_compressed,
+        )
+    }
+
+    #[allow(clippy::result_unit_err)]
+    pub fn run_regarbling_auto<CSourceProvider, CHandlerProvider>(
+        &self,
+        seeds: Vec<(usize, Seed)>,
+        ciphertext_sources_provider: &CSourceProvider,
+        ciphertext_sink_provider: &CHandlerProvider,
+    ) -> Result<(), ()>
+    where
+        CSourceProvider: CiphertextSourceProvider + Send + Sync,
+        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
+        CHandlerProvider::Handler: 'static,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
+    {
+        #[derive(Clone, Copy, Debug, Default)]
+        struct GrothAuto;
+
+        impl AutoBuilder<garbled_groth16::GarblerCompressedInput> for GrothAuto {
+            fn build_single(
+                &self,
+                root: &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                irepr: &<garbled_groth16::GarblerCompressedInput as crate::circuit::CircuitInput>::WireRepr,
+            ) -> WireId {
+                garbled_groth16::verify_compressed(root, irepr)
+            }
+
+            fn build_multi<const N: usize>(
+                &self,
+                root: &mut StreamingMode<
+                    MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>,
+                >,
+                irepr: &<garbled_groth16::GarblerCompressedInput as crate::circuit::CircuitInput>::WireRepr,
+            ) -> WireId {
+                garbled_groth16::verify_compressed(root, irepr)
+            }
+        }
+
+        self.inner.run_regarbling_auto(
+            seeds,
+            ciphertext_sources_provider,
+            ciphertext_sink_provider,
+            DEFAULT_CAPACITY,
+            GrothAuto,
         )
     }
 
