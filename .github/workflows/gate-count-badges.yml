@@ -33,8 +33,14 @@ jobs:
         echo "Running gate count..."
         set -e  # Exit on any error
         
-        # Run the example and capture output
-        cargo run --example groth16_gc_gate_count --release -- --json > raw_output.txt 2>&1
+        # Run the example without SP1 soldering to avoid installing SP1 toolchain
+        cargo run \
+          --release \
+          --no-default-features \
+          --features "tracing_max_level tracing_scopes" \
+          --example groth16_gc_gate_count \
+          -- \
+          --json > raw_output.txt 2>&1
         
         echo "Raw output from cargo run:"
         cat raw_output.txt
