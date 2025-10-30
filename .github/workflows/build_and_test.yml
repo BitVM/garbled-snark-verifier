@@ -83,6 +83,9 @@ jobs:
           sp1up
           rustc +succinct --version
 
+      - name: Build (prime SP1 assets, release)
+        run: cargo build --locked --release --workspace --all-targets --all-features
+
       - name: Run clippy
         run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 
