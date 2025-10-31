@@ -178,7 +178,7 @@ fn run_garbler(
         to_finalize = cfg.to_finalize(),
     );
 
-    let mut g = ccn::Garbler::create_auto(&mut seed_rng, cfg.clone());
+    let mut g = ccn::Garbler::create_opt_cpu(&mut seed_rng, cfg.clone());
 
     g2e_tx
         .send(G2EMsg::Commits(g.commit()))
@@ -307,7 +307,7 @@ fn run_evaluator(
 
     info!("Output dir: {}", out_dir.display());
 
-    eval.run_regarbling_auto(
+    eval.run_regarbling_opt_cpu(
         open_result,
         &receivers,
         &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),

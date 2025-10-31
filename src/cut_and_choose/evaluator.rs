@@ -6,8 +6,7 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, info};
 
-use super::{AutoBuilder, pick_lanes};
-use super::{Config, garbler::GarbledInstanceCommit};
+use super::{Config, LanesBuilder, garbler::GarbledInstanceCommit, pick_lanes};
 use crate::{
     AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, EvaluatedWire, GarbledWire, S,
     WireId,
@@ -47,7 +46,7 @@ where
     H: LabelCommitHasher,
 {
     #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling_auto<CSourceProvider, CHandlerProvider, B>(
+    pub fn run_regarbling_opt_cpu<CSourceProvider, CHandlerProvider, B>(
         &self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
@@ -60,7 +59,7 @@ where
         CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
-        B: AutoBuilder<I>,
+        B: LanesBuilder<I>,
         I: EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<2>, 2>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<4>, 4>>
@@ -69,9 +68,9 @@ where
     {
         let instances = seeds.len();
         let threads = num_cpus::get_physical().max(1);
-        let lanes = 8usize;
+        let lanes = super::DEFAULT_LANES;
         let lanes = pick_lanes(instances, threads, lanes);
-        info!("auto evaluator lanes: {}", lanes);
+        info!("opt_cpu evaluator lanes: {}", lanes);
 
         let finalize_indexes: &[usize] = &self.to_finalize;
 
@@ -111,137 +110,12 @@ where
                 },
                 || {
                     let mut seeds_sorted = seeds.clone();
-                    seeds_sorted.sort_unstable_by_key(|(i, _)| *i);
+                    seeds_sorted.sort_by_key(|(i, _)| *i);
 
                     if lanes == 1 {
-                        seeds_sorted.par_iter().try_for_each(|(index, seed)| {
-                            let inputs = self.config.input.clone();
-                            let hasher = AESAccumulatingHash::default();
-                            let res: StreamingResult<
-                                GarbleMode<AesNiHasher, AESAccumulatingHash>,
-                                I,
-                                GarbledWire,
-                            > = CircuitBuilder::streaming_garbling(
-                                inputs.clone(),
-                                live_capacity,
-                                *seed,
-                                hasher,
-                                move |root, irepr| builder.build_single(root, irepr),
-                            );
-
-                            let commit = GarbledInstanceCommit::<H>::new(&res.into());
-                            if commit != self.commits[*index] {
-                                error!(index, "regarbling failed");
-                                Err(())
-                            } else {
-                                Ok(())
-                            }
-                        })
+                        self.verify_opened_single(&seeds_sorted, live_capacity, builder)
                     } else {
-                        let head_len = (seeds_sorted.len() / lanes) * lanes;
-                        let head_res = match lanes {
-                            16 => seeds_sorted[..head_len]
-                                .par_chunks(16)
-                                .try_for_each(|batch| {
-                                    self.verify_opened_multilane_chunk::<16, _>(
-                                        batch,
-                                        live_capacity,
-                                        move |root, irepr| builder.build_multi::<16>(root, irepr),
-                                    )
-                                }),
-                            8 => seeds_sorted[..head_len]
-                                .par_chunks(8)
-                                .try_for_each(|batch| {
-                                    self.verify_opened_multilane_chunk::<8, _>(
-                                        batch,
-                                        live_capacity,
-                                        move |root, irepr| builder.build_multi::<8>(root, irepr),
-                                    )
-                                }),
-                            4 => seeds_sorted[..head_len]
-                                .par_chunks(4)
-                                .try_for_each(|batch| {
-                                    self.verify_opened_multilane_chunk::<4, _>(
-                                        batch,
-                                        live_capacity,
-                                        move |root, irepr| builder.build_multi::<4>(root, irepr),
-                                    )
-                                }),
-                            _ => seeds_sorted[..head_len]
-                                .par_chunks(2)
-                                .try_for_each(|batch| {
-                                    self.verify_opened_multilane_chunk::<2, _>(
-                                        batch,
-                                        live_capacity,
-                                        move |root, irepr| builder.build_multi::<2>(root, irepr),
-                                    )
-                                }),
-                        };
-                        head_res?;
-
-                        let mut rem = &seeds_sorted[head_len..];
-                        while !rem.is_empty() {
-                            let take = if lanes >= 16 && rem.len() >= 16 {
-                                16
-                            } else if lanes >= 8 && rem.len() >= 8 {
-                                8
-                            } else if lanes >= 4 && rem.len() >= 4 {
-                                4
-                            } else if lanes >= 2 && rem.len() >= 2 {
-                                2
-                            } else {
-                                1
-                            };
-                            let batch = &rem[..take];
-                            let res = match take {
-                                16 => self.verify_opened_multilane_chunk::<16, _>(
-                                    batch,
-                                    live_capacity,
-                                    move |root, irepr| builder.build_multi::<16>(root, irepr),
-                                ),
-                                8 => self.verify_opened_multilane_chunk::<8, _>(
-                                    batch,
-                                    live_capacity,
-                                    move |root, irepr| builder.build_multi::<8>(root, irepr),
-                                ),
-                                4 => self.verify_opened_multilane_chunk::<4, _>(
-                                    batch,
-                                    live_capacity,
-                                    move |root, irepr| builder.build_multi::<4>(root, irepr),
-                                ),
-                                2 => self.verify_opened_multilane_chunk::<2, _>(
-                                    batch,
-                                    live_capacity,
-                                    move |root, irepr| builder.build_multi::<2>(root, irepr),
-                                ),
-                                _ => {
-                                    let (index, seed) = batch[0];
-                                    let inputs = self.config.input.clone();
-                                    let hasher = AESAccumulatingHash::default();
-                                    let res: StreamingResult<
-                                        GarbleMode<AesNiHasher, AESAccumulatingHash>,
-                                        I,
-                                        GarbledWire,
-                                    > = CircuitBuilder::streaming_garbling(
-                                        inputs,
-                                        live_capacity,
-                                        seed,
-                                        hasher,
-                                        move |root, irepr| builder.build_single(root, irepr),
-                                    );
-                                    let commit = GarbledInstanceCommit::<H>::new(&res.into());
-                                    if commit != self.commits[index] {
-                                        Err(())
-                                    } else {
-                                        Ok(())
-                                    }
-                                }
-                            };
-                            res?;
-                            rem = &rem[take..];
-                        }
-
-                        Ok(())
+                        self.verify_opened_multilane(lanes, &seeds_sorted, live_capacity, builder)
                     }
                 },
             );
@@ -448,7 +322,7 @@ where
                 },
                 || {
                     let mut seeds_sorted = seeds.clone();
-                    seeds_sorted.sort_unstable_by_key(|(i, _)| *i);
+                    seeds_sorted.sort_by_key(|(i, _)| *i);
 
                     seeds_sorted.par_chunks(N).try_for_each(|batch| {
                         self.verify_opened_multilane_chunk::<N, F>(batch, live_capacity, builder)
@@ -562,6 +436,158 @@ where
                 error!(index, "regarbling failed: commit mismatch");
                 return Err(());
             }
+        }
+
+        Ok(())
+    }
+
+    fn verify_opened_single<B>(
+        &self,
+        seeds_sorted: &[(usize, Seed)],
+        live_capacity: usize,
+        builder: B,
+    ) -> Result<(), ()>
+    where
+        B: LanesBuilder<I>,
+    {
+        seeds_sorted.par_iter().try_for_each(|(index, seed)| {
+            let inputs = self.config.input.clone();
+            let hasher = AESAccumulatingHash::default();
+            let res: StreamingResult<GarbleMode<AesNiHasher, AESAccumulatingHash>, I, GarbledWire> =
+                CircuitBuilder::streaming_garbling(
+                    inputs.clone(),
+                    live_capacity,
+                    *seed,
+                    hasher,
+                    move |root, irepr| builder.build_single(root, irepr),
+                );
+
+            let commit = GarbledInstanceCommit::<H>::new(&res.into());
+            if commit != self.commits[*index] {
+                error!(index, "regarbling failed");
+                Err(())
+            } else {
+                Ok(())
+            }
+        })
+    }
+
+    fn verify_opened_multilane<B>(
+        &self,
+        lanes: usize,
+        seeds_sorted: &[(usize, Seed)],
+        live_capacity: usize,
+        builder: B,
+    ) -> Result<(), ()>
+    where
+        B: LanesBuilder<I>,
+        I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<2>, 2>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<4>, 4>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<8>, 8>>
+            + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<16>, 16>>,
+    {
+        let head_len = (seeds_sorted.len() / lanes) * lanes;
+        let head_res = match lanes {
+            16 => seeds_sorted[..head_len]
+                .par_chunks(16)
+                .try_for_each(|batch| {
+                    self.verify_opened_multilane_chunk::<16, _>(
+                        batch,
+                        live_capacity,
+                        move |root, irepr| builder.build_multi::<16>(root, irepr),
+                    )
+                }),
+            8 => seeds_sorted[..head_len]
+                .par_chunks(8)
+                .try_for_each(|batch| {
+                    self.verify_opened_multilane_chunk::<8, _>(
+                        batch,
+                        live_capacity,
+                        move |root, irepr| builder.build_multi::<8>(root, irepr),
+                    )
+                }),
+            4 => seeds_sorted[..head_len]
+                .par_chunks(4)
+                .try_for_each(|batch| {
+                    self.verify_opened_multilane_chunk::<4, _>(
+                        batch,
+                        live_capacity,
+                        move |root, irepr| builder.build_multi::<4>(root, irepr),
+                    )
+                }),
+            _ => seeds_sorted[..head_len]
+                .par_chunks(2)
+                .try_for_each(|batch| {
+                    self.verify_opened_multilane_chunk::<2, _>(
+                        batch,
+                        live_capacity,
+                        move |root, irepr| builder.build_multi::<2>(root, irepr),
+                    )
+                }),
+        };
+        head_res?;
+
+        // Process remaining items with optimal sizing (tail)
+        let mut rem = &seeds_sorted[head_len..];
+        while !rem.is_empty() {
+            let take = if lanes >= 16 && rem.len() >= 16 {
+                16
+            } else if lanes >= 8 && rem.len() >= 8 {
+                8
+            } else if lanes >= 4 && rem.len() >= 4 {
+                4
+            } else if lanes >= 2 && rem.len() >= 2 {
+                2
+            } else {
+                1
+            };
+            let batch = &rem[..take];
+            let res = match take {
+                16 => self.verify_opened_multilane_chunk::<16, _>(
+                    batch,
+                    live_capacity,
+                    move |root, irepr| builder.build_multi::<16>(root, irepr),
+                ),
+                8 => self.verify_opened_multilane_chunk::<8, _>(
+                    batch,
+                    live_capacity,
+                    move |root, irepr| builder.build_multi::<8>(root, irepr),
+                ),
+                4 => self.verify_opened_multilane_chunk::<4, _>(
+                    batch,
+                    live_capacity,
+                    move |root, irepr| builder.build_multi::<4>(root, irepr),
+                ),
+                2 => self.verify_opened_multilane_chunk::<2, _>(
+                    batch,
+                    live_capacity,
+                    move |root, irepr| builder.build_multi::<2>(root, irepr),
+                ),
+                _ => {
+                    let (index, seed) = batch[0];
+                    let inputs = self.config.input.clone();
+                    let hasher = AESAccumulatingHash::default();
+                    let res: StreamingResult<
+                        GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                        I,
+                        GarbledWire,
+                    > = CircuitBuilder::streaming_garbling(
+                        inputs,
+                        live_capacity,
+                        seed,
+                        hasher,
+                        move |root, irepr| builder.build_single(root, irepr),
+                    );
+                    let commit = GarbledInstanceCommit::<H>::new(&res.into());
+                    if commit != self.commits[index] {
+                        Err(())
+                    } else {
+                        Ok(())
+                    }
+                }
+            };
+            res?;
+            rem = &rem[take..];
         }
 
         Ok(())

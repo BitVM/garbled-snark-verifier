@@ -22,6 +22,9 @@ pub mod groth16;
 
 pub type Seed = u64;
 
+/// Default bound for automatically chosen multigarbling lanes
+pub(crate) const DEFAULT_LANES: usize = 8;
+
 pub type CiphertextCommit = [u8; 16];
 
 pub trait LabelCommitHasher: fmt::Debug {
@@ -37,7 +40,7 @@ pub trait LabelCommitHasher: fmt::Debug {
     fn hash_label(label: S) -> Self::Output;
 }
 
-pub trait AutoBuilder<I: CircuitInput>: Send + Sync + Copy {
+pub trait LanesBuilder<I: CircuitInput>: Send + Sync + Copy {
     fn build_single(
         &self,
         root: &mut crate::circuit::StreamingMode<

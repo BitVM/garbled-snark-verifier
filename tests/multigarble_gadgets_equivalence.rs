@@ -1,20 +1,18 @@
 use std::array;
 
 use garbled_snark_verifier::{
-    AESAccumulatingHash, AESAccumulatingHashBatch,
+    AESAccumulatingHash, AESAccumulatingHashBatch, GarbledWire, WireId, ark,
     circuit::{
-        CircuitBuilder, CircuitInput, EncodeInput, StreamingResult, WiresObject, modes::GarbleMode,
+        CircuitBuilder, CircuitInput, CircuitMode, EncodeInput, MultiCiphertextHandler,
+        StreamingResult, WiresObject,
+        modes::{GarbleMode, MultigarblingMode},
     },
-    gadgets::bigint::{self, BigIntWires, BigUint},
+    gadgets::{
+        bigint::{self, BigIntWires, BigUint},
+        bn254::fq::Fq,
+    },
     hashers::AesNiHasher,
 };
-
-use garbled_snark_verifier::ark;
-use garbled_snark_verifier::circuit::CircuitMode;
-use garbled_snark_verifier::circuit::MultiCiphertextHandler;
-use garbled_snark_verifier::circuit::modes::MultigarblingMode;
-use garbled_snark_verifier::gadgets::bn254::fq::Fq;
-use garbled_snark_verifier::{GarbledWire, WireId};
 
 const CAP_SMALL: usize = 50_000;
 const CAP_MEDIUM: usize = 120_000;

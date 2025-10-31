@@ -7,8 +7,8 @@ use crate::{
     GarbledWire, WireId,
     circuit::{CiphertextHandler, CiphertextSource, StreamingMode, modes::MultigarblingMode},
     cut_and_choose::{
-        self as generic, AutoBuilder, CiphertextCommit, CiphertextHandlerProvider,
-        CiphertextSourceProvider, ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
+        self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
+        ConsistencyError, DefaultLabelCommitHasher, GarblerStage, LanesBuilder,
     },
     garbled_groth16::{self, PublicParams},
 };
@@ -45,11 +45,11 @@ impl Garbler {
         Self { inner }
     }
 
-    pub fn create_auto(rng: impl Rng, config: Config) -> Self {
+    pub fn create_opt_cpu(rng: impl Rng, config: Config) -> Self {
         #[derive(Clone, Copy, Debug, Default)]
-        struct GrothAuto;
+        struct GrothBuilder;
 
-        impl AutoBuilder<garbled_groth16::GarblerCompressedInput> for GrothAuto {
+        impl LanesBuilder<garbled_groth16::GarblerCompressedInput> for GrothBuilder {
             fn build_single(
                 &self,
                 root: &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
@@ -69,7 +69,7 @@ impl Garbler {
             }
         }
 
-        let inner = generic::Garbler::create_auto(rng, config, DEFAULT_CAPACITY, GrothAuto);
+        let inner = generic::Garbler::create_opt_cpu(rng, config, DEFAULT_CAPACITY, GrothBuilder);
         Self { inner }
     }
 
@@ -190,7 +190,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
     }
 
     #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling_auto<CSourceProvider, CHandlerProvider>(
+    pub fn run_regarbling_opt_cpu<CSourceProvider, CHandlerProvider>(
         &self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
@@ -203,9 +203,9 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
     {
         #[derive(Clone, Copy, Debug, Default)]
-        struct GrothAuto;
+        struct GrothBuilder;
 
-        impl AutoBuilder<garbled_groth16::GarblerCompressedInput> for GrothAuto {
+        impl LanesBuilder<garbled_groth16::GarblerCompressedInput> for GrothBuilder {
             fn build_single(
                 &self,
                 root: &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
@@ -225,12 +225,12 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             }
         }
 
-        self.inner.run_regarbling_auto(
+        self.inner.run_regarbling_opt_cpu(
             seeds,
             ciphertext_sources_provider,
             ciphertext_sink_provider,
             DEFAULT_CAPACITY,
-            GrothAuto,
+            GrothBuilder,
         )
     }
 

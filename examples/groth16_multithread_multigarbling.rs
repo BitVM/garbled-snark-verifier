@@ -7,8 +7,6 @@
 // - Parallel verification using optimized thread pools with CPU core affinity
 // - AES-based ciphertext accumulation across multiple garbling lanes
 
-use rayon::ThreadPoolBuilder;
-use rayon::prelude::*;
 use std::time::Instant;
 
 use garbled_snark_verifier::{
@@ -20,6 +18,7 @@ use garbled_snark_verifier::{
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
+use rayon::{ThreadPoolBuilder, prelude::*};
 
 const INSTANCES: usize = 181;
 const LANES: usize = 8;

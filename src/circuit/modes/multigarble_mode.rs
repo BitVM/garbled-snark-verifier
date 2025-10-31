@@ -3,6 +3,7 @@ use std::{array, marker::PhantomData, num::NonZero};
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
 
+use super::garble_mode::{GarbledWire, halfgates_garbling};
 use crate::{
     Delta, Gate, GateType, S, WireId,
     circuit::{CircuitMode, FALSE_WIRE, MultiCiphertextHandler, TRUE_WIRE},
@@ -10,8 +11,6 @@ use crate::{
     hashers::GateHasher,
     storage::{Credits, Storage},
 };
-
-use super::garble_mode::{GarbledWire, halfgates_garbling};
 
 #[derive(Debug)]
 struct LaneCtx {
