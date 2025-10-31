@@ -102,6 +102,6 @@ impl CiphertextSource for FileSource {
     }
 
     fn finalize(&self) -> Self::Result {
-        self.hasher.finalize()
+        AESAccumulatingHash::finalize(&self.hasher)
     }
 }

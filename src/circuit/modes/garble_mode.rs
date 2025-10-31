@@ -189,6 +189,7 @@ impl<H: GateHasher, CTH: CiphertextHandler> CircuitMode for GarbleMode<H, CTH> {
                 Err(_) => panic!("Can't find wire_b {:?}", gate.wire_b),
             },
         };
+
         let gate_id = self.next_gate_index();
 
         // If C is unreachable, skip evaluation and do not advance gate index.

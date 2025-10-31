@@ -10,7 +10,7 @@ use tracing::error;
 
 use crate::{
     AESAccumulatingHash, S,
-    circuit::{CiphertextHandler, ciphertext_source},
+    circuit::{CiphertextHandler, MultiCiphertextHandler, ciphertext_source},
     cut_and_choose::CiphertextCommit,
 };
 
@@ -88,10 +88,11 @@ impl FileCiphertextHandler {
     }
 }
 
-impl CiphertextHandler for FileCiphertextHandler {
+impl MultiCiphertextHandler<1> for FileCiphertextHandler {
     type Result = CiphertextCommit;
 
-    fn handle(&mut self, ct: S) {
+    fn handle(&mut self, cts: [S; 1]) {
+        let [ct] = cts;
         self.hasher.update(ct);
 
         let bytes = ct.to_bytes();
@@ -131,7 +132,7 @@ impl CiphertextHandler for FileCiphertextHandler {
             );
         }
 
-        self.hasher.finalize()
+        AESAccumulatingHash::finalize(&self.hasher)
     }
 }
 

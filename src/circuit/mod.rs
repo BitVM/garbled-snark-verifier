@@ -137,44 +137,69 @@ impl CircuitBuilder<ExecuteMode> {
     }
 }
 
-pub trait CiphertextHandler: Sized {
-    type Result: Default;
-
-    /// Handle next ciphertext label in stream order.
-    fn handle(&mut self, ct: S);
+pub trait MultiCiphertextHandler<const N: usize>: Sized {
+    type Result;
+    fn handle(&mut self, cts: [S; N]);
     fn finalize(self) -> Self::Result;
 }
 
-impl CiphertextHandler for AESAccumulatingHash {
+impl MultiCiphertextHandler<1> for AESAccumulatingHash {
     type Result = [u8; 16];
 
-    fn handle(&mut self, ct: S) {
-        self.update(ct);
+    fn handle(&mut self, cts: [S; 1]) {
+        self.update(cts[0]);
     }
 
     fn finalize(self) -> Self::Result {
         AESAccumulatingHash::finalize(&self)
     }
 }
-
 pub type CiphertextSender = channel::Sender<S>;
 
-impl CiphertextHandler for CiphertextSender {
+impl MultiCiphertextHandler<1> for channel::Sender<S> {
     type Result = ();
 
-    fn handle(&mut self, ct: S) {
-        self.send(ct).unwrap();
+    fn handle(&mut self, cts: [S; 1]) {
+        self.send(cts[0]).unwrap();
     }
 
     fn finalize(self) -> Self::Result {}
 }
 
-impl CiphertextHandler for () {
+impl MultiCiphertextHandler<1> for () {
     type Result = ();
 
-    fn handle(&mut self, _ct: S) {}
+    fn handle(&mut self, _cts: [S; 1]) {}
 
     fn finalize(self) -> Self::Result {}
+}
+
+/// Streaming handler for single ciphertext labels.
+///
+/// Thin wrapper over [`MultiCiphertextHandler<1>`] for one-at-a-time processing.
+/// Automatically delegates via blanket implementation.
+/// Allows no-op, side-effect-only, or result-producing implementations.
+pub trait CiphertextHandler: Sized {
+    type Result: Default;
+
+    fn handle(&mut self, ct: S);
+    fn finalize(self) -> Self::Result;
+}
+
+impl<T> CiphertextHandler for T
+where
+    T: MultiCiphertextHandler<1>,
+    <T as MultiCiphertextHandler<1>>::Result: Default,
+{
+    type Result = <T as MultiCiphertextHandler<1>>::Result;
+
+    fn handle(&mut self, ct: S) {
+        <Self as MultiCiphertextHandler<1>>::handle(self, [ct]);
+    }
+
+    fn finalize(self) -> Self::Result {
+        <Self as MultiCiphertextHandler<1>>::finalize(self)
+    }
 }
 
 impl<H: GateHasher, CTH: CiphertextHandler> CircuitBuilder<GarbleMode<H, CTH>> {

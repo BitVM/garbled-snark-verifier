@@ -1,15 +1,17 @@
 use super::*;
-use crate::{GateType, hashers::GateHasher};
+use crate::{
+    GateType,
+    hashers::{GateHasher, aes_ni, to_tweak},
+};
 
 #[inline(always)]
 pub fn garble_gate<H: GateHasher>(
-    gate_type: crate::GateType,
+    gate_type: GateType,
     a_label0: S,
     b_label0: S,
     delta: &Delta,
     gate_id: usize,
 ) -> (S, Option<S>) {
-    use crate::GateType;
     match gate_type {
         GateType::Xor => (a_label0 ^ &b_label0, None),
         GateType::Xnor => (a_label0 ^ &b_label0 ^ delta, None),
@@ -31,6 +33,332 @@ pub fn garble_gate<H: GateHasher>(
             let ct = h_a0 ^ &h_a1 ^ &b_sel;
 
             let w0 = if alpha_c { h_a0 ^ delta } else { h_a0 };
+
+            (w0, Some(ct))
+        }
+    }
+}
+
+/// Batched garbling routine for the Half-Gates construction over `N` lanes.
+///
+/// For each lane `k`, AES-PRF inputs are derived from `a_label0[k]` and `a_label0[k] ^ delta[k]`,
+/// based on the `alpha_*` bits of the `GateType`. Before AES-128 rounds, each 16-byte block is
+/// XORed with a tweak `to_tweak(gate_id)` for domain separation.
+///
+/// We produce `2*N` input blocks (2 per lane) and encrypt them efficiently:
+/// - **N = 16**: two 16-block AES calls (~5–6% faster than a packed 32-block wrapper,
+///   which internally splits into 2×16 and adds packing overhead)
+/// - **N = 8**: one 16-block AES call
+/// - **Other N**: processed in sequential loops with smaller AES calls
+///
+/// Uses AES-NI if available, otherwise falls back to constant-time software AES.
+/// Large batches (N ≥ 8) are split due to backend API constraints.
+#[inline(always)]
+pub fn garble_gate_batch<const N: usize>(
+    gate_type: GateType,
+    a_label0: [S; N],
+    b_label0: [S; N],
+    deltas: &[Delta; N],
+    gate_id: usize,
+) -> ([S; N], Option<[S; N]>) {
+    match gate_type {
+        GateType::Xor => {
+            let mut c = [S::ZERO; N];
+            for i in 0..N {
+                c[i] = a_label0[i] ^ &b_label0[i];
+            }
+            (c, None)
+        }
+        GateType::Xnor => {
+            let mut c = [S::ZERO; N];
+            for i in 0..N {
+                c[i] = a_label0[i] ^ &b_label0[i] ^ &deltas[i];
+            }
+            (c, None)
+        }
+        GateType::Not => {
+            let mut c = [S::ZERO; N];
+            for i in 0..N {
+                c[i] = a_label0[i] ^ &deltas[i];
+            }
+            (c, None)
+        }
+        _ => {
+            let (alpha_a, alpha_b, alpha_c) = gate_type.alphas_const();
+            let tweak = to_tweak(gate_id);
+
+            let mut h_sel = [S::ZERO; N];
+            let mut h_oth = [S::ZERO; N];
+
+            match N {
+                16 => {
+                    let mut blocks1 = [[0u8; 16]; 16];
+                    let mut blocks2 = [[0u8; 16]; 16];
+                    for k in 0..8 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks1[k * 2] = a.to_bytes();
+                        blocks1[k * 2 + 1] = o.to_bytes();
+                    }
+                    for k in 8..16 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks2[(k - 8) * 2] = a.to_bytes();
+                        blocks2[(k - 8) * 2 + 1] = o.to_bytes();
+                    }
+                    let out1 = aes_ni::aes128_encrypt16_blocks_static_xor(blocks1, tweak).unwrap();
+                    let out2 = aes_ni::aes128_encrypt16_blocks_static_xor(blocks2, tweak).unwrap();
+                    for k in 0..8 {
+                        h_sel[k] = S::from_bytes(out1[k * 2]);
+                        h_oth[k] = S::from_bytes(out1[k * 2 + 1]);
+                    }
+                    for k in 8..16 {
+                        h_sel[k] = S::from_bytes(out2[(k - 8) * 2]);
+                        h_oth[k] = S::from_bytes(out2[(k - 8) * 2 + 1]);
+                    }
+                }
+                8 => {
+                    let mut blocks = [[0u8; 16]; 16];
+                    for k in 0..8 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks[k * 2] = a.to_bytes();
+                        blocks[k * 2 + 1] = o.to_bytes();
+                    }
+                    let out = aes_ni::aes128_encrypt16_blocks_static_xor(blocks, tweak).unwrap();
+                    for k in 0..8 {
+                        h_sel[k] = S::from_bytes(out[k * 2]);
+                        h_oth[k] = S::from_bytes(out[k * 2 + 1]);
+                    }
+                }
+                4 => {
+                    let mut blocks = [[0u8; 16]; 8];
+                    for k in 0..4 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks[k * 2] = a.to_bytes();
+                        blocks[k * 2 + 1] = o.to_bytes();
+                    }
+                    let out = aes_ni::aes128_encrypt8_blocks_static_xor(blocks, tweak).unwrap();
+                    for k in 0..4 {
+                        h_sel[k] = S::from_bytes(out[k * 2]);
+                        h_oth[k] = S::from_bytes(out[k * 2 + 1]);
+                    }
+                }
+                2 => {
+                    let mut blocks = [[0u8; 16]; 4];
+                    for k in 0..2 {
+                        let a = if alpha_a {
+                            a_label0[k] ^ &deltas[k]
+                        } else {
+                            a_label0[k]
+                        };
+                        let o = if alpha_a {
+                            a_label0[k]
+                        } else {
+                            a_label0[k] ^ &deltas[k]
+                        };
+                        blocks[k * 2] = a.to_bytes();
+                        blocks[k * 2 + 1] = o.to_bytes();
+                    }
+                    let out = aes_ni::aes128_encrypt4_blocks_static_xor(blocks, tweak).unwrap();
+                    for k in 0..2 {
+                        h_sel[k] = S::from_bytes(out[k * 2]);
+                        h_oth[k] = S::from_bytes(out[k * 2 + 1]);
+                    }
+                }
+                _ => {
+                    let mut i = 0usize;
+                    while i + 16 <= N {
+                        let mut blocks1 = [[0u8; 16]; 16];
+                        let mut blocks2 = [[0u8; 16]; 16];
+                        for k in 0..8 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks1[k * 2] = a.to_bytes();
+                            blocks1[k * 2 + 1] = o.to_bytes();
+                        }
+                        for k in 8..16 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks2[(k - 8) * 2] = a.to_bytes();
+                            blocks2[(k - 8) * 2 + 1] = o.to_bytes();
+                        }
+                        let out1 =
+                            aes_ni::aes128_encrypt16_blocks_static_xor(blocks1, tweak).unwrap();
+                        let out2 =
+                            aes_ni::aes128_encrypt16_blocks_static_xor(blocks2, tweak).unwrap();
+                        for k in 0..8 {
+                            h_sel[i + k] = S::from_bytes(out1[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out1[k * 2 + 1]);
+                        }
+                        for k in 8..16 {
+                            h_sel[i + k] = S::from_bytes(out2[(k - 8) * 2]);
+                            h_oth[i + k] = S::from_bytes(out2[(k - 8) * 2 + 1]);
+                        }
+                        i += 16;
+                    }
+                    while i + 8 <= N {
+                        let mut blocks = [[0u8; 16]; 16];
+                        for k in 0..8 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks[k * 2] = a.to_bytes();
+                            blocks[k * 2 + 1] = o.to_bytes();
+                        }
+                        let out =
+                            aes_ni::aes128_encrypt16_blocks_static_xor(blocks, tweak).unwrap();
+                        for k in 0..8 {
+                            h_sel[i + k] = S::from_bytes(out[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out[k * 2 + 1]);
+                        }
+                        i += 8;
+                    }
+                    while i + 4 <= N {
+                        let mut blocks = [[0u8; 16]; 8];
+                        for k in 0..4 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks[k * 2] = a.to_bytes();
+                            blocks[k * 2 + 1] = o.to_bytes();
+                        }
+                        let out = aes_ni::aes128_encrypt8_blocks_static_xor(blocks, tweak).unwrap();
+                        for k in 0..4 {
+                            h_sel[i + k] = S::from_bytes(out[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out[k * 2 + 1]);
+                        }
+                        i += 4;
+                    }
+                    while i + 2 <= N {
+                        let mut blocks = [[0u8; 16]; 4];
+                        for k in 0..2 {
+                            let idx = i + k;
+                            let a = if alpha_a {
+                                a_label0[idx] ^ &deltas[idx]
+                            } else {
+                                a_label0[idx]
+                            };
+                            let o = if alpha_a {
+                                a_label0[idx]
+                            } else {
+                                a_label0[idx] ^ &deltas[idx]
+                            };
+                            blocks[k * 2] = a.to_bytes();
+                            blocks[k * 2 + 1] = o.to_bytes();
+                        }
+                        let out = aes_ni::aes128_encrypt4_blocks_static_xor(blocks, tweak).unwrap();
+                        for k in 0..2 {
+                            h_sel[i + k] = S::from_bytes(out[k * 2]);
+                            h_oth[i + k] = S::from_bytes(out[k * 2 + 1]);
+                        }
+                        i += 2;
+                    }
+                    if i < N {
+                        let a = if alpha_a {
+                            a_label0[i] ^ &deltas[i]
+                        } else {
+                            a_label0[i]
+                        };
+                        let o = if alpha_a {
+                            a_label0[i]
+                        } else {
+                            a_label0[i] ^ &deltas[i]
+                        };
+                        let (s0, t0) = aes_ni::aes128_encrypt2_blocks_static_xor(
+                            a.to_bytes(),
+                            o.to_bytes(),
+                            tweak,
+                        )
+                        .unwrap();
+                        h_sel[i] = S::from_bytes(s0);
+                        h_oth[i] = S::from_bytes(t0);
+                    }
+                }
+            }
+
+            let mut w0 = [S::ZERO; N];
+            let mut ct = [S::ZERO; N];
+            for i in 0..N {
+                let b_sel = if alpha_b {
+                    b_label0[i] ^ &deltas[i]
+                } else {
+                    b_label0[i]
+                };
+                ct[i] = h_sel[i] ^ &h_oth[i] ^ &b_sel;
+                w0[i] = if alpha_c {
+                    h_sel[i] ^ &deltas[i]
+                } else {
+                    h_sel[i]
+                };
+            }
 
             (w0, Some(ct))
         }
@@ -189,4 +517,71 @@ mod tests {
         Nor => garble_consistency_nor,
         Or => garble_consistency_or
     );
+
+    fn garble_batch_consistency<const N: usize>(gt: GateType) {
+        let mut rng = trng();
+        let deltas: [Delta; N] = core::array::from_fn(|_| Delta::generate(&mut rng));
+        let a_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
+        let b_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
+
+        let (w0_batch, ct_batch) =
+            super::garble_gate_batch::<N>(gt, a_label0, b_label0, &deltas, 0);
+
+        let ct_arr = ct_batch.as_ref();
+
+        for i in 0..N {
+            let (w0, ct) = super::garble_gate::<crate::hashers::AesNiHasher>(
+                gt,
+                a_label0[i],
+                b_label0[i],
+                &deltas[i],
+                0,
+            );
+            assert_eq!(w0_batch[i], w0, "lane {i} w0 mismatch");
+            match (ct_arr, ct) {
+                (None, None) => {}
+                (Some(arr), Some(s)) => assert_eq!(arr[i], s, "lane {i} ct mismatch"),
+                _ => panic!("ciphertext presence mismatch at lane {i}"),
+            }
+        }
+    }
+
+    macro_rules! batch_consistency {
+        ($gt:ident, $name:ident) => {
+            #[test]
+            fn $name() {
+                garble_batch_consistency::<1>(GateType::$gt);
+                garble_batch_consistency::<2>(GateType::$gt);
+                garble_batch_consistency::<3>(GateType::$gt);
+                garble_batch_consistency::<4>(GateType::$gt);
+                garble_batch_consistency::<5>(GateType::$gt);
+                garble_batch_consistency::<6>(GateType::$gt);
+                garble_batch_consistency::<7>(GateType::$gt);
+                garble_batch_consistency::<8>(GateType::$gt);
+                garble_batch_consistency::<9>(GateType::$gt);
+                garble_batch_consistency::<10>(GateType::$gt);
+                garble_batch_consistency::<11>(GateType::$gt);
+                garble_batch_consistency::<12>(GateType::$gt);
+                garble_batch_consistency::<13>(GateType::$gt);
+                garble_batch_consistency::<14>(GateType::$gt);
+                garble_batch_consistency::<15>(GateType::$gt);
+                garble_batch_consistency::<16>(GateType::$gt);
+                garble_batch_consistency::<17>(GateType::$gt);
+                garble_batch_consistency::<18>(GateType::$gt);
+                garble_batch_consistency::<19>(GateType::$gt);
+            }
+        };
+    }
+
+    batch_consistency!(And, batch_consistency_and);
+    batch_consistency!(Nand, batch_consistency_nand);
+    batch_consistency!(Imp, batch_consistency_imp);
+    batch_consistency!(Ncimp, batch_consistency_ncimp);
+    batch_consistency!(Cimp, batch_consistency_cimp);
+    batch_consistency!(Nor, batch_consistency_nor);
+    batch_consistency!(Or, batch_consistency_or);
+    batch_consistency!(Xor, batch_consistency_xor);
+    batch_consistency!(Xnor, batch_consistency_xnor);
+    batch_consistency!(Not, batch_consistency_not);
+    batch_consistency!(Nimp, batch_consistency_nimp);
 }
