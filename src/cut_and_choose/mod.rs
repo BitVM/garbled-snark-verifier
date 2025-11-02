@@ -40,7 +40,7 @@ pub trait LabelCommitHasher: fmt::Debug {
     fn hash_label(label: S) -> Self::Output;
 }
 
-pub trait LanesBuilder<I: CircuitInput>: Send + Sync + Copy {
+pub trait ModeBuilder<I: CircuitInput>: Send + Sync + Copy {
     fn build_single(
         &self,
         root: &mut crate::circuit::StreamingMode<

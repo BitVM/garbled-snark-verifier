@@ -9,7 +9,7 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use super::{LanesBuilder, pick_lanes};
+use super::{ModeBuilder, pick_lanes};
 use crate::{
     AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, GarbleMode, GarbledWire, WireId,
     circuit::{
@@ -326,7 +326,7 @@ where
         builder: B,
     ) -> Self
     where
-        B: LanesBuilder<I>,
+        B: ModeBuilder<I>,
         I: EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<2>, 2>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<4>, 4>>
@@ -499,7 +499,6 @@ where
                 })
                 .collect()
         });
-
         Self {
             stage: GarblerStage::Generating { seeds },
             instances,

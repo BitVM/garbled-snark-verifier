@@ -6,7 +6,7 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tracing::{error, info};
 
-use super::{Config, LanesBuilder, garbler::GarbledInstanceCommit, pick_lanes};
+use super::{Config, ModeBuilder, garbler::GarbledInstanceCommit, pick_lanes};
 use crate::{
     AESAccumulatingHash, AESAccumulatingHashBatch, AesNiHasher, EvaluatedWire, GarbledWire, S,
     WireId,
@@ -59,7 +59,7 @@ where
         CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
-        B: LanesBuilder<I>,
+        B: ModeBuilder<I>,
         I: EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<2>, 2>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<4>, 4>>
@@ -448,7 +448,7 @@ where
         builder: B,
     ) -> Result<(), ()>
     where
-        B: LanesBuilder<I>,
+        B: ModeBuilder<I>,
     {
         seeds_sorted.par_iter().try_for_each(|(index, seed)| {
             let inputs = self.config.input.clone();
@@ -480,7 +480,7 @@ where
         builder: B,
     ) -> Result<(), ()>
     where
-        B: LanesBuilder<I>,
+        B: ModeBuilder<I>,
         I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<2>, 2>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<4>, 4>>
             + EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<8>, 8>>

@@ -8,7 +8,7 @@ use crate::{
     circuit::{CiphertextHandler, CiphertextSource, StreamingMode, modes::MultigarblingMode},
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
-        ConsistencyError, DefaultLabelCommitHasher, GarblerStage, LanesBuilder,
+        ConsistencyError, DefaultLabelCommitHasher, GarblerStage, ModeBuilder,
     },
     garbled_groth16::{self, PublicParams},
 };
@@ -49,7 +49,7 @@ impl Garbler {
         #[derive(Clone, Copy, Debug, Default)]
         struct GrothBuilder;
 
-        impl LanesBuilder<garbled_groth16::GarblerCompressedInput> for GrothBuilder {
+        impl ModeBuilder<garbled_groth16::GarblerCompressedInput> for GrothBuilder {
             fn build_single(
                 &self,
                 root: &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
@@ -205,7 +205,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         #[derive(Clone, Copy, Debug, Default)]
         struct GrothBuilder;
 
-        impl LanesBuilder<garbled_groth16::GarblerCompressedInput> for GrothBuilder {
+        impl ModeBuilder<garbled_groth16::GarblerCompressedInput> for GrothBuilder {
             fn build_single(
                 &self,
                 root: &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
