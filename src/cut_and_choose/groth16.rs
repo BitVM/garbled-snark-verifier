@@ -1,5 +1,6 @@
 //! Groth16-specific wrappers around the generic cut-and-choose API so callers
 //! can mirror the protocol described in `docs/gsv_spec.md` with minimal glue.
+use ark_secp256k1::Fr;
 #[cfg(feature = "sp1-soldering")]
 use garbled_groth16::{EvaluatedCompressedG1Wires, EvaluatedCompressedG2Wires, EvaluatedFrWires};
 use rand::Rng;
@@ -14,6 +15,7 @@ use crate::{
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
         ConsistencyError, DefaultLabelCommitHasher, GarblerStage,
+        vsss::{FinalizeChallenge, FinalizedVsssInstance, OpenVsssInstance, VsssCommit},
     },
     garbled_groth16::{self, PublicParams},
 };
@@ -21,6 +23,72 @@ use crate::{
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
 
 pub const DEFAULT_CAPACITY: usize = 150_000;
+
+/// Groth16-specific wrapper preserving the existing API while delegating
+/// to the generic cut-and-choose implementation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VsssGarbler {
+    inner: generic::VsssGarbler<garbled_groth16::GarblerCompressedInput>,
+}
+
+impl VsssGarbler {
+    pub fn create(rng: impl Rng, config: Config) -> Self {
+        let inner = generic::VsssGarbler::create(
+            rng,
+            config,
+            DEFAULT_CAPACITY,
+            garbled_groth16::verify_compressed,
+        );
+        Self { inner }
+    }
+
+    pub fn from_inner(
+        inner: generic::VsssGarbler<garbled_groth16::GarblerCompressedInput>,
+    ) -> Self {
+        Self { inner }
+    }
+
+    pub fn inner(&mut self) -> &mut generic::VsssGarbler<garbled_groth16::GarblerCompressedInput> {
+        &mut self.inner
+    }
+
+    pub fn commit<HHasher>(&self) -> VsssCommit<HHasher>
+    where
+        HHasher: LabelCommitHasher,
+    {
+        // todo: also commit to the projective of the false output value
+
+        self.inner.commit::<HHasher>()
+    }
+
+    pub fn open_commit<CTH: 'static + Send + CiphertextHandler>(
+        &mut self,
+        indexes_to_finalize: Vec<FinalizeChallenge<CTH>>,
+    ) -> (Vec<OpenVsssInstance>, Vec<FinalizedVsssInstance>) {
+        self.inner
+            .open_commit(indexes_to_finalize, garbled_groth16::verify_compressed)
+    }
+
+    pub fn prepare_input_labels(
+        &self,
+        public_params: PublicParams,
+        challenge_proof: garbled_groth16::SnarkProof,
+        index: usize,
+    ) -> EvaluatorCaseInput {
+        let input = garbled_groth16::EvaluatorCompressedInput::new(
+            public_params.clone(),
+            challenge_proof.clone(),
+            self.inner.config.input().vk.clone(),
+            self.inner.input_labels_for(index),
+        );
+
+        EvaluatorCaseInput { index, input }
+    }
+
+    pub fn wide_labels_for(&self, index: usize) -> Vec<Fr> {
+        self.inner.wide_labels_for(index)
+    }
+}
 
 /// Groth16-specific wrapper preserving the existing API while delegating
 /// to the generic cut-and-choose implementation.

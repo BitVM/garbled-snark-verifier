@@ -20,11 +20,13 @@ use crate::{S, circuit::CircuitInput};
 pub mod ciphertext_repository;
 pub mod evaluator;
 pub mod garbler;
+pub mod vsss;
+pub mod wide_garbling;
 
 pub use ciphertext_repository::*;
 pub use evaluator::*;
 pub use garbler::*;
-
+pub use wide_garbling::*;
 pub mod groth16;
 
 pub type Seed = u64;
@@ -97,7 +99,7 @@ pub(crate) fn write_commit_hex(f: &mut fmt::Formatter<'_>, bytes: &[u8]) -> fmt:
 /// evaluation set selected during Step 2 (challenging).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config<I: CircuitInput> {
-    total: usize,
+    pub total: usize,
     to_finalize: usize,
     input: I,
 }
