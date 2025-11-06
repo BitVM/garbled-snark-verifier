@@ -73,7 +73,11 @@ impl<const N: usize> MultiCiphertextHandler<N> for AESAccumulatingHashBatch<N> {
     fn handle(&mut self, cts: [S; N]) {
         let blocks: [[u8; 16]; N] = array::from_fn(|i| cts[i].to_bytes());
         let masks: [[u8; 16]; N] = self.running_hashes;
-        let out = aes128_encrypt_blocks_static_xor_masks::<N>(blocks, masks)
+        // SAFETY: When the AES-NI backend is compiled in, the re-exported function requires
+        // `aes`/`sse2` CPU features. The crate enables those features via `.cargo/config.toml`,
+        // so the call site satisfies the preconditions.
+        #[allow(unused_unsafe)]
+        let out = unsafe { aes128_encrypt_blocks_static_xor_masks::<N>(blocks, masks) }
             .expect("AES backend should be available (HW or software)");
         self.running_hashes = out;
     }
