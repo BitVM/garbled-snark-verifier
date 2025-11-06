@@ -13,7 +13,7 @@ use tracing::error;
 use crate::{
     AESAccumulatingHash, S,
     circuit::{CiphertextHandler, MultiCiphertextHandler, ciphertext_source},
-    cut_and_choose::CiphertextCommit,
+    cut_and_choose::{CiphertextCommit, vsss::VsssStreamReceivers},
 };
 
 pub trait CiphertextSourceProvider {
@@ -47,6 +47,17 @@ impl CiphertextSourceProvider for Vec<(usize, channel::Receiver<S>)> {
     fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
         self.iter()
             .find_map(|(i, rx)| i.eq(&index).then_some(rx).cloned())
+            .ok_or(())
+    }
+}
+
+impl CiphertextSourceProvider for Vec<VsssStreamReceivers> {
+    type Source = channel::Receiver<S>;
+    type Error = ();
+
+    fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
+        self.iter()
+            .find_map(|x| x.index.eq(&index).then_some(x.ciphertext_receiver.clone()))
             .ok_or(())
     }
 }

@@ -16,13 +16,16 @@ use super::{
 };
 use crate::{
     AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
+    cac::vsss::{self, PolynomialCommits, ShareCommits},
     circuit::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
     },
     cut_and_choose::{
         CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
-        DefaultLabelCommitHasher, LabelCommit, LabelCommitHasher, Seed, commit_label_with,
+        DefaultLabelCommitHasher, GarbledInstance, GarbledWideLabelTable, InstanceWideLabelLookup,
+        LabelCommit, LabelCommitHasher, Seed, commit_label_with,
+        vsss::{OpenVsssInstance, VsssCommit},
         write_commit_hex,
     },
 };
@@ -42,6 +45,9 @@ pub enum Stage<H: LabelCommitHasher> {
         first: Vec<CommitPhaseOne<H>>,
         second: Vec<CommitPhaseTwo<H>>,
     },
+    Vsss {
+        commits: VsssCommit<H>,
+    },
     #[cfg(feature = "sp1-soldering")]
     Soldered {
         first: Vec<CommitPhaseOne<H>>,
@@ -59,6 +65,11 @@ impl<H: LabelCommitHasher> Stage<H> {
             Stage::Empty => None,
             Stage::Created(_) => None,
             Stage::Filled { first, .. } => Some(first),
+            Stage::Vsss {
+                commits: VsssCommit {
+                    circuit_commits, ..
+                },
+            } => Some(circuit_commits),
             #[cfg(feature = "sp1-soldering")]
             Stage::Soldered { first, .. } => Some(first),
         }
@@ -93,6 +104,71 @@ where
     I: Serialize + DeserializeOwned,
     H: LabelCommitHasher,
 {
+    pub fn create_vsss(mut rng: impl Rng, config: Config<I>, commits: VsssCommit<H>) -> Self {
+        let polynomial_commits = commits
+            .polynomial_commits
+            .iter()
+            .map(PolynomialCommits::from_canonical)
+            .collect_vec();
+        let share_commits = commits
+            .share_commits
+            .iter()
+            .map(ShareCommits::from_canonical)
+            .collect_vec();
+
+        let mut x = 0;
+        let allocated = config.input().allocate(|| {
+            x += 1;
+            WireId(x)
+        });
+        let num_inputs = <I as CircuitInput>::collect_wire_ids(&allocated).len();
+
+        let expected_len = (0..num_inputs)
+            .chunks(8)
+            .into_iter()
+            .map(|chunk| {
+                let num_bits = chunk.count();
+                2u32.pow(num_bits as u32) as usize
+            })
+            .sum::<usize>();
+
+        assert_eq!(polynomial_commits.len(), expected_len);
+        assert_eq!(share_commits.len(), expected_len);
+
+        for (polynomial_commits, share_commits) in
+            polynomial_commits.iter().zip(share_commits.iter())
+        {
+            share_commits
+                .verify(polynomial_commits)
+                .expect("Share commit verification failed");
+        }
+
+        assert!(
+            config.to_finalize <= config.total,
+            "to_finalize must be <= total"
+        );
+
+        assert_eq!(commits.circuit_commits.len(), config.total);
+
+        // Sample without replacement: shuffle 0..total and take first `to_finalize`
+        let mut idxs: Vec<usize> = (0..config.total).collect();
+        // Fisher-Yates with unbiased rng
+        for i in (1..idxs.len()).rev() {
+            let j = rng.gen_range(0..=i);
+            idxs.swap(i, j);
+        }
+        idxs.truncate(config.to_finalize);
+        idxs.sort_unstable();
+
+        Self {
+            stage: Stage::Vsss { commits },
+            to_finalize: idxs.into_boxed_slice(),
+            config,
+            nonce: S::from_u128(rng.r#gen()),
+            regarbled: false,
+        }
+    }
+
     // Generate `to_finalize` with `rng` based on data on `Config`
     pub fn create(mut rng: impl Rng, config: Config<I>, commits: Vec<CommitPhaseOne<H>>) -> Self {
         assert!(
@@ -184,6 +260,11 @@ where
             Stage::Empty => None,
             Stage::Created(first) => first.get(index),
             Stage::Filled { first, .. } => first.get(index),
+            Stage::Vsss {
+                commits: VsssCommit {
+                    circuit_commits, ..
+                },
+            } => circuit_commits.get(index),
             #[cfg(feature = "sp1-soldering")]
             Stage::Soldered { first, .. } => first.get(index),
         }
@@ -414,6 +495,157 @@ where
                     }
 
                     Ok(())
+                })
+                .collect::<Result<Vec<()>, ()>>()
+        })?;
+
+        self.regarbled = true;
+
+        Ok(())
+    }
+
+    // 1. Check that `OpenForInstance` matches the ones stored in `self.to_finalize`.
+    // 2. For `Open` run `streaming_garbling` via rayon, where at the end it checks for a match with saved commits
+    #[allow(clippy::result_unit_err)]
+    pub fn run_regarbling_vsss<CSourceProvider, CHandlerProvider, F>(
+        &mut self,
+        open_instance_data: &[OpenVsssInstance],
+        ciphertext_sources_provider: &CSourceProvider,
+        ciphertext_handler_provider: &CHandlerProvider,
+        live_capacity: usize,
+        builder: F,
+        wide_label_lookups: &[(usize, InstanceWideLabelLookup)],
+    ) -> Result<(), ()>
+    where
+        CSourceProvider: CiphertextSourceProvider + Send + Sync,
+        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
+        CHandlerProvider::Handler: 'static,
+        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
+        F: Fn(
+                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                &I::WireRepr,
+            ) -> WireId
+            + Send
+            + Sync
+            + Copy,
+    {
+        let Stage::Vsss { commits } = &mut self.stage else {
+            panic!(
+                "Can't run regarbling for not filled Evaluator, got stage: {:#?}",
+                self.stage
+            );
+        };
+
+        let iter = commits.circuit_commits.iter().enumerate();
+
+        let inputs = self.config.input.clone();
+        let to_finalize = &self.to_finalize;
+
+        let secp = vsss::Secp256k1::new();
+        for (i, share_commits) in commits.share_commits.iter().enumerate() {
+            let shares = open_instance_data
+                .iter()
+                .map(|x| (x.index, x.shares[i].0))
+                .collect_vec();
+
+            share_commits
+                .from_canonical()
+                .verify_shares(&secp, &shares)
+                .expect("Received shares inconsistent with commits");
+        }
+
+        super::get_optimized_pool().install(|| {
+            iter.par_bridge()
+                .map(|(index, first_commit)| {
+                    if to_finalize.contains(&index) {
+                        let mut source = match ciphertext_sources_provider.source_for(index) {
+                            Ok(source) => source,
+                            Err(err) => {
+                                error!(index, ?err, "failed to get ciphertext source");
+                                return Err(());
+                            }
+                        };
+
+                        let mut handler = match ciphertext_handler_provider.handler_for(index) {
+                            Ok(sink) => sink,
+                            Err(err) => {
+                                error!(index, ?err, "failed to create ciphertext sink");
+                                return Err(());
+                            }
+                        };
+
+                        while let Some(s) = source.recv() {
+                            handler.handle(s);
+                        }
+
+                        let computed_commit: CiphertextCommit = handler.finalize().into();
+
+                        if computed_commit != first_commit.ciphertext_hash() {
+                            error!("ciphertext corrupted");
+                            return Err(());
+                        }
+
+                        let wide_label_lookup = wide_label_lookups
+                            .iter()
+                            .find(|x| x.0 == index)
+                            .unwrap()
+                            .1
+                            .clone();
+                        let tables_hash = GarbledWideLabelTable::aggregate_hash(&wide_label_lookup);
+                        if tables_hash != commits.garbling_table_commits[index] {
+                            error!("wide label table corrupted");
+                            return Err(());
+                        }
+
+                        Ok(())
+                    } else {
+                        let Some(info) = open_instance_data.iter().find(|x| x.index == index)
+                        else {
+                            error!("failed to find seed");
+                            return Err(());
+                        };
+                        let garbling_seed = info.seed;
+
+                        let inputs = inputs.clone();
+                        let hasher = AESAccumulatingHash::default();
+
+                        let span = tracing::info_span!("regarble", instance = index);
+                        let _enter = span.enter();
+
+                        info!("Starting regarbling of circuit (cut-and-choose)");
+
+                        let res: StreamingResult<
+                            GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                            I,
+                            GarbledWire,
+                        > = CircuitBuilder::streaming_garbling(
+                            inputs.clone(),
+                            live_capacity,
+                            garbling_seed,
+                            hasher,
+                            builder,
+                        );
+
+                        let instance = GarbledInstance::from(res);
+                        let wide_labels = info.shares.iter().map(|x| x.0).collect_vec();
+                        let tables = GarbledWideLabelTable::build_all(
+                            &wide_labels,
+                            &instance.input_wire_values,
+                        );
+                        let tables_hash = GarbledWideLabelTable::aggregate_hash(&tables);
+                        if tables_hash != commits.garbling_table_commits[index] {
+                            error!("regarbling failed, wide label table hash not equal");
+                            return Err(());
+                        }
+
+                        let regarbling_first_commit = CommitPhaseOne::<H>::from_instance(&instance);
+                        if &regarbling_first_commit != first_commit {
+                            error!("regarbling failed, first commit not equal");
+                            return Err(());
+                        }
+
+                        Ok(())
+                    }
                 })
                 .collect::<Result<Vec<()>, ()>>()
         })?;

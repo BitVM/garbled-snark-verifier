@@ -105,3 +105,13 @@ impl CiphertextSource for FileSource {
         AESAccumulatingHash::finalize(&self.hasher)
     }
 }
+pub struct DummySource;
+
+impl CiphertextSource for DummySource {
+    type Result = ();
+
+    fn recv(&mut self) -> Option<S> {
+        None
+    }
+    fn finalize(&self) -> Self::Result {}
+}

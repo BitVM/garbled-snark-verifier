@@ -670,6 +670,43 @@ impl EvaluatorCompressedInput {
             vk,
         }
     }
+
+    pub fn from_evaluated_inputs(
+        num_public_inputs: usize,
+        evaluated_wires: Vec<EvaluatedWire>,
+        vk: VerifyingKey<Bn254>,
+    ) -> Self {
+        // public.len * Fr::N_BITS + (A: Fq::N_BITS + 1) + (B: 2*Fq::N_BITS + 1) + (C: Fq::N_BITS + 1)
+        let expected = (num_public_inputs * FrWire::N_BITS)
+            + (FqWire::N_BITS + 1)
+            + (2 * FqWire::N_BITS + 1)
+            + (FqWire::N_BITS + 1);
+        assert_eq!(evaluated_wires.len(), expected);
+
+        let mut it = evaluated_wires.into_iter();
+
+        EvaluatorCompressedInput {
+            public: (0..num_public_inputs)
+                .map(|_| EvaluatedFrWires(it.by_ref().take(FrWire::N_BITS).collect()))
+                .collect(),
+            a: EvaluatedCompressedG1Wires {
+                x: EvaluatedFrWires(it.by_ref().take(FqWire::N_BITS).collect()),
+                y_flag: it.by_ref().next().expect("a.y_flag wire"),
+            },
+            b: EvaluatedCompressedG2Wires {
+                x: [
+                    EvaluatedFrWires(it.by_ref().take(FqWire::N_BITS).collect()),
+                    EvaluatedFrWires(it.by_ref().take(FqWire::N_BITS).collect()),
+                ],
+                y_flag: it.by_ref().next().expect("b.y_flag wire"),
+            },
+            c: EvaluatedCompressedG1Wires {
+                x: EvaluatedFrWires(it.by_ref().take(FqWire::N_BITS).collect()),
+                y_flag: it.by_ref().next().expect("c.y_flag wire"),
+            },
+            vk,
+        }
+    }
 }
 
 impl CircuitInput for EvaluatorCompressedInput {
