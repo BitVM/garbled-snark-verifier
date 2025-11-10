@@ -141,11 +141,8 @@ pub fn ell_eval_const<C: CircuitContext>(
     let c0_fq2 = Fq2::mul_constant_by_fq_montgomery(circuit, &coeffs.c0, &p.y);
     // c1' = coeffs.1 * p.x (in Fq2) as wires
     let c3_fq2 = Fq2::mul_constant_by_fq_montgomery(circuit, &coeffs.c1, &p.x);
-    // c2 is a constant (Fq2); for mul_by_constant_montgomery/add_constant paths
-    // we pass it in Montgomery form to match other Montgomery-form wires.
-    let c4_const = Fq2::as_montgomery(coeffs.c2);
 
-    Fq12::mul_by_034_constant4_montgomery(circuit, f, &c0_fq2, &c3_fq2, &c4_const)
+    Fq12::mul_by_034_constant4_montgomery(circuit, f, &c0_fq2, &c3_fq2, &coeffs.c2)
 }
 
 /// Evaluate a BN254 line with variable G2 coefficients at an affine G1 point and
@@ -563,20 +560,20 @@ pub fn miller_loop_const_q_affine<C: CircuitContext>(
         }
 
         let c = coeff_iter.next().expect("coeff present");
-        f = ell_eval_const(circuit, &f, c, p);
+        f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let c2 = coeff_iter.next().expect("coeff present");
-            f = ell_eval_const(circuit, &f, c2, p);
+            f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c2), p);
         }
     }
 
     // Final two steps
     let c_last = coeff_iter.next().expect("coeff present");
-    f = ell_eval_const(circuit, &f, c_last, p);
+    f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c_last), p);
     let c_last2 = coeff_iter.next().expect("coeff present");
-    f = ell_eval_const(circuit, &f, c_last2, p);
+    f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c_last2), p);
 
     f
 }
@@ -615,14 +612,14 @@ pub fn multi_miller_loop_const_q_affine<C: CircuitContext>(
 
         let coeffs_now = per_step_iter.next().expect("coeffs present");
         for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
-            f = ell_eval_const(circuit, &f, c, p);
+            f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
         }
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let coeffs_now = per_step_iter.next().expect("coeffs present");
             for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
-                f = ell_eval_const(circuit, &f, c, p);
+                f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
             }
         }
     }
@@ -630,7 +627,7 @@ pub fn multi_miller_loop_const_q_affine<C: CircuitContext>(
     for _ in 0..2 {
         let coeffs_now = per_step_iter.next().expect("coeffs present");
         for (c, p) in coeffs_now.into_iter().zip(ps.iter()) {
-            f = ell_eval_const(circuit, &f, c, p);
+            f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
         }
     }
 
@@ -753,20 +750,20 @@ pub fn miller_loop_const_q<C: CircuitContext>(
         }
 
         let c = coeff_iter.next().expect("coeff present");
-        f = ell_eval_const(circuit, &f, c, &p_aff);
+        f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), &p_aff);
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let c2 = coeff_iter.next().expect("coeff present");
-            f = ell_eval_const(circuit, &f, c2, &p_aff);
+            f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c2), &p_aff);
         }
     }
 
     // Final two additions outside the loop
     let c_last = coeff_iter.next().expect("coeff present");
-    f = ell_eval_const(circuit, &f, c_last, &p_aff);
+    f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c_last), &p_aff);
     let c_last2 = coeff_iter.next().expect("coeff present");
-    f = ell_eval_const(circuit, &f, c_last2, &p_aff);
+    f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c_last2), &p_aff);
 
     f
 }
@@ -814,14 +811,14 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
 
         let coeffs_now = per_step_iter.next().expect("coeffs present");
         for (c, p) in coeffs_now.into_iter().zip(ps_aff.iter()) {
-            f = ell_eval_const(circuit, &f, c, p);
+            f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
         }
 
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let coeffs_now = per_step_iter.next().expect("coeffs present");
             for (c, p) in coeffs_now.into_iter().zip(ps_aff.iter()) {
-                f = ell_eval_const(circuit, &f, c, p);
+                f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
             }
         }
     }
@@ -830,7 +827,7 @@ pub fn multi_miller_loop_const_q<C: CircuitContext>(
     for _ in 0..2 {
         let coeffs_now = per_step_iter.next().expect("coeffs present");
         for (c, p) in coeffs_now.into_iter().zip(ps_aff.iter()) {
-            f = ell_eval_const(circuit, &f, c, p);
+            f = ell_eval_const(circuit, &f, &Fq6::as_montgomery(*c), p);
         }
     }
 
@@ -936,9 +933,7 @@ pub fn ell_by_constant_montgomery<C: CircuitContext>(
 
     let new_c0 = Fq2::mul_constant_by_fq_montgomery(circuit, c0, py);
     let new_c1 = Fq2::mul_constant_by_fq_montgomery(circuit, c1, px);
-    // c2 must be provided in Montgomery form for the constant path
-    let c2_m = Fq2::as_montgomery(*c2);
-    Fq12::mul_by_034_constant4_montgomery(circuit, f, &new_c0, &new_c1, &c2_m)
+    Fq12::mul_by_034_constant4_montgomery(circuit, f, &new_c0, &new_c1, &c2)
 }
 
 #[component(offcircuit_args = "q1,q2")]
@@ -966,10 +961,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast<C: CircuitContext>(
         }
 
         let q1ell_next = q1_ell.next().unwrap();
-        f = ell_by_constant_montgomery(circuit, &f, q1ell_next, p1);
+        f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q1ell_next), p1);
 
         let q2ell_next = q2_ell.next().unwrap();
-        f = ell_by_constant_montgomery(circuit, &f, q2ell_next, p2);
+        f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q2ell_next), p2);
 
         let q3ell_next = q3_ell.next().unwrap().clone();
         f = ell_montgomery(circuit, &f, &q3ell_next, p3);
@@ -977,10 +972,10 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast<C: CircuitContext>(
         let bit = ark_bn254::Config::ATE_LOOP_COUNT[i - 1];
         if bit == 1 || bit == -1 {
             let q1ell_next = q1_ell.next().unwrap();
-            f = ell_by_constant_montgomery(circuit, &f, q1ell_next, p1);
+            f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q1ell_next), p1);
 
             let q2ell_next = q2_ell.next().unwrap();
-            f = ell_by_constant_montgomery(circuit, &f, q2ell_next, p2);
+            f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q2ell_next), p2);
 
             let q3ell_next = q3_ell.next().unwrap().clone();
             f = ell_montgomery(circuit, &f, &q3ell_next, p3);
@@ -988,19 +983,19 @@ pub fn multi_miller_loop_groth16_evaluate_montgomery_fast<C: CircuitContext>(
     }
 
     let q1ell_next = q1_ell.next().unwrap();
-    f = ell_by_constant_montgomery(circuit, &f, q1ell_next, p1);
+    f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q1ell_next), p1);
 
     let q2ell_next = q2_ell.next().unwrap();
-    f = ell_by_constant_montgomery(circuit, &f, q2ell_next, p2);
+    f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q2ell_next), p2);
 
     let q3ell_next = q3_ell.next().unwrap().clone();
     f = ell_montgomery(circuit, &f, &q3ell_next, p3);
 
     let q1ell_next = q1_ell.next().unwrap();
-    f = ell_by_constant_montgomery(circuit, &f, q1ell_next, p1);
+    f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q1ell_next), p1);
 
     let q2ell_next = q2_ell.next().unwrap();
-    f = ell_by_constant_montgomery(circuit, &f, q2ell_next, p2);
+    f = ell_by_constant_montgomery(circuit, &f, &Fq6::as_montgomery(*q2ell_next), p2);
 
     let q3ell_next = q3_ell.next().unwrap().clone();
     f = ell_montgomery(circuit, &f, &q3ell_next, p3);
@@ -1994,6 +1989,7 @@ mod tests {
         let coeffs = ell_coeffs(q);
         // choose first step coeffs
         let coeff = coeffs[0];
+        let coeff_m = Fq6::as_montgomery(coeff);
 
         // random G1 point and initial f=1
         let p = (ark_bn254::G1Projective::generator() * rnd_fr(&mut rng))
@@ -2018,7 +2014,7 @@ mod tests {
         };
         let result =
             CircuitBuilder::streaming_execute::<_, _, Fq12Output>(input, 10_000, |ctx, input| {
-                ell_eval_const(ctx, &input.f, &coeff, &input.p)
+                ell_eval_const(ctx, &input.f, &coeff_m, &input.p)
             });
 
         assert_eq!(result.output_value.value, expected_m);

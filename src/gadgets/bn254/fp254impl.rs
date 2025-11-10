@@ -245,7 +245,7 @@ pub trait Fp254Impl {
     /// # Arguments
     /// * `circuit` - Circuit to add gates to
     /// * `a` - Wire in Montgomery form
-    /// * `b` - Constant in standard form
+    /// * `b` - Constant in Montgomery form
     ///
     /// # Returns
     /// Product in Montgomery form
