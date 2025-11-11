@@ -496,6 +496,56 @@ impl G2Projective {
         acc
     }
 
+    // #[component(offcircuit_args = "s")]
+    pub fn scalar_mul_by_constant_scalar_montgomery<C: CircuitContext, const W: usize>(
+        circuit: &mut C,
+        s: &u64,
+        base: &G2Projective,
+    ) -> G2Projective {
+
+        fn scalar_pieces(window: usize, scalar: u64) -> Vec<u64> {
+            let mut a = scalar;
+            let c = (1 << window) - 1;
+            let mut pieces = Vec::new();
+
+            while a != 0 {
+                pieces.push(a & c);
+                a >>= window;
+            }
+            pieces.reverse();
+            pieces
+        }
+
+        let n = 2_usize.pow(W as u32);
+
+        let mut bases = Vec::new();
+        let mut p = G2Projective::new_constant(&G2Projective::as_montgomery(
+            ark_bn254::G2Projective::default(),
+        ))
+        .unwrap();
+
+        for _ in 0..n {
+            bases.push(p.clone());
+            p = G2Projective::add_montgomery(circuit, &p, &base);
+        }
+
+        let pieces = scalar_pieces(W, *s);
+
+        let mut acc = G2Projective::new_constant(&G2Projective::as_montgomery(
+            ark_bn254::G2Projective::default(),
+        ))
+        .unwrap();
+
+        for piece in pieces {
+            for _ in 0..W {
+                acc = G2Projective::double_montgomery(circuit, &acc);
+            }
+            acc = G2Projective::add_montgomery(circuit, &acc, &bases[piece as usize]);
+        }
+
+        acc
+    }
+
     pub fn msm_with_constant_bases_montgomery<const W: usize, C: CircuitContext>(
         circuit: &mut C,
         scalars: &Vec<Fr>,
@@ -794,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn test_g2p_scalar_mul_with_constant_base_montgomery() {
+    fn test_g2p_scalar_mul_by_constant_base_montgomery() {
         let s = rnd_fr(&mut trng());
         let p = rnd_g2(&mut trng());
         let result = p * s;
@@ -806,6 +856,30 @@ mod tests {
                     root,
                     &inputs_wire.scalars[0],
                     &p,
+                );
+                result_wires.to_wires_vec()
+            });
+
+        let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_value.clone());
+        assert_eq!(actual_result, G2Projective::as_montgomery(result));
+    }
+
+    #[test]
+    fn test_g2p_scalar_mul_by_constant_scalar_montgomery() {
+        let x = 4965661367192848881;
+        let s = x;
+        let p = rnd_g2(&mut trng());
+        let result = p * ark_bn254::Fr::from(s);
+
+        let p_mont = G2Projective::as_montgomery(p);
+
+        let inputs = G2Input { points: [p_mont] };
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G2Projective::scalar_mul_by_constant_scalar_montgomery::<_, 2>(
+                    root,
+                    &s,
+                    &inputs_wire.points[0],
                 );
                 result_wires.to_wires_vec()
             });
