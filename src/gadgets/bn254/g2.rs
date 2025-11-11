@@ -1,6 +1,7 @@
 use std::{cmp::min, collections::HashMap, iter::zip};
 
-use ark_ff::Zero;
+use ark_ec::bn::BnConfig;
+use ark_ff::{AdditiveGroup, Zero};
 use circuit_component_macro::component;
 
 use crate::{
@@ -574,12 +575,46 @@ impl G2Projective {
             z: p.z.clone(),
         }
     }
+
+    #[component]
+    pub fn psi_montgomery<C: CircuitContext>(circuit: &mut C, p: &G2Projective) -> G2Projective {
+        let a = ark_bn254::Config::TWIST_MUL_BY_Q_X;
+        let b = ark_bn254::Config::TWIST_MUL_BY_Q_Y;
+        let y_conjugate = Fq2::conjugate(circuit, &p.y);
+        let new_y = Fq2::mul_by_constant_montgomery(circuit, &y_conjugate, &Fq2::as_montgomery(b));
+        let x_conjugate = Fq2::conjugate(circuit, &p.x);
+        let new_x = Fq2::mul_by_constant_montgomery(circuit, &x_conjugate, &Fq2::as_montgomery(a));
+        let new_p = G2Projective {
+            x: new_x,
+            y: new_y,
+            z: p.z.clone(),
+        };
+        new_p
+    }
+
+    #[component]
+    pub fn is_r_torsion_montgomery<C: CircuitContext>(circuit: &mut C, p: &G2Projective) -> WireId {
+        let x = 4965661367192848881;
+        let xp = G2Projective::scalar_mul_by_constant_scalar_montgomery::<_, 2>(circuit, &x, p);
+        let xp_plus_p = G2Projective::add_montgomery(circuit, &xp, p);
+        // ψ([x₀]P) + ψ²([x₀]P) - ψ³([2x₀]P)
+        let psi_1_xp = G2Projective::psi_montgomery(circuit, &xp);
+        let psi_2_xp = G2Projective::psi_montgomery(circuit, &psi_1_xp);
+        let psi_3_xp = G2Projective::psi_montgomery(circuit, &psi_2_xp);
+        let psi_3_xp_double = G2Projective::double_montgomery(circuit, &psi_3_xp);
+        let psi_3_xp_double_neg = G2Projective::neg(circuit, &psi_3_xp_double);
+        let a = G2Projective::add_montgomery(circuit, &psi_1_xp, &psi_2_xp);
+        let b = G2Projective::add_montgomery(circuit, &a, &psi_3_xp_double_neg);
+        let c = G2Projective::add_montgomery(circuit, &b, &xp_plus_p);
+        let result = Fq2::equal_constant(circuit, &c.z, &ark_bn254::Fq2::ZERO);
+        result
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use ark_ec::{CurveGroup, VariableBaseMSM};
-    use ark_ff::UniformRand;
+    use ark_ec::{CurveGroup, VariableBaseMSM, short_weierstrass::SWCurveConfig};
+    use ark_ff::{Field, UniformRand};
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha20Rng;
 
@@ -946,5 +981,49 @@ mod tests {
 
         let actual_result = G2Projective::from_bits_unchecked(circuit_result.output_value.clone());
         assert_eq!(actual_result, G2Projective::as_montgomery(result));
+    }
+
+    #[test]
+    fn test_g2p_is_r_torsion_montgomery() {
+        // a point which is in r-torsion subgroup G2
+        let p = rnd_g2(&mut trng());
+        assert!(p.into_affine().is_on_curve());
+        assert!(p.into_affine().is_in_correct_subgroup_assuming_on_curve());
+
+        let p_mont = G2Projective::as_montgomery(p);
+
+        let inputs = G2Input { points: [p_mont] };
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G2Projective::is_r_torsion_montgomery(root, &inputs_wire.points[0]);
+                result_wires.to_wires_vec()
+            });
+
+        assert!(circuit_result.output_value[0].clone());
+
+        // a point which is NOT in r-torsion subgroup G2
+        let px = Fq2::random(&mut trng());
+        let px2 = px.square();
+        let px3 = px2 * px;
+        let py2 = px3 + ark_bn254::g2::Config::COEFF_B;
+        let py = py2.sqrt().unwrap();
+        let p = ark_bn254::G2Projective {
+            x: px,
+            y: py,
+            z: ark_bn254::Fq2::ONE
+        };
+        assert!(p.into_affine().is_on_curve());
+        assert!(!p.into_affine().is_in_correct_subgroup_assuming_on_curve());
+
+        let p_mont = G2Projective::as_montgomery(p);
+
+        let inputs = G2Input { points: [p_mont] };
+        let circuit_result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result_wires = G2Projective::is_r_torsion_montgomery(root, &inputs_wire.points[0]);
+                result_wires.to_wires_vec()
+            });
+
+        assert!(!circuit_result.output_value[0].clone());
     }
 }
