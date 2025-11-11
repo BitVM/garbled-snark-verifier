@@ -6,7 +6,7 @@ use circuit_component_macro::component;
 use crate::{
     CircuitContext, WireId,
     circuit::{FromWires, WiresObject},
-    gadgets::bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr},
+    gadgets::{bigint, bn254::{fp254impl::Fp254Impl, fq::Fq, fr::Fr}},
 };
 
 #[derive(Clone, Debug)]
@@ -397,6 +397,23 @@ impl G1Projective {
             y: Fq::neg(circuit, &p.y),
             z: p.z.clone(),
         }
+    }
+
+    /// check whether or not the point is on the curve or not
+    /// checks y^2=x^3+3z^6 (Jacobian projective coordinates)
+    #[component]
+    pub fn is_on_curve<C: CircuitContext>(circuit: &mut C, p: &G1Projective) -> WireId {
+        let x2 = Fq::square_montgomery(circuit, &p.x);
+        let x3 = Fq::mul_montgomery(circuit, &p.x, &x2);
+        let y2 = Fq::square_montgomery(circuit, &p.y);
+        let z2 = Fq::square_montgomery(circuit, &p.z);
+        let z4 = Fq::square_montgomery(circuit, &z2);
+        let z6 = Fq::mul_montgomery(circuit, &z2, &z4);
+        let triplez6 = Fq::triple(circuit, &z6);
+        let temp = Fq::add(circuit, &x3, &triplez6);
+        let should_be_zero = Fq::sub(circuit, &y2, &temp);
+        let result = bigint::equal_zero(circuit, &should_be_zero.0);
+        result
     }
 }
 
@@ -841,5 +858,77 @@ mod tests {
 
         let actual_result = G1Projective::from_bits_unchecked(result.output_value.clone());
         assert_eq!(actual_result, neg_a_mont);
+    }
+
+    #[test]
+    fn test_g1p_is_on_curve() {
+        // Generate random G1 points, a is on curve, b isn't
+        let a = rnd();
+        let b = ark_bn254::G1Projective {
+            x: Fq::random(&mut trng()),
+            y: Fq::random(&mut trng()),
+            z: Fq::random(&mut trng()),
+        };
+
+        // Convert to Montgomery form
+        let a_mont = G1Projective::as_montgomery(a);
+        let b_mont = G1Projective::as_montgomery(b);
+
+        // Define input structure
+        struct OneG1Input {
+            a: ark_bn254::G1Projective,
+        }
+        struct OneG1InputWire {
+            a: G1Projective,
+        }
+        impl crate::circuit::CircuitInput for OneG1Input {
+            type WireRepr = OneG1InputWire;
+            fn allocate(&self, issue: impl FnMut() -> WireId) -> Self::WireRepr {
+                OneG1InputWire {
+                    a: G1Projective::new(issue),
+                }
+            }
+            fn collect_wire_ids(repr: &Self::WireRepr) -> Vec<WireId> {
+                let mut wires = Vec::new();
+                wires.extend(repr.a.x.iter());
+                wires.extend(repr.a.y.iter());
+                wires.extend(repr.a.z.iter());
+                wires
+            }
+        }
+        impl<M: CircuitMode<WireValue = bool>> EncodeInput<M> for OneG1Input {
+            fn encode(&self, repr: &OneG1InputWire, cache: &mut M) {
+                let a_fn = G1Projective::get_wire_bits_fn(&repr.a, &self.a).unwrap();
+                for &wire_id in repr
+                    .a
+                    .x
+                    .iter()
+                    .chain(repr.a.y.iter())
+                    .chain(repr.a.z.iter())
+                {
+                    if let Some(bit) = a_fn(wire_id) {
+                        cache.feed_wire(wire_id, bit);
+                    }
+                }
+            }
+        }
+
+        let inputs = OneG1Input { a: a_mont };
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result = G1Projective::is_on_curve(root, &inputs_wire.a);
+                vec![result]
+            });
+
+        assert!(result.output_value.clone()[0]);
+
+        let inputs = OneG1Input { a: b_mont };
+        let result: crate::circuit::StreamingResult<_, _, Vec<bool>> =
+            CircuitBuilder::streaming_execute(inputs, 10_000, |root, inputs_wire| {
+                let result = G1Projective::is_on_curve(root, &inputs_wire.a);
+                vec![result]
+            });
+
+        assert!(!result.output_value.clone()[0]);
     }
 }

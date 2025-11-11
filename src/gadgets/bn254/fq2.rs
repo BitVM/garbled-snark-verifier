@@ -441,6 +441,11 @@ impl Fq2 {
 
         Fq2::from_components(c0_final, c1_final)
     }
+
+    pub fn conjugate<C: CircuitContext>(circuit: &mut C, a: &Fq2) -> Fq2 {
+        let new_c1 = Fq::neg(circuit, &a.c1().clone());
+        Fq2::from_components(a.c0().clone(), new_c1)
+    }
 }
 
 #[cfg(test)]
