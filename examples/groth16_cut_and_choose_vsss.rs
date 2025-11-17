@@ -15,8 +15,8 @@ use garbled_snark_verifier::{
     cut_and_choose::{
         Evaluator, EvaluatorCaseInput, FileCiphertextHandlerProvider, VsssGarbler,
         vsss::{
-            Canonical, FinalizeChallenge, SetupBroadcast, SetupResponse, VsssStreamReceivers,
-            encode_input, transpose,
+            Challenge, EvaluatorAdaptorSigs, FinalizeChallenge, SetupBroadcast, SetupResponse,
+            VsssStreamReceivers, encode_input, transpose,
         },
     },
     garbled_groth16::{self, EvaluatorCompressedInput},
@@ -38,6 +38,8 @@ const IS_PROOF_CORRECT: bool = true;
 // Calculate and display total gates to process
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
+// note: uncomment to use a dummy circuit for faster tetsing. Note that the evaluation will fail
+// due to the input being incorrect.
 // use dummy_circuit::verify_compressed as circuit_verify;
 use garbled_groth16::verify_compressed as circuit_verify;
 
@@ -249,13 +251,12 @@ fn run_garbler(
         .expect("send commits");
 
     // Step 2 — Evaluator challenges the Garbler with the finalize set.
-    let SetupResponse::FinalizeChallenge(finalize_senders) =
-        e2g_rx.recv().expect("recv finalize senders");
+    let SetupResponse::FinalizeChallenge(challenge) = e2g_rx.recv().expect("recv finalize senders");
 
-    let finalize_indices = finalize_senders.iter().map(|x| x.index).collect_vec();
+    let finalize_indices = challenge.to_finalize.iter().map(|x| x.index).collect_vec();
 
     let (opened_instance_data, finalized_instance_data) =
-        g.inner().open_commit(finalize_senders, circuit_verify);
+        g.inner().open_commit(challenge.to_finalize, circuit_verify);
 
     let finalized_instance_data_indices = finalized_instance_data
         .iter()
@@ -263,7 +264,6 @@ fn run_garbler(
         .collect_vec();
 
     let opened_instance_data_indices = opened_instance_data.iter().map(|x| x.index).collect_vec();
-    let idx_to_reveal = finalized_instance_data[0].index;
 
     let (garbling_threads, wide_label_looksup): (Vec<_>, Vec<_>) = finalized_instance_data
         .into_iter()
@@ -295,25 +295,28 @@ fn run_garbler(
     );
 
     let inputs = g
-        .prepare_input_labels(vec![public_input], challenge_proof, idx_to_reveal)
+        .prepare_input_labels(vec![public_input], challenge_proof, challenge.assert_index)
         .input;
 
     let encoded = encode_input(&inputs);
 
     // Step 4: translate input labels to wide labels
-    let wide_labels = g
-        .wide_labels_for(idx_to_reveal)
+    let sigs = g
+        .wide_labels_for(challenge.assert_index)
         .chunks(256)
         .into_iter()
         .zip(encoded.chunks(8))
         .map(|(wide_labels, bit_vals)| {
             let wide_label_idx = bit_vals.iter().fold(0, |acc, &val| acc * 2 + val as u8);
-            Canonical(wide_labels[wide_label_idx as usize])
+            wide_labels[wide_label_idx as usize]
         })
-        .collect_vec();
+        .zip_eq(challenge.adaptor_sigs.iter())
+        .map(|(wide_label, adaptor_sig)| adaptor_sig.garbler_signature(&wide_label))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("adaptor sigs should be valid");
 
     g2e_tx
-        .send(SetupBroadcast::Assert(idx_to_reveal, wide_labels))
+        .send(SetupBroadcast::Assert(sigs))
         .expect("send open instances");
 }
 
@@ -335,7 +338,7 @@ fn run_evaluator(
 
     // Evaluator chooses which instances to finalize with first commits
     let mut eval: Evaluator<garbled_groth16::GarblerCompressedInput, DefaultLabelCommitHasher> =
-        Evaluator::create_vsss(&mut rng, cfg.clone(), commits);
+        Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
     let (tx_data, receivers): (Vec<_>, Vec<_>) = finalize_indices
@@ -354,8 +357,24 @@ fn run_evaluator(
         })
         .unzip();
 
+    let adaptor_sigs = {
+        let dummy_sighashes = (0..commits.share_commits.len().div_ceil(256))
+            .map(|i| i.to_be_bytes().to_vec())
+            .collect_vec();
+        EvaluatorAdaptorSigs::new(
+            &mut rng,
+            &finalize_indices,
+            &commits.share_commits,
+            &dummy_sighashes,
+        )
+    };
+
     e2g_tx
-        .send(SetupResponse::FinalizeChallenge(tx_data))
+        .send(SetupResponse::FinalizeChallenge(Challenge {
+            to_finalize: tx_data,
+            adaptor_sigs: adaptor_sigs.adaptor_sigs.clone(),
+            assert_index: adaptor_sigs.assert_index,
+        }))
         .expect("send finalize challenge");
 
     let SetupBroadcast::OpenInstances(open_instance_data, wide_label_lookups) =
@@ -378,16 +397,31 @@ fn run_evaluator(
     )
     .expect("regarbling ok");
 
-    let SetupBroadcast::Assert(index, wide_labels) = g2e_rx.recv().expect("recv asserts") else {
+    let SetupBroadcast::Assert(signatures) = g2e_rx.recv().expect("recv asserts") else {
         panic!("unexpected message; expected asserts")
     };
 
+    let wide_labels = adaptor_sigs
+        .adaptor_sigs
+        .iter()
+        .zip_eq(signatures)
+        .map(|(adaptor_sig, signature)| {
+            adaptor_sig
+                .extract_secret(&signature)
+                .expect("adaptor sigs should be valid")
+        })
+        .collect_vec();
+
     let value_indices = {
-        let wide_label_lookup = &wide_label_lookups.iter().find(|x| x.0 == index).unwrap().1;
+        let wide_label_lookup = &wide_label_lookups
+            .iter()
+            .find(|x| x.0 == adaptor_sigs.assert_index)
+            .unwrap()
+            .1;
         wide_labels
             .iter()
             .zip(wide_label_lookup.iter())
-            .map(|(wide_label, wide_label_lookup)| wide_label_lookup.lookup_index(&wide_label.0))
+            .map(|(wide_label, wide_label_lookup)| wide_label_lookup.lookup_index(&wide_label))
             .collect_vec()
     };
 
@@ -399,11 +433,14 @@ fn run_evaluator(
                 x.shares
                     .chunks(256)
                     .zip(value_indices.iter())
-                    .map(|(share, index)| share[*index]) // out of the 256 possible values, use the selected one
+                    .map(|(share, index)| share[*index].0) // out of the 256 possible values, use the selected one
                     .collect_vec(),
             )
         })
-        .chain(std::iter::once((index, wide_labels.clone())))
+        .chain(std::iter::once((
+            adaptor_sigs.assert_index,
+            wide_labels.clone(),
+        )))
         .collect_vec();
 
     let missing_indices = (0..cfg.total())
@@ -416,11 +453,10 @@ fn run_evaluator(
     for i in 0..num_labels {
         let known = known_labels
             .iter()
-            .map(|(j, shares)| (*j, shares[i].0))
+            .map(|(j, shares)| (*j, shares[i]))
             .collect_vec();
         let missing = lagrange_interpolate_whole_polynomial(&known, &missing_indices);
-        let canonical = missing.into_iter().map(|x| Canonical(x)).collect_vec();
-        interpolated_labels.push(canonical);
+        interpolated_labels.push(missing);
     }
 
     let interpolated_labels = transpose(&interpolated_labels);
@@ -428,7 +464,10 @@ fn run_evaluator(
     let all_finalized_labels = missing_indices
         .into_iter()
         .zip(interpolated_labels.into_iter())
-        .chain(std::iter::once((index, wide_labels.clone())));
+        .chain(std::iter::once((
+            adaptor_sigs.assert_index,
+            wide_labels.clone(),
+        )));
 
     let inputs = all_finalized_labels
         .map(|(index, labels)| {
@@ -438,7 +477,7 @@ fn run_evaluator(
                 .iter()
                 .zip(wide_label_lookup.iter())
                 .flat_map(|(wide_label, wide_label_lookup)| {
-                    wide_label_lookup.lookup_evaluated_wires(&wide_label.0)
+                    wide_label_lookup.lookup_evaluated_wires(&wide_label)
                 })
                 .collect_vec();
 

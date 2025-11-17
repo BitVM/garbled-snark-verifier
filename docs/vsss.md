@@ -44,7 +44,8 @@ Additionally, the garbler sends a global commit - for each polynomial, the garbl
 
 - Evaluator randomly partitions `[n]` into a check set `C` (size `n-f`) and an evaluation set `E` (size `f`).
 - Evaluator sends the indices in `E` together with ciphertext handlers to receive ciphertext streams for finalized instances.
-
+- Evaluator sends an index `a` from `E` that is to be used for the adaptor signatures. 
+- Evaluator sends the (incomplete) adaptor signatures.
 
 #### Step 4 – Opening
 
@@ -60,21 +61,19 @@ Additionally, the garbler sends a global commit - for each polynomial, the garbl
 
 #### Step 5 – Setting up adaptor signatures
 
-Note: the current demo does not use adaptor signatures yet.
-
-- Evaluator chooses an index `q` from one of the remaining `f` indices to be used in asserts.
-- Evaluator sets up adaptor signatures for the instance `q`, assuming a previously agreed-upon bitcoin transaction. It sends the adaptor signatures to the garbler.
+- Evaluator chooses an index `a` from one of the remaining `f` indices to be used in asserts.
+- Evaluator sets up adaptor signatures for the instance `a`, assuming a previously agreed-upon bitcoin transaction. It sends the adaptor signatures to the garbler.
 
 
 ### Phase II: Evaluation
 
 #### Step 1 – Publishing
 
-- The garbler reveals wide labels for the instance `q` by submitting the transaction including the adaptor signatures on bitcoin
+- The garbler reveals wide labels for the instance `a` by submitting the transaction including the adaptor signatures on bitcoin
 
 #### Step 2 – Extraction and polynomial reconstruction
 
-- Evaluator extracts the wide labels for the instance `q` from the adaptor signatures.
+- Evaluator extracts the wide labels for the instance `a` from the adaptor signatures.
 - Evaluator uses the labels from the `C` instances together with the newly revealed labels to interpolate the labels for all instances in `E`.
 
 #### Step 3 – Evaluating
@@ -86,7 +85,7 @@ Note: the current demo does not use adaptor signatures yet.
 ## Message Summary
 
 - (Garbler → Evaluator) Vssscommits: {Commit_1(i)}_{i∈[n]} + Polynomial commits
-- (Evaluator → Garbler) FinalizeChallenge: indices to finalize
+- (Evaluator → Garbler) FinalizeChallenge: indices to finalize. Additionally, the instance index to be used for the adaptor signatures, plus the incomplete adaptor signatures for this instance.
 - (Garbler → Evaluator) OpenInstances: seeds and wide labels of all items in `C`, and garbled wide label lookup table for all items in `E`
 - (Evaluator → Garbler) Adaptor signatures and index of 1 of the instances in `E`
 - (Garbler → Bitcoin) Assert: Selected widelabels for given 1 instance.

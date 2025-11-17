@@ -115,6 +115,7 @@ impl AdaptorInfo {
 }
 
 /// Represents an adaptor where a valid signature can be produced by revealing any one of the garbler secrets.
+#[derive(Clone)]
 pub struct WideAdaptorInfo(Vec<AdaptorInfo>);
 
 impl WideAdaptorInfo {
