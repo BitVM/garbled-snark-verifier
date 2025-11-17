@@ -18,3 +18,10 @@ rustflags = ["-C", "target-feature=+aes,+sse2,+avx2,+pclmulqdq"]
 [target.x86_64-apple-darwin]
 # Specific flags for macOS x86_64
 rustflags = ["-C", "target-feature=+aes,+sse2,+avx2,+pclmulqdq"]
+
+# aarch64 (Apple Silicon / ARM): Enable AES and NEON
+[target.aarch64-apple-darwin]
+rustflags = ["--cfg", "aes_armv8", "-C", "target-feature=+aes,+neon"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_armv8", "-C", "target-feature=+aes,+neon"]

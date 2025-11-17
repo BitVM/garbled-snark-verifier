@@ -94,6 +94,11 @@ pub(crate) mod aes_ni_impl {
         }
 
         /// Encrypt four independent 16-byte blocks by interleaving AES rounds across 4 states.
+        ///
+        /// # Safety
+        ///
+        /// The caller must ensure the current CPU supports the `aes` and `sse2` features that
+        /// the constructor validated; invoking this on unsupported hardware is undefined behavior.
         #[inline]
         #[target_feature(enable = "aes,sse2")]
         pub unsafe fn encrypt4_blocks(&self, b: [[u8; 16]; 4]) -> [[u8; 16]; 4] {
@@ -133,6 +138,11 @@ pub(crate) mod aes_ni_impl {
         }
 
         /// Encrypt eight independent 16-byte blocks by interleaving AES rounds across 8 states.
+        ///
+        /// # Safety
+        ///
+        /// The caller must ensure the executing CPU still exposes the `aes` and `sse2` features
+        /// that were checked when the cipher was constructed.
         #[inline]
         #[target_feature(enable = "aes,sse2")]
         pub unsafe fn encrypt8_blocks(&self, b: [[u8; 16]; 8]) -> [[u8; 16]; 8] {
@@ -257,6 +267,11 @@ pub(crate) mod aes_ni_impl {
         }
 
         /// Encrypt 4 independent blocks with a fused XOR mask folded into round key 0.
+        ///
+        /// # Safety
+        ///
+        /// This requires the hardware AES/SSE2 features that gate the constructor; the caller
+        /// must not invoke it on CPUs lacking those instructions.
         #[inline]
         #[target_feature(enable = "aes,sse2")]
         pub unsafe fn encrypt4_blocks_xor(
@@ -297,6 +312,11 @@ pub(crate) mod aes_ni_impl {
         }
 
         /// Encrypt 8 independent blocks with a fused XOR mask folded into round key 0.
+        ///
+        /// # Safety
+        ///
+        /// This function assumes AES and SSE2 CPU features remain enabled; calling it otherwise
+        /// is undefined behavior.
         #[inline]
         #[target_feature(enable = "aes,sse2")]
         pub unsafe fn encrypt8_blocks_xor(
@@ -502,12 +522,8 @@ pub(crate) mod aes_ni_impl {
     ) -> Option<[[u8; 16]; 16]> {
         let mut first = [[0u8; 16]; 8];
         let mut second = [[0u8; 16]; 8];
-        for i in 0..8 {
-            first[i] = b[i];
-        }
-        for i in 0..8 {
-            second[i] = b[8 + i];
-        }
+        first.copy_from_slice(&b[..8]);
+        second.copy_from_slice(&b[8..]);
         let cipher = get_or_init_static_cipher();
         let out1 = unsafe { cipher.encrypt8_blocks_xor(first, xor_mask) };
         let out2 = unsafe { cipher.encrypt8_blocks_xor(second, xor_mask) };
@@ -596,6 +612,11 @@ pub(crate) mod aes_ni_impl {
 
     /// Generic dispatcher for M in {1,2,4,8,16} using per-block XOR masks.
     /// Uses transmute to avoid per-call copying for exact sizes.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that the CPU provides the `aes` and `sse2` instruction sets,
+    /// otherwise the intrinsic operations inside invoke undefined behavior.
     #[target_feature(enable = "aes,sse2")]
     pub unsafe fn aes128_encrypt_blocks_static_xor_masks<const M: usize>(
         b: [[u8; 16]; M],
