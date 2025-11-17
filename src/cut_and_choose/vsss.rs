@@ -1,14 +1,19 @@
 use std::thread::JoinHandle;
 
+use ark_ff::UniformRand;
 use ark_secp256k1::{Fr, Projective};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use crossbeam::channel;
 use itertools::Itertools;
+use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     AesNiHasher, CommitPhaseOne, LabelCommitHasher, S, WireId,
-    cac::vsss::{PolynomialCommits, ShareCommits},
+    cac::{
+        adaptor_sigs::{SignatureBytes, WideAdaptorInfo},
+        vsss::{PolynomialCommits, ShareCommits},
+    },
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
     cut_and_choose::{GarbledWideLabelTable, InstanceWideLabelLookup, Seed},
     hashers::DefaultLabelCommitHasher,
@@ -18,13 +23,19 @@ use crate::{
 pub enum SetupBroadcast<HHasher: LabelCommitHasher> {
     Commit(VsssCommit<HHasher>),
     OpenInstances(Vec<OpenVsssInstance>, Vec<(usize, InstanceWideLabelLookup)>),
-    Assert(usize, Vec<Canonical<Fr>>),
+    Assert(Vec<SignatureBytes>),
 }
 
 /// Messages emitted by the Evaluator during Setup.
 pub enum SetupResponse<CTH: 'static + Send + CiphertextHandler> {
     /// Step 2 — finalization challenge specifying the evaluation set plus ciphertext handlers.
-    FinalizeChallenge(Vec<FinalizeChallenge<CTH>>),
+    FinalizeChallenge(Challenge<CTH>),
+}
+
+pub struct Challenge<CTH: 'static + Send + CiphertextHandler> {
+    pub to_finalize: Vec<FinalizeChallenge<CTH>>,
+    pub adaptor_sigs: Vec<WideAdaptorInfo>,
+    pub assert_index: usize,
 }
 
 pub struct FinalizeChallenge<CTH: 'static + Send + CiphertextHandler> {
@@ -123,4 +134,41 @@ pub struct FinalizedVsssInstance {
     pub index: usize,
     pub wide_label_lookup: Vec<GarbledWideLabelTable>,
     pub garbling_thread: JoinHandle<()>,
+}
+
+pub struct EvaluatorAdaptorSigs {
+    pub assert_index: usize,
+    pub secret: Fr,
+    pub adaptor_sigs: Vec<WideAdaptorInfo>,
+}
+
+impl EvaluatorAdaptorSigs {
+    pub fn new(
+        rng: &mut impl Rng,
+        finalized_indices: &[usize],
+        garbler_commits: &[ShareCommits<Canonical<Projective>>],
+        sighashes: &[Vec<u8>],
+    ) -> Self {
+        // choose an index that is to be used for the assert
+        let assert_index = finalized_indices[rng.gen_range(0..finalized_indices.len())];
+
+        let secret = Fr::rand(rng);
+        let adaptor_sigs = garbler_commits
+            .chunks(256)
+            .zip_eq(sighashes)
+            .map(|(chunk, sighash)| {
+                let commits = chunk
+                    .iter()
+                    .map(|commits| commits.0[assert_index].0)
+                    .collect_vec();
+                WideAdaptorInfo::new(&secret, &commits, sighash, rng)
+            })
+            .collect();
+
+        Self {
+            assert_index,
+            secret,
+            adaptor_sigs,
+        }
+    }
 }
