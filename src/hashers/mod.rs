@@ -11,6 +11,13 @@ pub enum HasherKind {
 }
 
 pub mod aes_ni;
+pub mod sha256;
+
+// Re-export label commit hashers and trait for public API
+pub use sha256::{
+    AesLabelCommitHasher, Commit, DefaultLabelCommitHasher, LabelCommitHasher,
+    Sha256LabelCommitHasher, commit_label_with,
+};
 
 pub trait GateHasher: HashWithGate<1> + HashWithGate<2> {}
 impl<H: HashWithGate<1> + HashWithGate<2>> GateHasher for H {}

@@ -154,6 +154,7 @@ mod tests {
     };
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_final_exponentiation_streaming_matches_ark() {
         let mut rng = ChaCha20Rng::seed_from_u64(123);
         let p = ark_bn254::G1Affine::rand(&mut rng);

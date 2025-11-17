@@ -1,3 +1,5 @@
+//! Utilities for storing and streaming ciphertext blocks during the
+//! cut-and-choose protocol (see `docs/gsv_spec.md`, Step 3).
 use std::{
     fmt,
     fs::{self, File},

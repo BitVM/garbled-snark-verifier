@@ -17,7 +17,17 @@ pub use crate::circuit::modes::EvaluatedWire;
 // Re-export GarbledWire from mode locality while keeping public path stable
 pub use crate::circuit::modes::GarbledWire;
 // Root-level hasher exports
-pub use crate::hashers::{AesNiHasher, Blake3Hasher, GateHasher, HasherKind};
+pub use crate::hashers::{
+    AesLabelCommitHasher,
+    AesNiHasher,
+    Blake3Hasher,
+    GateHasher,
+    HasherKind,
+    // Label commit hashers for cut-and-choose
+    LabelCommitHasher,
+    Sha256LabelCommitHasher,
+    commit_label_with,
+};
 pub type DefaultHasher = crate::hashers::Blake3Hasher;
 
 pub use ciphertext_hasher::{AESAccumulatingHash, AESAccumulatingHashBatch};
@@ -39,15 +49,8 @@ pub use math::*;
 
 pub use crate::circuit::modes::GarbleMode;
 
-#[cfg(test)]
-pub mod test_utils {
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
-
-    pub fn trng() -> ChaCha20Rng {
-        ChaCha20Rng::seed_from_u64(0)
-    }
-}
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 pub mod cut_and_choose;
 pub mod garbled_groth16;
@@ -71,5 +74,9 @@ pub mod ark {
     pub use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 }
 
-pub use cut_and_choose::groth16 as groth16_cut_and_choose;
-pub use groth16_cut_and_choose::{GarbledInstanceCommit, Garbler, OpenForInstance};
+// Re-export OpenCommit from cut_and_choose for backward compatibility
+pub use cut_and_choose::{OpenCommit, groth16 as groth16_cut_and_choose};
+pub use groth16_cut_and_choose::{CommitPhaseOne, CommitPhaseTwo, Garbler, OpenForInstance};
+
+#[cfg(feature = "sp1-soldering")]
+pub mod sp1_soldering;

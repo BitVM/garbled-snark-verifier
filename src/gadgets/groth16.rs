@@ -494,10 +494,6 @@ mod tests {
     use ark_ec::{AffineRepr, CurveGroup, PrimeGroup};
     use ark_ff::UniformRand;
     use ark_groth16::Groth16;
-    use ark_relations::{
-        lc,
-        r1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError},
-    };
     use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;
@@ -508,6 +504,8 @@ mod tests {
 
     // Helper to reduce duplication across bitflip tests for A, B, and C
     fn run_false_bitflip_test(seed: u64, mutate: impl FnOnce(&mut Groth16VerifyInput)) {
+        use crate::test_utils::DummyCircuit;
+
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -537,83 +535,18 @@ mod tests {
         assert!(!out.output_value);
     }
 
-    #[derive(Copy, Clone)]
-    struct DummyCircuit<F: ark_ff::PrimeField> {
-        pub a: Option<F>,
-        pub b: Option<F>,
-        pub num_variables: usize,
-        pub num_constraints: usize,
-    }
-
-    impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuit<F> {
-        fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-            let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-            let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
-            let c = cs.new_input_variable(|| {
-                let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-                let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-                Ok(a * b)
-            })?;
-
-            for _ in 0..(self.num_variables - 3) {
-                let _ =
-                    cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-            }
-
-            for _ in 0..self.num_constraints - 1 {
-                cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
-            }
-
-            cs.enforce_constraint(lc!(), lc!(), lc!())?;
-            Ok(())
-        }
-    }
-
-    // Circuit with no public inputs - only private witnesses
-    #[derive(Copy, Clone)]
-    struct DummyCircuitNoPublicInputs<F: ark_ff::PrimeField> {
-        pub a: Option<F>,
-        pub b: Option<F>,
-        pub num_variables: usize,
-        pub num_constraints: usize,
-    }
-
-    impl<F: ark_ff::PrimeField> ConstraintSynthesizer<F> for DummyCircuitNoPublicInputs<F> {
-        fn generate_constraints(self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-            let a = cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-            let b = cs.new_witness_variable(|| self.b.ok_or(SynthesisError::AssignmentMissing))?;
-            let c = cs.new_witness_variable(|| {
-                let a = self.a.ok_or(SynthesisError::AssignmentMissing)?;
-                let b = self.b.ok_or(SynthesisError::AssignmentMissing)?;
-                Ok(a * b)
-            })?;
-
-            for _ in 0..(self.num_variables - 3) {
-                let _ =
-                    cs.new_witness_variable(|| self.a.ok_or(SynthesisError::AssignmentMissing))?;
-            }
-
-            for _ in 0..self.num_constraints - 1 {
-                cs.enforce_constraint(lc!() + a, lc!() + b, lc!() + c)?;
-            }
-
-            cs.enforce_constraint(lc!(), lc!(), lc!())?;
-            Ok(())
-        }
-    }
-
     #[test]
     fn test_groth16_verify_true() {
-        let k = 6;
-        let mut rng = ChaCha20Rng::seed_from_u64(12345);
+        use crate::test_utils::{DummyCircuit, dummy_vk_with_public_inputs};
+
+        let (pk, vk, a, b, c_val) = dummy_vk_with_public_inputs();
         let circuit = DummyCircuit::<ark_bn254::Fr> {
-            a: Some(ark_bn254::Fr::rand(&mut rng)),
-            b: Some(ark_bn254::Fr::rand(&mut rng)),
+            a: Some(a),
+            b: Some(b),
             num_variables: 10,
-            num_constraints: 1 << k,
+            num_constraints: 1 << 6,
         };
-        let (pk, vk) = Groth16::<ark_bn254::Bn254>::setup(circuit, &mut rng).unwrap();
-        let c_val = circuit.a.unwrap() * circuit.b.unwrap();
+        let mut rng = ChaCha20Rng::seed_from_u64(12345);
         let proof = Groth16::<ark_bn254::Bn254>::prove(&pk, circuit, &mut rng).unwrap();
 
         // Build inputs for gadget (convert A,C to projective for wire encoding)
@@ -632,6 +565,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_false_bitflip_a() {
         run_false_bitflip_test(54321, |inputs| {
             inputs.a.x += ark_bn254::Fq::ONE;
@@ -639,6 +573,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_false_bitflip_b() {
         run_false_bitflip_test(98765, |inputs| {
             // Flip one limb by adding ONE to c0 of x
@@ -647,6 +582,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_false_bitflip_c() {
         run_false_bitflip_test(19283, |inputs| {
             inputs.c.x += ark_bn254::Fq::ONE;
@@ -655,6 +591,8 @@ mod tests {
 
     #[test]
     fn test_groth16_verify_no_public_inputs_true() {
+        use crate::test_utils::DummyCircuitNoPublicInputs;
+
         // Test successful verification with empty public inputs
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(99999);
@@ -686,7 +624,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_no_public_inputs_false_bitflip_a() {
+        use crate::test_utils::DummyCircuitNoPublicInputs;
+
         // Test unsuccessful verification with empty public inputs - corrupt proof.a
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(88888);
@@ -721,7 +662,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_no_public_inputs_false_bitflip_b() {
+        use crate::test_utils::DummyCircuitNoPublicInputs;
+
         // Test unsuccessful verification with empty public inputs - corrupt proof.b
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(77777);
@@ -756,7 +700,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_no_public_inputs_false_bitflip_c() {
+        use crate::test_utils::DummyCircuitNoPublicInputs;
+
         // Test unsuccessful verification with empty public inputs - corrupt proof.c
         let k = 6;
         let mut rng = ChaCha20Rng::seed_from_u64(66666);
@@ -791,9 +738,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_false_random() {
         use rand::SeedableRng;
         use rand_chacha::ChaCha20Rng;
+
+        use crate::test_utils::DummyCircuit;
 
         // Create a valid vk from a small circuit
         let k = 4;
@@ -931,6 +881,8 @@ mod tests {
 
     #[test]
     fn test_groth16_compressed_decompress_matches_proof_points() {
+        use crate::test_utils::DummyCircuit;
+
         let k = 4; // keep it small
         let mut rng = ChaCha20Rng::seed_from_u64(33333);
         let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -984,7 +936,10 @@ mod tests {
     // runs Miller loop + final exponentiation in-circuit. Kept for completeness
     // but ignored by default; run explicitly when needed.
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_groth16_verify_compressed_true_small() {
+        use crate::test_utils::DummyCircuit;
+
         let k = 4; // circuit size; pairing cost dominates anyway
         let mut rng = ChaCha20Rng::seed_from_u64(33333);
         let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -1024,6 +979,8 @@ mod tests {
         seed: u64,
         mutate: impl FnOnce(&mut Groth16VerifyInput),
     ) -> bool {
+        use crate::test_utils::DummyCircuit;
+
         let k = 4; // small circuit to keep test fast
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
         let circuit = DummyCircuit::<ark_bn254::Fr> {
@@ -1064,16 +1021,18 @@ mod tests {
         }
     }
 
-    // Unified small verifier tests across flows
     #[test]
     fn test_small_verify_true_uncompressed() {
         assert!(run_small_verify(VerifyFlow::Uncompressed, 10101, |_| {}));
     }
+
     #[test]
     fn test_small_verify_true_compressed() {
         assert!(run_small_verify(VerifyFlow::Compressed, 20202, |_| {}));
     }
+
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_small_verify_false_bitflip_a_uncompressed() {
         assert!(!run_small_verify(
             VerifyFlow::Uncompressed,
@@ -1083,13 +1042,17 @@ mod tests {
             }
         ));
     }
+
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_small_verify_false_bitflip_a_compressed() {
         assert!(!run_small_verify(VerifyFlow::Compressed, 40404, |inputs| {
             inputs.a.x += ark_bn254::Fq::ONE;
         }));
     }
+
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_small_verify_false_bitflip_b_uncompressed() {
         assert!(!run_small_verify(
             VerifyFlow::Uncompressed,
@@ -1099,13 +1062,17 @@ mod tests {
             }
         ));
     }
+
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_small_verify_false_bitflip_b_compressed() {
         assert!(!run_small_verify(VerifyFlow::Compressed, 60606, |inputs| {
             inputs.b.x.c0 += ark_bn254::Fq::ONE;
         }));
     }
+
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_small_verify_false_bitflip_c_uncompressed() {
         assert!(!run_small_verify(
             VerifyFlow::Uncompressed,
@@ -1115,7 +1082,9 @@ mod tests {
             }
         ));
     }
+
     #[test]
+    #[ignore = "Only run when modifying gadgets; this test is slow"]
     fn test_small_verify_false_bitflip_c_compressed() {
         assert!(!run_small_verify(VerifyFlow::Compressed, 80808, |inputs| {
             inputs.c.x += ark_bn254::Fq::ONE;

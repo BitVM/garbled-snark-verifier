@@ -461,7 +461,7 @@ mod bitvm_tests {
 
         // Test with different order of sigs: should fail
         tx.input[0].witness = [
-            sigs.clone(), // note: omitted .rev()
+            sigs.to_vec(),
             vec![script.to_bytes(), control_block.clone()],
         ]
         .concat()
