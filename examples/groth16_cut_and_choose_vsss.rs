@@ -10,13 +10,12 @@ use garbled_snark_verifier::{
         self, Bn254, CircuitSpecificSetupSNARK, Groth16 as ArkGroth16, ProvingKey as ArkProvingKey,
         SNARK, UniformRand,
     },
-    cac::vsss::lagrange_interpolate_whole_polynomial,
     circuit::CiphertextSender,
     cut_and_choose::{
         Evaluator, EvaluatorCaseInput, FileCiphertextHandlerProvider, VsssGarbler,
         vsss::{
             Challenge, EvaluatorAdaptorSigs, FinalizeChallenge, SetupBroadcast, SetupResponse,
-            VsssStreamReceivers, encode_input, transpose,
+            VsssStreamReceivers,
         },
     },
     garbled_groth16::{self, EvaluatorCompressedInput},
@@ -255,8 +254,9 @@ fn run_garbler(
 
     let finalize_indices = challenge.to_finalize.iter().map(|x| x.index).collect_vec();
 
-    let (opened_instance_data, finalized_instance_data) =
-        g.inner().open_commit(challenge.to_finalize, circuit_verify);
+    let (opened_instance_data, finalized_instance_data) = g
+        .inner()
+        .open_commit(challenge.to_finalize.clone(), circuit_verify);
 
     let finalized_instance_data_indices = finalized_instance_data
         .iter()
@@ -297,23 +297,8 @@ fn run_garbler(
     let inputs = g
         .prepare_input_labels(vec![public_input], challenge_proof, challenge.assert_index)
         .input;
-
-    let encoded = encode_input(&inputs);
-
-    // Step 4: translate input labels to wide labels
-    let sigs = g
-        .wide_labels_for(challenge.assert_index)
-        .chunks(256)
-        .into_iter()
-        .zip(encoded.chunks(8))
-        .map(|(wide_labels, bit_vals)| {
-            let wide_label_idx = bit_vals.iter().fold(0, |acc, &val| acc * 2 + val as u8);
-            wide_labels[wide_label_idx as usize]
-        })
-        .zip_eq(challenge.adaptor_sigs.iter())
-        .map(|(wide_label, adaptor_sig)| adaptor_sig.garbler_signature(&wide_label))
-        .collect::<Result<Vec<_>, _>>()
-        .expect("adaptor sigs should be valid");
+    let wide_labels = g.wide_labels_for(challenge.assert_index);
+    let sigs = challenge.compute_signatures(&wide_labels, &inputs);
 
     g2e_tx
         .send(SetupBroadcast::Assert(sigs))
@@ -401,94 +386,20 @@ fn run_evaluator(
         panic!("unexpected message; expected asserts")
     };
 
-    let wide_labels = adaptor_sigs
-        .adaptor_sigs
-        .iter()
-        .zip_eq(signatures)
-        .map(|(adaptor_sig, signature)| {
-            adaptor_sig
-                .extract_secret(&signature)
-                .expect("adaptor sigs should be valid")
-        })
-        .collect_vec();
-
-    let value_indices = {
-        let wide_label_lookup = &wide_label_lookups
-            .iter()
-            .find(|x| x.0 == adaptor_sigs.assert_index)
-            .unwrap()
-            .1;
-        wide_labels
-            .iter()
-            .zip(wide_label_lookup.iter())
-            .map(|(wide_label, wide_label_lookup)| wide_label_lookup.lookup_index(&wide_label))
-            .collect_vec()
-    };
-
-    let known_labels = open_instance_data
+    let inputs = adaptor_sigs
+        .evaluated_wires(
+            &signatures,
+            &wide_label_lookups,
+            &open_instance_data,
+            cfg.total(),
+        )
         .into_iter()
-        .map(|x| {
-            (
-                x.index, // instance index
-                x.shares
-                    .chunks(256)
-                    .zip(value_indices.iter())
-                    .map(|(share, index)| share[*index].0) // out of the 256 possible values, use the selected one
-                    .collect_vec(),
-            )
-        })
-        .chain(std::iter::once((
-            adaptor_sigs.assert_index,
-            wide_labels.clone(),
-        )))
-        .collect_vec();
-
-    let missing_indices = (0..cfg.total())
-        .filter(|&i| !known_labels.iter().any(|(j, _)| j == &i))
-        .collect_vec();
-
-    let num_labels = known_labels[0].1.len();
-    let mut interpolated_labels = vec![];
-
-    for i in 0..num_labels {
-        let known = known_labels
-            .iter()
-            .map(|(j, shares)| (*j, shares[i]))
-            .collect_vec();
-        let missing = lagrange_interpolate_whole_polynomial(&known, &missing_indices);
-        interpolated_labels.push(missing);
-    }
-
-    let interpolated_labels = transpose(&interpolated_labels);
-
-    let all_finalized_labels = missing_indices
-        .into_iter()
-        .zip(interpolated_labels.into_iter())
-        .chain(std::iter::once((
-            adaptor_sigs.assert_index,
-            wide_labels.clone(),
-        )));
-
-    let inputs = all_finalized_labels
-        .map(|(index, labels)| {
-            let wide_label_lookup = &wide_label_lookups.iter().find(|x| x.0 == index).unwrap().1;
-
-            let evaluated_wires = labels
-                .iter()
-                .zip(wide_label_lookup.iter())
-                .flat_map(|(wide_label, wide_label_lookup)| {
-                    wide_label_lookup.lookup_evaluated_wires(&wide_label)
-                })
-                .collect_vec();
-
-            let input = EvaluatorCompressedInput::from_evaluated_inputs(
-                1,
-                evaluated_wires,
-                cfg.input().vk.clone(),
-            );
+        .map(|(index, wires)| {
+            let input =
+                EvaluatorCompressedInput::from_evaluated_inputs(1, wires, cfg.input().vk.clone());
             EvaluatorCaseInput { index, input }
         })
-        .collect_vec();
+        .collect();
 
     let results = eval
         .evaluate_from(&out_dir, inputs, DEFAULT_CAPACITY, circuit_verify)

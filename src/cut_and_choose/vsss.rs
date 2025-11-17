@@ -9,10 +9,10 @@ use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    AesNiHasher, CommitPhaseOne, LabelCommitHasher, S, WireId,
+    AesNiHasher, CommitPhaseOne, EvaluatedWire, LabelCommitHasher, S, WireId,
     cac::{
         adaptor_sigs::{SignatureBytes, WideAdaptorInfo},
-        vsss::{PolynomialCommits, ShareCommits},
+        vsss::{PolynomialCommits, ShareCommits, lagrange_interpolate_whole_polynomial},
     },
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
     cut_and_choose::{GarbledWideLabelTable, InstanceWideLabelLookup, Seed},
@@ -38,6 +38,28 @@ pub struct Challenge<CTH: 'static + Send + CiphertextHandler> {
     pub assert_index: usize,
 }
 
+impl<CTH: 'static + Send + CiphertextHandler> Challenge<CTH> {
+    pub fn compute_signatures<T>(&self, wide_labels: &[Fr], val: &T) -> Vec<SignatureBytes>
+    where
+        T: EncodeInput<EvaluateMode<AesNiHasher, ciphertext_source::DummySource>>,
+    {
+        let wire_values = encode_input(val);
+
+        wide_labels
+            .chunks(256)
+            .zip(wire_values.chunks(8))
+            .map(|(wide_labels, bit_vals)| {
+                let wide_label_idx = bit_vals.iter().fold(0, |acc, &val| acc * 2 + val as u8);
+                wide_labels[wide_label_idx as usize]
+            })
+            .zip_eq(self.adaptor_sigs.iter())
+            .map(|(wide_label, adaptor_sig)| adaptor_sig.garbler_signature(&wide_label))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("adaptor sigs should be valid")
+    }
+}
+
+#[derive(Clone)]
 pub struct FinalizeChallenge<CTH: 'static + Send + CiphertextHandler> {
     pub index: usize,
     pub ciphertext_handler: CTH,
@@ -170,5 +192,92 @@ impl EvaluatorAdaptorSigs {
             secret,
             adaptor_sigs,
         }
+    }
+
+    fn extract_wide_labels(&self, signatures: &[SignatureBytes]) -> Vec<Fr> {
+        self.adaptor_sigs
+            .iter()
+            .zip_eq(signatures)
+            .map(|(adaptor_sig, signature)| {
+                adaptor_sig
+                    .extract_secret(signature)
+                    .expect("adaptor sigs should be valid")
+            })
+            .collect_vec()
+    }
+
+    pub fn evaluated_wires(
+        &self,
+        signatures: &[SignatureBytes],
+        wide_label_lookups: &[(usize, InstanceWideLabelLookup)],
+        open_instance_data: &[OpenVsssInstance],
+        total_instance_count: usize,
+    ) -> Vec<(usize, Vec<EvaluatedWire>)> {
+        let wide_labels = self.extract_wide_labels(signatures);
+
+        let value_indices = {
+            let wide_label_lookup = &wide_label_lookups
+                .iter()
+                .find(|x| x.0 == self.assert_index)
+                .unwrap()
+                .1;
+            wide_labels
+                .iter()
+                .zip(wide_label_lookup.iter())
+                .map(|(wide_label, wide_label_lookup)| wide_label_lookup.lookup_index(wide_label))
+                .collect_vec()
+        };
+
+        let known_labels = open_instance_data
+            .iter()
+            .map(|x| {
+                (
+                    x.index, // instance index
+                    x.shares
+                        .chunks(256)
+                        .zip(value_indices.iter())
+                        .map(|(share, index)| share[*index].0) // out of the 256 possible values, use the selected one
+                        .collect_vec(),
+                )
+            })
+            .chain(std::iter::once((self.assert_index, wide_labels.clone())))
+            .collect_vec();
+
+        let missing_indices = (0..total_instance_count)
+            .filter(|&i| !known_labels.iter().any(|(j, _)| j == &i))
+            .collect_vec();
+
+        let num_labels = known_labels[0].1.len();
+        let mut interpolated_labels = vec![];
+
+        for i in 0..num_labels {
+            let known = known_labels
+                .iter()
+                .map(|(j, shares)| (*j, shares[i]))
+                .collect_vec();
+            let missing = lagrange_interpolate_whole_polynomial(&known, &missing_indices);
+            interpolated_labels.push(missing);
+        }
+
+        let interpolated_labels = transpose(&interpolated_labels);
+
+        missing_indices
+            .into_iter()
+            .zip(interpolated_labels)
+            .chain(std::iter::once((self.assert_index, wide_labels.clone())))
+            .map(|(index, labels)| {
+                let wide_label_lookup =
+                    &wide_label_lookups.iter().find(|x| x.0 == index).unwrap().1;
+
+                let wires = labels
+                    .iter()
+                    .zip(wide_label_lookup.iter())
+                    .flat_map(|(wide_label, wide_label_lookup)| {
+                        wide_label_lookup.lookup_evaluated_wires(wide_label)
+                    })
+                    .collect_vec();
+                (index, wires)
+            })
+            .collect_vec()
     }
 }
