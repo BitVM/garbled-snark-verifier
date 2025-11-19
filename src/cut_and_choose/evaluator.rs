@@ -100,7 +100,7 @@ where
 {
     #[allow(clippy::result_unit_err)]
     pub fn run_regarbling_opt_cpu<CSourceProvider, CHandlerProvider, B>(
-        &self,
+        &mut self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
         ciphertext_handler_provider: &CHandlerProvider,
@@ -127,7 +127,7 @@ where
 
         let finalize_indexes: &[usize] = &self.to_finalize;
 
-        super::get_optimized_pool().install(|| {
+        let res = super::get_optimized_pool().install(|| {
             let (finalize_res, opened_res) = rayon::join(
                 || {
                     finalize_indexes.par_iter().try_for_each(|&index| {
@@ -176,7 +176,13 @@ where
 
             finalize_res?;
             opened_res
-        })
+        });
+
+        res?;
+
+        self.regarbled = true;
+
+        Ok(())
     }
     // Generate `to_finalize` with `rng` based on data on `Config`
     pub fn create(mut rng: impl Rng, config: Config<I>, commits: Vec<CommitPhaseOne<H>>) -> Self {
@@ -271,6 +277,17 @@ where
             Stage::Filled { first, .. } => first.get(index),
             #[cfg(feature = "sp1-soldering")]
             Stage::Soldered { first, .. } => first.get(index),
+        }
+    }
+
+    /// Get a specific commit from phase two by index (backward compatibility)
+    pub fn get_commit_phase_two(&self, index: usize) -> Option<&CommitPhaseTwo<H>> {
+        match &self.stage {
+            Stage::Empty => None,
+            Stage::Created(_) => None,
+            Stage::Filled { second, .. } => second.get(index),
+            #[cfg(feature = "sp1-soldering")]
+            Stage::Soldered { second, .. } => second.get(index),
         }
     }
 
@@ -507,80 +524,6 @@ where
 
         Ok(())
     }
-
-    #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling_multi<const N: usize, CSourceProvider, CHandlerProvider, F>(
-        &self,
-        seeds: Vec<(usize, Seed)>,
-        ciphertext_sources_provider: &CSourceProvider,
-        ciphertext_handler_provider: &CHandlerProvider,
-        live_capacity: usize,
-        builder: F,
-    ) -> Result<(), ()>
-    where
-        CSourceProvider: CiphertextSourceProvider + Send + Sync,
-        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
-        CHandlerProvider::Handler: 'static,
-        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
-        F: Fn(
-                &mut StreamingMode<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
-                &I::WireRepr,
-            ) -> WireId
-            + Send
-            + Sync
-            + Copy,
-        I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
-    {
-        let finalize_indexes: &[usize] = &self.to_finalize;
-
-        let (finalize_res, opened_res) = super::get_optimized_pool().install(|| {
-            rayon::join(
-                || {
-                    finalize_indexes.par_iter().try_for_each(|&index| {
-                        let mut source =
-                            ciphertext_sources_provider
-                                .source_for(index)
-                                .map_err(|err| {
-                                    error!(index, ?err, "failed to get ciphertext source");
-                                })?;
-
-                        let mut handler =
-                            ciphertext_handler_provider
-                                .handler_for(index)
-                                .map_err(|err| {
-                                    error!(index, ?err, "failed to create ciphertext handler");
-                                })?;
-
-                        while let Some(s) = source.recv() {
-                            handler.handle(s);
-                        }
-
-                        let computed_commit: CiphertextCommit = handler.finalize().into();
-                        let expected_commit =
-                            self.get_commit_phase_one(index).expect("commit not found");
-                        if computed_commit != expected_commit.ciphertext_hash() {
-                            error!(index, "ciphertext corrupted");
-                            Err(())
-                        } else {
-                            Ok(())
-                        }
-                    })
-                },
-                || {
-                    let mut seeds_sorted = seeds.clone();
-                    seeds_sorted.sort_by_key(|(i, _)| *i);
-
-                    seeds_sorted.par_chunks(N).try_for_each(|batch| {
-                        self.verify_opened_multilane_chunk::<N, F>(batch, live_capacity, builder)
-                    })
-                },
-            )
-        });
-
-        finalize_res?;
-        opened_res?;
-        Ok(())
-    }
 }
 
 #[cfg(feature = "test-utils")]
@@ -750,6 +693,8 @@ where
         let mut true_arr = res.true_wire_constant;
         let commits_batch = res.ciphertext_handler_result.0;
 
+        let nonce = self.nonce;
+
         for i in 0..m {
             let index = batch[i].0;
 
@@ -759,7 +704,10 @@ where
             let inps = mem::take(&mut per_lane_inputs[i]);
             let ct = commits_batch[i];
 
-            let expected_commit = self.get_commit_phase_one(index).expect("commit not found");
+            let expected_first = self.get_commit_phase_one(index).expect("commit not found");
+            let expected_second = self
+                .get_commit_phase_two(index)
+                .expect("second commit not found");
 
             let instance = super::garbler::GarbledInstance {
                 false_wire_constant: f,
@@ -769,9 +717,15 @@ where
                 ciphertext_handler_result: ct,
             };
 
-            let actual_commit = CommitPhaseOne::<H>::from_instance(&instance);
-            if &actual_commit != expected_commit {
-                error!(index, "regarbling failed: commit mismatch");
+            let actual_first = CommitPhaseOne::<H>::from_instance(&instance);
+            if &actual_first != expected_first {
+                error!(index, "regarbling failed: first commit mismatch");
+                return Err(());
+            }
+
+            let actual_second = CommitPhaseTwo::<H>::from_instance(&instance, nonce);
+            if actual_second.input_commitments() != expected_second.input_commitments() {
+                error!(index, "regarbling failed: second commit mismatch");
                 return Err(());
             }
         }
@@ -788,6 +742,8 @@ where
     where
         B: ModeBuilder<I>,
     {
+        let nonce = self.nonce;
+
         seeds_sorted.par_iter().try_for_each(|(index, seed)| {
             let inputs = self.config.input.clone();
             let hasher = AESAccumulatingHash::default();
@@ -800,10 +756,21 @@ where
                     move |root, irepr| builder.build_single(root, irepr),
                 );
 
-            let commit = CommitPhaseOne::<H>::from_instance(&res.into());
-            let expected = self.get_commit_phase_one(*index).expect("commit not found");
-            if &commit != expected {
-                error!(index, "regarbling failed");
+            let instance: super::garbler::GarbledInstance = res.into();
+
+            let actual_first = CommitPhaseOne::<H>::from_instance(&instance);
+            let actual_second = CommitPhaseTwo::<H>::from_instance(&instance, nonce);
+
+            let expected_first = self.get_commit_phase_one(*index).expect("commit not found");
+            let expected_second = self
+                .get_commit_phase_two(*index)
+                .expect("second commit not found");
+
+            if &actual_first != expected_first {
+                error!(index, "regarbling failed, first commit not equal");
+                Err(())
+            } else if actual_second.input_commitments() != expected_second.input_commitments() {
+                error!(index, "regarbling failed, second commit not equal");
                 Err(())
             } else {
                 Ok(())
@@ -917,9 +884,29 @@ where
                         hasher,
                         move |root, irepr| builder.build_single(root, irepr),
                     );
-                    let commit = CommitPhaseOne::<H>::from_instance(&res.into());
-                    let expected = self.get_commit_phase_one(index).expect("commit not found");
-                    if &commit != expected { Err(()) } else { Ok(()) }
+
+                    let instance: super::garbler::GarbledInstance = res.into();
+
+                    let actual_first = CommitPhaseOne::<H>::from_instance(&instance);
+                    let actual_second = CommitPhaseTwo::<H>::from_instance(&instance, self.nonce);
+
+                    let expected_first =
+                        self.get_commit_phase_one(index).expect("commit not found");
+                    let expected_second = self
+                        .get_commit_phase_two(index)
+                        .expect("second commit not found");
+
+                    if &actual_first != expected_first {
+                        error!(index, "regarbling failed, first commit not equal");
+                        Err(())
+                    } else if actual_second.input_commitments()
+                        != expected_second.input_commitments()
+                    {
+                        error!(index, "regarbling failed, second commit not equal");
+                        Err(())
+                    } else {
+                        Ok(())
+                    }
                 }
             };
             res?;

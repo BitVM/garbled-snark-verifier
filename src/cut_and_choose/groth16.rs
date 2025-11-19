@@ -48,16 +48,6 @@ impl Garbler {
         self.inner.commit_phase_one::<HHasher>()
     }
 
-    pub fn create_multi<const N: usize>(rng: impl Rng, config: Config) -> Self {
-        let inner = generic::Garbler::create_multi::<N, _>(
-            rng,
-            config,
-            DEFAULT_CAPACITY,
-            garbled_groth16::verify_compressed,
-        );
-        Self { inner }
-    }
-
     pub fn create_opt_cpu(rng: impl Rng, config: Config) -> Self {
         #[derive(Clone, Copy, Debug, Default)]
         struct GrothBuilder;
@@ -263,7 +253,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
 
     #[allow(clippy::result_unit_err)]
     pub fn run_regarbling_opt_cpu<CSourceProvider, CHandlerProvider>(
-        &self,
+        &mut self,
         seeds: Vec<(usize, Seed)>,
         ciphertext_sources_provider: &CSourceProvider,
         ciphertext_sink_provider: &CHandlerProvider,
@@ -303,28 +293,6 @@ impl<H: LabelCommitHasher> Evaluator<H> {
             ciphertext_sink_provider,
             DEFAULT_CAPACITY,
             GrothBuilder,
-        )
-    }
-
-    #[allow(clippy::result_unit_err)]
-    pub fn run_regarbling_multi<const N: usize, CSourceProvider, CHandlerProvider>(
-        &self,
-        seeds: Vec<(usize, Seed)>,
-        ciphertext_sources_provider: &CSourceProvider,
-        ciphertext_sink_provider: &CHandlerProvider,
-    ) -> Result<(), ()>
-    where
-        CSourceProvider: CiphertextSourceProvider + Send + Sync,
-        CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
-        CHandlerProvider::Handler: 'static,
-        <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
-    {
-        self.inner.run_regarbling_multi::<N, _, _, _>(
-            seeds,
-            ciphertext_sources_provider,
-            ciphertext_sink_provider,
-            DEFAULT_CAPACITY,
-            garbled_groth16::verify_compressed,
         )
     }
 

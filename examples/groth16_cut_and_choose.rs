@@ -371,7 +371,7 @@ fn run_evaluator(
 
     info!("Output dir: {}", out_dir.display());
 
-    eval.full_check_commit(
+    eval.run_regarbling_opt_cpu(
         open_result,
         &receivers,
         &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),

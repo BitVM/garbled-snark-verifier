@@ -562,41 +562,6 @@ where
         }
     }
 
-    pub fn create_multi<const N: usize, F>(
-        mut rng: impl Rng,
-        config: Config<I>,
-        live_capacity: usize,
-        builder: F,
-    ) -> Self
-    where
-        F: Fn(
-                &mut StreamingMode<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
-                &I::WireRepr,
-            ) -> WireId
-            + Send
-            + Sync
-            + Copy,
-        I: EncodeInput<MultigarblingMode<AesNiHasher, AESAccumulatingHashBatch<N>, N>>,
-    {
-        let seeds: Box<[Seed]> = (0..config.total).map(|_| rng.r#gen()).collect();
-
-        let instances: Vec<GarbledInstance> = super::get_optimized_pool().install(|| {
-            seeds
-                .par_chunks(N)
-                .flat_map(|chunk| {
-                    garble_multilane_chunk::<N, F, I>(chunk, live_capacity, &config.input, builder)
-                })
-                .collect()
-        });
-        Self {
-            stage: GarblerStage::Generating { seeds },
-            instances,
-            live_capacity,
-            config,
-            nonce: None,
-        }
-    }
-
     /// Produce the `Commit₁` transcript for every garbled instance (spec Step 1.2).
     pub fn commit_phase_one<HHasher>(&self) -> Vec<CommitPhaseOne<HHasher>>
     where
