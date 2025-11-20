@@ -308,7 +308,7 @@ where
                 let num_bits = chunk.count();
                 let num_labels = 2u32.pow(num_bits as u32);
                 (0..num_labels)
-                    .map(|_| vsss::Polynomial::rand(&mut rng, config.to_finalize))
+                    .map(|_| vsss::Polynomial::rand(&mut rng, config.total - config.to_finalize))
                     .collect_vec()
             })
             .collect_vec();
@@ -395,14 +395,21 @@ where
             .iter()
             .map(Polynomial::from_canonical)
             .collect_vec();
-        let share_commits = polynomials
-            .iter()
-            .map(|x| x.share_commits(&secp, self.config.total).to_canonical())
-            .collect();
-        let polynomial_commits = polynomials
-            .iter()
-            .map(|x| x.coefficient_commits(&secp).to_canonical())
-            .collect();
+
+        let (share_commits, polynomial_commits): (Vec<_>, Vec<_>) = super::get_optimized_pool()
+            .install(|| {
+                polynomials
+                    .par_iter()
+                    .map(|polynomial| {
+                        let share_commits = polynomial
+                            .share_commits(&secp, self.config.total)
+                            .to_canonical();
+                        let polynomial_commits =
+                            polynomial.coefficient_commits(&secp).to_canonical();
+                        (share_commits, polynomial_commits)
+                    })
+                    .unzip()
+            });
 
         let circuit_commits = self
             .instances

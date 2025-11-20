@@ -135,13 +135,21 @@ where
         assert_eq!(polynomial_commits.len(), expected_len);
         assert_eq!(share_commits.len(), expected_len);
 
-        for (polynomial_commits, share_commits) in
-            polynomial_commits.iter().zip(share_commits.iter())
-        {
-            share_commits
-                .verify(polynomial_commits)
-                .expect("Share commit verification failed");
-        }
+        info!("Evaluator: Starting commit verification...");
+
+        // Verifying the polynomials is computationally intensive, so we parallelize it
+        super::get_optimized_pool().install(|| {
+            polynomial_commits
+                .iter()
+                .zip(share_commits.iter())
+                .collect_vec()
+                .into_par_iter()
+                .for_each(|(polynomial_commits, share_commits)| {
+                    share_commits
+                        .verify(polynomial_commits)
+                        .expect("Share commit verification failed");
+                })
+        });
 
         assert!(
             config.to_finalize <= config.total,
@@ -149,6 +157,8 @@ where
         );
 
         assert_eq!(commits.circuit_commits.len(), config.total);
+
+        info!("Evaluator: Finished commit verification...");
 
         // Sample without replacement: shuffle 0..total and take first `to_finalize`
         let mut idxs: Vec<usize> = (0..config.total).collect();
@@ -542,17 +552,28 @@ where
         let to_finalize = &self.to_finalize;
 
         let secp = vsss::Secp256k1::new();
-        for (i, share_commits) in commits.share_commits.iter().enumerate() {
-            let shares = open_instance_data
-                .iter()
-                .map(|x| (x.index, x.shares[i].0))
-                .collect_vec();
+        info!("Evaluator: verifying share commits...");
 
-            share_commits
-                .from_canonical()
-                .verify_shares(&secp, &shares)
-                .expect("Received shares inconsistent with commits");
-        }
+        super::get_optimized_pool().install(|| {
+            commits
+                .share_commits
+                .iter()
+                .enumerate()
+                .par_bridge()
+                .for_each(|(i, share_commits)| {
+                    let shares = open_instance_data
+                        .iter()
+                        .map(|x| (x.index, x.shares[i].0))
+                        .collect_vec();
+
+                    share_commits
+                        .from_canonical()
+                        .verify_shares(&secp, &shares)
+                        .expect("Received shares inconsistent with commits");
+                })
+        });
+
+        info!("Evaluator: finished verifying share commits...");
 
         super::get_optimized_pool().install(|| {
             iter.par_bridge()
