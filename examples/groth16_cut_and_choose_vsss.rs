@@ -236,6 +236,7 @@ fn run_garbler(
         to_finalize = cfg.to_finalize(),
     );
 
+    info!("Garbler: creating instances...");
     let mut g = ccn::VsssGarbler::from_inner(VsssGarbler::create(
         &mut seed_rng,
         cfg.clone(),
@@ -243,6 +244,9 @@ fn run_garbler(
         circuit_verify,
     ));
 
+    info!("Garbler: generating commits...");
+    let commits = g.commit::<DefaultLabelCommitHasher>();
+    info!("Garbler: sending commits...");
     g2e_tx
         .send(SetupBroadcast::Commit(
             g.commit::<DefaultLabelCommitHasher>(),
@@ -250,10 +254,12 @@ fn run_garbler(
         .expect("send commits");
 
     // Step 2 — Evaluator challenges the Garbler with the finalize set.
+    info!("Garbler: waiting for FinalizeChallenge...");
     let SetupResponse::FinalizeChallenge(challenge) = e2g_rx.recv().expect("recv finalize senders");
+    info!("Garbler: received FinalizeChallenge...");
 
+    info!("Garbler: opening instances...");
     let finalize_indices = challenge.to_finalize.iter().map(|x| x.index).collect_vec();
-
     let (opened_instance_data, finalized_instance_data) = g
         .inner()
         .open_commit(challenge.to_finalize.clone(), circuit_verify);
@@ -270,6 +276,8 @@ fn run_garbler(
         .map(|x| (x.garbling_thread, (x.index, x.wide_label_lookup)))
         .unzip();
 
+    info!("Garbler: sending OpenInstances...");
+
     g2e_tx
         .send(SetupBroadcast::OpenInstances(
             opened_instance_data,
@@ -281,9 +289,11 @@ fn run_garbler(
         thread.join().unwrap();
     });
 
+    info!("Garbler: generating proof...");
     let challenge_proof =
         ArkGroth16::<Bn254>::prove(&pk, circuit, &mut ChaCha20Rng::seed_from_u64(42))
             .expect("prove");
+    info!("Garbler: finished generating proof...");
 
     // Verify the proof is valid before garbling
     let is_valid = ArkGroth16::<Bn254>::verify(&cfg.input().vk, &[public_input], &challenge_proof)
@@ -294,12 +304,15 @@ fn run_garbler(
         "Proof must be valid before garbling!"
     );
 
+    info!("Garbler: generating adaptor signatures...");
     let inputs = g
         .prepare_input_labels(vec![public_input], challenge_proof, challenge.assert_index)
         .input;
     let wide_labels = g.wide_labels_for(challenge.assert_index);
     let sigs = challenge.compute_signatures(&wide_labels, &inputs);
+    info!("Garbler: finished generating adaptor signatures...");
 
+    info!("Garbler: sending Assert...");
     g2e_tx
         .send(SetupBroadcast::Assert(sigs))
         .expect("send open instances");
@@ -317,11 +330,14 @@ fn run_evaluator(
     let finalize = cfg.to_finalize();
 
     // Step 1 — receive Commits.
+    info!("Evaluator: waiting for commits...");
     let SetupBroadcast::Commit(commits) = g2e_rx.recv().expect("recv commits") else {
         panic!("unexpected message; expected commits")
     };
+    info!("Evaluator: received commits...");
 
     // Evaluator chooses which instances to finalize with first commits
+    info!("Evaluator: setting up evaluator...");
     let mut eval: Evaluator<garbled_groth16::GarblerCompressedInput, DefaultLabelCommitHasher> =
         Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
@@ -329,7 +345,7 @@ fn run_evaluator(
     let (tx_data, receivers): (Vec<_>, Vec<_>) = finalize_indices
         .iter()
         .map(|&index| {
-            let (label_tx, label_rx) = channel::bounded(1024);
+            let (label_tx, label_rx) = channel::unbounded();
             let tx = FinalizeChallenge {
                 index,
                 ciphertext_handler: label_tx,
@@ -342,6 +358,7 @@ fn run_evaluator(
         })
         .unzip();
 
+    info!("Evaluator: setting up adaptor sigs...");
     let adaptor_sigs = {
         let dummy_sighashes = (0..commits.share_commits.len().div_ceil(256))
             .map(|i| i.to_be_bytes().to_vec())
@@ -354,6 +371,7 @@ fn run_evaluator(
         )
     };
 
+    info!("Evaluator: sending FinalizeChallenge...");
     e2g_tx
         .send(SetupResponse::FinalizeChallenge(Challenge {
             to_finalize: tx_data,
@@ -362,16 +380,19 @@ fn run_evaluator(
         }))
         .expect("send finalize challenge");
 
+    info!("Evaluator: waiting for OpenInstances...");
     let SetupBroadcast::OpenInstances(open_instance_data, wide_label_lookups) =
         g2e_rx.recv().expect("recv commits")
     else {
         panic!("unexpected message; expected commits")
     };
+    info!("Evaluator: received OpenInstances...");
 
     let out_dir = PathBuf::from("target/cut_and_choose_test_simple");
     let handler_provider =
         FileCiphertextHandlerProvider::new(out_dir.clone(), None).expect("create sink provider");
 
+    info!("Evaluator: regarbling...");
     eval.run_regarbling_vsss(
         &open_instance_data,
         &receivers,
@@ -382,10 +403,13 @@ fn run_evaluator(
     )
     .expect("regarbling ok");
 
+    info!("Evaluator: waiting for asserts...");
     let SetupBroadcast::Assert(signatures) = g2e_rx.recv().expect("recv asserts") else {
         panic!("unexpected message; expected asserts")
     };
+    info!("Evaluator: received asserts...");
 
+    info!("Evaluator: evaluating wires...");
     let inputs = adaptor_sigs
         .evaluated_wires(
             &signatures,
@@ -401,6 +425,7 @@ fn run_evaluator(
         })
         .collect();
 
+    info!("Evaluator: circuits...");
     let results = eval
         .evaluate_from(&out_dir, inputs, DEFAULT_CAPACITY, circuit_verify)
         .expect("consistency checks should pass for true inputs");
