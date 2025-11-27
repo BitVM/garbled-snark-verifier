@@ -933,7 +933,7 @@ pub fn ell_by_constant_montgomery<C: CircuitContext>(
 
     let new_c0 = Fq2::mul_constant_by_fq_montgomery(circuit, c0, py);
     let new_c1 = Fq2::mul_constant_by_fq_montgomery(circuit, c1, px);
-    Fq12::mul_by_034_constant4_montgomery(circuit, f, &new_c0, &new_c1, &c2)
+    Fq12::mul_by_034_constant4_montgomery(circuit, f, &new_c0, &new_c1, c2)
 }
 
 #[component(offcircuit_args = "q1,q2")]

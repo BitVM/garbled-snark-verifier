@@ -108,5 +108,5 @@ incremental = false
 strip = "symbols"   # if you don't need debug symbols in release
 
 [[example]]
-name = "groth16_cut_and_choose"
+name = "gsv_soldering"
 required-features = ["sp1-soldering"]

@@ -33,7 +33,6 @@ Commit(i) = {
 
 Additionally, the garbler sends a global commit - for each polynomial, the garbler sends commits to the coefficients to the evaluator.
 
-```
 
 #### Step 2 – Checking commits (part 1)
 
