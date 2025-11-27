@@ -7,9 +7,8 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::cut_and_choose::vsss::Canonical;
-
 use super::utils::neg_pos_sum_of_powers_of_two;
+use crate::cut_and_choose::vsss::Canonical;
 
 pub struct Secp256k1 {
     pub generator: BatchMulPreprocessing<Projective>,

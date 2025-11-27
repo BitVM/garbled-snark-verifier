@@ -1,8 +1,9 @@
-use crate::{EvaluatedWire, GarbledWire, S};
 use ark_ff::{BigInteger, PrimeField};
 use ark_secp256k1::Fr;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+
+use crate::{EvaluatedWire, GarbledWire, S};
 
 const TAG_LEN: usize = 16;
 
@@ -128,9 +129,8 @@ mod tests {
     use ark_ff::UniformRand;
     use rand::thread_rng;
 
-    use crate::Delta;
-
     use super::*;
+    use crate::Delta;
 
     #[test]
     fn test_garbled_wide_label_table_lookup() {

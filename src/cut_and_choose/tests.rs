@@ -322,7 +322,6 @@ fn cut_and_choose_one_bit_e2e_vsss() {
             let wide_labels = garbler
                 .wide_labels_for(idx)
                 .chunks(256)
-                .into_iter()
                 .zip(encoded.chunks(8))
                 .map(|(wide_labels, bit_vals)| {
                     let wide_label_idx = bit_vals.iter().fold(0, |acc, &val| acc * 2 + val as u8);

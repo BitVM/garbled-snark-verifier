@@ -64,7 +64,7 @@ mod dummy_circuit {
             zero_bits.extend(it.by_ref().take(i));
             match it.next() {
                 Some(wire) => {
-                    one_bits.push(wire.clone());
+                    one_bits.push(*wire);
                 }
                 None => {
                     break;
@@ -426,9 +426,6 @@ fn run_evaluator(
         .collect();
 
     info!("Evaluator: circuits...");
-    let results = eval
-        .evaluate_from(&out_dir, inputs, DEFAULT_CAPACITY, circuit_verify)
-        .expect("consistency checks should pass for true inputs");
-
-    results
+    eval.evaluate_from(&out_dir, inputs, DEFAULT_CAPACITY, circuit_verify)
+        .expect("consistency checks should pass for true inputs")
 }
