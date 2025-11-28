@@ -18,7 +18,7 @@ use super::vsss::{self, Polynomial};
 #[cfg(feature = "sp1-soldering")]
 use crate::sp1_soldering::{self, SolderingProof};
 use crate::{
-    Blake3AccumulatingHash, GarbleMode, GarbledWire, S, SwankyAesHasher, WireId,
+    AesCcrGateHasher, Blake3AccumulatingHash, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
@@ -287,7 +287,7 @@ pub type InstanceWideLabelLookup = Vec<GarbledWideLabelTable>;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "I: Serialize + serde::de::DeserializeOwned, GH: GateHasher")]
-pub struct VsssGarbler<I: CircuitInput + Clone, GH: GateHasher = SwankyAesHasher> {
+pub struct VsssGarbler<I: CircuitInput + Clone, GH: GateHasher = AesCcrGateHasher> {
     stage: GarblerStage,
     instances: Vec<GarbledInstance<GH>>,
     pub config: Config<I>,
@@ -556,7 +556,7 @@ where
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "I: Serialize + serde::de::DeserializeOwned, GH: GateHasher")]
-pub struct Garbler<I: CircuitInput + Clone, GH: GateHasher = SwankyAesHasher> {
+pub struct Garbler<I: CircuitInput + Clone, GH: GateHasher = AesCcrGateHasher> {
     stage: GarblerStage,
     instances: Vec<GarbledInstance<GH>>,
     config: Config<I>,

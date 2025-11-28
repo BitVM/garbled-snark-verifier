@@ -10,7 +10,7 @@ pub use crate::cut_and_choose::{
     CommitPhaseOne, CommitPhaseTwo, LabelCommitHasher, OpenForInstance, Seed,
 };
 use crate::{
-    EvaluatedWire, GarbledWire, S, SwankyAesHasher,
+    AesCcrGateHasher, EvaluatedWire, GarbledWire, S,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
@@ -53,7 +53,7 @@ impl VsssGarbler {
         &mut self.inner
     }
 
-    pub fn commit<HHasher>(&self) -> VsssCommit<SwankyAesHasher, HHasher>
+    pub fn commit<HHasher>(&self) -> VsssCommit<AesCcrGateHasher, HHasher>
     where
         HHasher: LabelCommitHasher,
     {
@@ -109,7 +109,7 @@ impl Garbler {
         Self { inner }
     }
 
-    pub fn commit_phase_one<HHasher>(&self) -> Vec<CommitPhaseOne<SwankyAesHasher, HHasher>>
+    pub fn commit_phase_one<HHasher>(&self) -> Vec<CommitPhaseOne<AesCcrGateHasher, HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
@@ -125,7 +125,7 @@ impl Garbler {
 
     pub fn get_commitment<HHasher: LabelCommitHasher>(
         &self,
-    ) -> Option<generic::Commitment<SwankyAesHasher, HHasher>> {
+    ) -> Option<generic::Commitment<AesCcrGateHasher, HHasher>> {
         self.inner.get_commitment::<HHasher>()
     }
 
@@ -229,7 +229,7 @@ impl Garbler {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
 pub struct Evaluator<
-    GH: GateHasher = SwankyAesHasher,
+    GH: GateHasher = AesCcrGateHasher,
     LH: LabelCommitHasher = DefaultLabelCommitHasher,
 > {
     inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, GH, LH>,

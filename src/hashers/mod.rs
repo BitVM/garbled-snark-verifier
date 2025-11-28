@@ -12,8 +12,7 @@ use crate::{S, core::s::S_SIZE};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HasherKind {
     Blake3,
-    AesNi,
-    SwankyAes,
+    Aes,
 }
 
 pub mod aes_ni;
@@ -94,58 +93,6 @@ impl GateHasher for Blake3Hasher {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct AesNiHasher;
-
-#[inline(always)]
-pub(crate) fn to_tweak(gate_id: usize) -> [u8; S_SIZE] {
-    let gate_id_u64 = gate_id as u64;
-
-    let t0 = gate_id_u64 ^ 0x1234_5678_9ABC_DEF0u64;
-    let t1 = gate_id_u64.wrapping_mul(0xDEAD_BEEF_CAFE_BABEu64);
-
-    u64_to_mask(t0, t1)
-}
-
-impl HashWithGate<2> for AesNiHasher {
-    #[inline(always)]
-    fn hash_with_gate(&self, labels: &[S; 2], gate_id: usize) -> [S; 2] {
-        let (c0, c1) = aes_ni::aes128_encrypt2_blocks_static_xor(
-            labels[0].to_bytes(),
-            labels[1].to_bytes(),
-            to_tweak(gate_id),
-        )
-        .expect("AES backend should be available (HW or software)");
-
-        [S::from_bytes(c0), S::from_bytes(c1)]
-    }
-}
-
-impl HashWithGate<1> for AesNiHasher {
-    #[inline(always)]
-    fn hash_with_gate(&self, label: &[S; 1], gate_id: usize) -> [S; 1] {
-        let c = aes_ni::aes128_encrypt_block_static_xor(label[0].to_bytes(), to_tweak(gate_id))
-            .expect("AES backend should be available (HW or software)");
-        [S::from_bytes(c)]
-    }
-}
-
-impl GateHasher for AesNiHasher {
-    type Seed = ();
-
-    fn from_rng<R: Rng>(_rng: &mut R) -> Self {
-        Self
-    }
-
-    fn from_seed(_seed: Self::Seed) -> Self {
-        Self
-    }
-
-    fn seed(&self) -> &Self::Seed {
-        &()
-    }
-}
-
 /// Single-AES hasher
 /// 1-AES circular correlation-robust hash from Guo–Katz–Wang–Yu (ePrint 2019/074, Section 7.3, Theorem 5) combined with
 /// the half-gates salt construction from their Section 5 / Theorem 3:
@@ -155,7 +102,7 @@ impl GateHasher for AesNiHasher {
 /// where `perm(x_L || x_R) = (x_L ⊕ x_R) || x_L`. The salt `S` is public and
 /// must be set once via [`set_garbling_salt`] before hashing.
 #[derive(Clone, Debug)]
-pub struct SwankyAesHasher {
+pub struct AesCcrGateHasher {
     pub salt: S,
 }
 
@@ -186,7 +133,7 @@ fn hash_label_with_gate(salt: S, label: S, gate_id: usize) -> S {
     S::from_le_bytes(c) ^ &p
 }
 
-impl HashWithGate<2> for SwankyAesHasher {
+impl HashWithGate<2> for AesCcrGateHasher {
     #[inline(always)]
     fn hash_with_gate(&self, labels: &[S; 2], gate_id: usize) -> [S; 2] {
         let tweak = S::from_u128(gate_id as u128);
@@ -207,21 +154,21 @@ impl HashWithGate<2> for SwankyAesHasher {
     }
 }
 
-impl HashWithGate<1> for SwankyAesHasher {
+impl HashWithGate<1> for AesCcrGateHasher {
     #[inline(always)]
     fn hash_with_gate(&self, label: &[S; 1], gate_id: usize) -> [S; 1] {
         [hash_label_with_gate(self.salt, label[0], gate_id)]
     }
 }
 
-impl SwankyAesHasher {
+impl AesCcrGateHasher {
     /// Create a new SwankyAesHasher with the given salt.
     pub fn new(salt: S) -> Self {
         Self { salt }
     }
 }
 
-impl GateHasher for SwankyAesHasher {
+impl GateHasher for AesCcrGateHasher {
     type Seed = S;
 
     fn from_rng<R: Rng>(rng: &mut R) -> Self {
@@ -237,13 +184,4 @@ impl GateHasher for SwankyAesHasher {
     fn seed(&self) -> &Self::Seed {
         &self.salt
     }
-}
-
-#[inline(always)]
-fn u64_to_mask(t0: u64, t1: u64) -> [u8; S_SIZE] {
-    // Build mask in the same lane order as _mm_set_epi64x(t1, t0)
-    let mut m = [0u8; S_SIZE];
-    m[..8].copy_from_slice(&t0.to_le_bytes());
-    m[8..].copy_from_slice(&t1.to_le_bytes());
-    m
 }

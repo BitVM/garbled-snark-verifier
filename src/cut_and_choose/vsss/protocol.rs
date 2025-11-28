@@ -13,7 +13,7 @@ use super::{
     types::{Canonical, transpose},
 };
 use crate::{
-    AesNiHasher, CommitPhaseOne, EvaluatedWire, LabelCommitHasher, S, WireId,
+    CommitPhaseOne, EvaluatedWire, LabelCommitHasher, S, WireId,
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
     cut_and_choose::{GarbledWideLabelTable, InstanceWideLabelLookup, Seed},
     hashers::{DefaultLabelCommitHasher, GateHasher},
@@ -39,11 +39,17 @@ pub struct Challenge<CTH: 'static + Send + CiphertextHandler> {
 }
 
 impl<CTH: 'static + Send + CiphertextHandler> Challenge<CTH> {
-    pub fn compute_signatures<T>(&self, wide_labels: &[Fr], val: &T) -> Vec<SignatureBytes>
+    pub fn compute_signatures<GH, T>(
+        &self,
+        wide_labels: &[Fr],
+        val: &T,
+        seed: GH::Seed,
+    ) -> Vec<SignatureBytes>
     where
-        T: EncodeInput<EvaluateMode<AesNiHasher, ciphertext_source::DummySource>>,
+        GH: GateHasher,
+        T: EncodeInput<EvaluateMode<GH, ciphertext_source::DummySource>>,
     {
-        let wire_values = encode_input(val);
+        let wire_values = encode_input::<GH, T>(val, seed);
 
         wide_labels
             .chunks(256)
@@ -71,18 +77,20 @@ pub struct VsssStreamReceivers {
 }
 
 // A hacky way to get the binary representation of an input
-pub fn encode_input<T>(val: &T) -> Vec<bool>
+pub fn encode_input<GH, T>(val: &T, seed: GH::Seed) -> Vec<bool>
 where
-    T: EncodeInput<EvaluateMode<AesNiHasher, ciphertext_source::DummySource>>,
+    GH: GateHasher,
+    T: EncodeInput<EvaluateMode<GH, ciphertext_source::DummySource>>,
 {
-    // EvaluateMode<AesNiHasher, SRC>{}
-    let mut dummy_evaluate_mode = EvaluateMode::<AesNiHasher, ciphertext_source::DummySource>::new(
-        AesNiHasher,
+    let gate_hasher = GH::from_seed(seed);
+    let mut dummy_evaluate_mode = EvaluateMode::<GH, ciphertext_source::DummySource>::new(
+        gate_hasher,
         0,
         S::ZERO,
         S::ZERO,
         ciphertext_source::DummySource,
     );
+
     let mut x = WireId::MIN.0;
     let allocated = val.allocate(|| {
         dummy_evaluate_mode.allocate_wire(1);

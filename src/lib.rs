@@ -17,15 +17,14 @@ pub use crate::circuit::modes::EvaluatedWire;
 pub use crate::circuit::modes::GarbledWire;
 // Root-level hasher exports
 pub use crate::hashers::{
+    AesCcrGateHasher,
     AesLabelCommitHasher,
-    AesNiHasher,
     Blake3Hasher,
     GateHasher,
     HasherKind,
     // Label commit hashers for cut-and-choose
     LabelCommitHasher,
     Sha256LabelCommitHasher,
-    SwankyAesHasher,
     commit_label_with,
 };
 pub type DefaultHasher = crate::hashers::Blake3Hasher;

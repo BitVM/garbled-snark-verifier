@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::*;
 use crate::{
-    EvaluatedWire, GarbleMode, GarbledWire, Gate, S, WireId, ark,
+    AesCcrGateHasher, EvaluatedWire, GarbleMode, GarbledWire, Gate, S, WireId, ark,
     circuit::{
         CiphertextHandler, CircuitContext, EncodeInput, EvaluateMode, FALSE_WIRE, TRUE_WIRE,
         ciphertext_source, modes::CircuitMode,
@@ -245,6 +245,7 @@ fn cut_and_choose_one_bit_e2e_vsss() {
 
     // First phase: commit without nonce
     let commits = garbler.commit::<DefaultLabelCommitHasher>();
+    let circuit_commits = commits.circuit_commits.clone();
 
     // Evaluator chooses which instances to finalize with first commits
     let cfg_e = Config::new(total, finalize, OneBitGarblerInput);
@@ -315,8 +316,9 @@ fn cut_and_choose_one_bit_e2e_vsss() {
                 label: S::ZERO,
             };
 
-            // garbler encodes it
-            let encoded = encode_input(&input);
+            // garbler encodes it (using gate hasher seed from the commit for this instance)
+            let gate_hasher_seed = circuit_commits[idx].gate_hasher_seed();
+            let encoded = encode_input::<AesCcrGateHasher, _>(&input, *gate_hasher_seed);
 
             // translate input labels to wide labels
             let wide_labels = garbler

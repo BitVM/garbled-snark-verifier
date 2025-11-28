@@ -137,10 +137,7 @@ mod tests {
     use std::array;
 
     use super::{degarble_gate, garble_gate};
-    use crate::{
-        AesNiHasher, Blake3Hasher, Delta, GateHasher, GateType, S, SwankyAesHasher,
-        test_utils::trng,
-    };
+    use crate::{AesCcrGateHasher, Blake3Hasher, Delta, GateHasher, GateType, S, test_utils::trng};
 
     const GATE_ID: usize = 0;
 
@@ -239,21 +236,12 @@ mod tests {
                     }
                 )*
             }
-            mod aesni {
+            mod aes {
                 use super::*;
                 $(
                     #[test]
                     fn $test_name() {
-                        garble_consistency::<AesNiHasher>(GateType::$gate_type);
-                    }
-                )*
-            }
-            mod swankyaes {
-                use super::*;
-                $(
-                    #[test]
-                    fn $test_name() {
-                        garble_consistency::<SwankyAesHasher>(GateType::$gate_type);
+                        garble_consistency::<AesCcrGateHasher>(GateType::$gate_type);
                     }
                 )*
             }
@@ -305,25 +293,25 @@ mod tests {
         ($gt:ident, $name:ident) => {
             #[test]
             fn $name() {
-                garble_batch_consistency::<SwankyAesHasher, 1>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 2>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 3>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 4>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 5>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 6>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 7>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 8>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 9>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 10>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 11>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 12>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 13>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 14>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 15>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 16>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 17>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 18>(GateType::$gt);
-                garble_batch_consistency::<SwankyAesHasher, 19>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 1>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 2>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 3>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 4>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 5>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 6>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 7>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 8>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 9>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 10>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 11>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 12>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 13>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 14>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 15>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 16>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 17>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 18>(GateType::$gt);
+                garble_batch_consistency::<AesCcrGateHasher, 19>(GateType::$gt);
             }
         };
     }

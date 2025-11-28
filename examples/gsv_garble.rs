@@ -15,7 +15,7 @@ use garbled_snark_verifier::{
         modes::{EvaluateMode, GarbleMode},
     },
     garbled_groth16,
-    hashers::{Blake3Hasher, GateHasher, SwankyAesHasher},
+    hashers::{AesCcrGateHasher, Blake3Hasher, GateHasher},
     test_utils::DummyCircuit,
 };
 use rand::{Rng, SeedableRng};
@@ -265,7 +265,7 @@ fn main() {
         }
         Some("swankyaes") | None => {
             info!("Using Swanky AES hasher");
-            run_with_hasher::<SwankyAesHasher>(garbling_seed);
+            run_with_hasher::<AesCcrGateHasher>(garbling_seed);
         }
         Some(other) => {
             panic!(

@@ -37,13 +37,13 @@ const STREAM_BOUND_CIPHERTEXTS: usize = (1 << 30) / 16; // cap in-flight ciphert
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
 use garbled_snark_verifier::hashers::{
-    Sha256LabelCommitHasher as ExampleLabelHasher, SwankyAesHasher,
+    AesCcrGateHasher, Sha256LabelCommitHasher as ExampleLabelHasher,
 };
 
 /// Messages emitted by the Garbler during Setup (spec Steps 1–4).
 enum SetupBroadcast {
     /// Step 1.2 — `Commit₁(i)` for every instance (ciphertext hash, inputs, outputs, constants).
-    Commit1(Vec<CommitPhaseOne<SwankyAesHasher, ExampleLabelHasher>>),
+    Commit1(Vec<CommitPhaseOne<AesCcrGateHasher, ExampleLabelHasher>>),
     /// Step 1.4 — `Commit₂(i)` records with nonce-injected input commitments.
     Commit2(Vec<CommitPhaseTwo<ExampleLabelHasher>>),
     /// Step 3 — seeds for all challenge instances (open set).
@@ -289,7 +289,7 @@ fn run_evaluator(
         panic!("unexpected message; expected commits")
     };
 
-    let mut eval = ccn::Evaluator::<SwankyAesHasher, ExampleLabelHasher>::create(
+    let mut eval = ccn::Evaluator::<AesCcrGateHasher, ExampleLabelHasher>::create(
         &mut rng,
         cfg.clone(),
         commits,

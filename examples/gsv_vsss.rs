@@ -20,7 +20,7 @@ use garbled_snark_verifier::{
     },
     garbled_groth16::{self, EvaluatorCompressedInput},
     groth16_cut_and_choose::{self as ccn, DEFAULT_CAPACITY},
-    hashers::{DefaultLabelCommitHasher, SwankyAesHasher},
+    hashers::{AesCcrGateHasher, DefaultLabelCommitHasher},
     test_utils::DummyCircuit,
 };
 use itertools::Itertools;
@@ -153,7 +153,7 @@ fn main() {
     );
 
     let (g2e_tx, g2e_rx) =
-        channel::unbounded::<SetupBroadcast<SwankyAesHasher, DefaultLabelCommitHasher>>();
+        channel::unbounded::<SetupBroadcast<AesCcrGateHasher, DefaultLabelCommitHasher>>();
     let (e2g_tx, e2g_rx) = channel::unbounded::<SetupResponse<CiphertextSender>>();
 
     let garbler_cfg = ccn::Config::new(total, finalize, g_input.clone());
@@ -189,7 +189,7 @@ fn run_garbler(
     pk: ArkProvingKey<Bn254>,
     circuit: DummyCircuit<ark::Fr>,
     public_input: ark::Fr,
-    g2e_tx: channel::Sender<SetupBroadcast<SwankyAesHasher, DefaultLabelCommitHasher>>,
+    g2e_tx: channel::Sender<SetupBroadcast<AesCcrGateHasher, DefaultLabelCommitHasher>>,
     e2g_rx: channel::Receiver<SetupResponse<CiphertextSender>>,
 ) {
     let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
@@ -210,11 +210,10 @@ fn run_garbler(
 
     info!("Garbler: generating commits...");
     let commits = g.commit::<DefaultLabelCommitHasher>();
+    let circuit_commits = commits.circuit_commits.clone();
     info!("Garbler: sending commits...");
     g2e_tx
-        .send(SetupBroadcast::Commit(
-            g.commit::<DefaultLabelCommitHasher>(),
-        ))
+        .send(SetupBroadcast::Commit(commits))
         .expect("send commits");
 
     // Step 2 — Evaluator challenges the Garbler with the finalize set.
@@ -273,7 +272,12 @@ fn run_garbler(
         .prepare_input_labels(vec![public_input], challenge_proof, challenge.assert_index)
         .input;
     let wide_labels = g.wide_labels_for(challenge.assert_index);
-    let sigs = challenge.compute_signatures(&wide_labels, &inputs);
+    let gate_hasher_seed = circuit_commits[challenge.assert_index].gate_hasher_seed();
+    let sigs = challenge.compute_signatures::<AesCcrGateHasher, _>(
+        &wide_labels,
+        &inputs,
+        *gate_hasher_seed,
+    );
     info!("Garbler: finished generating adaptor signatures...");
 
     info!("Garbler: sending Assert...");
@@ -286,7 +290,7 @@ fn run_garbler(
 fn run_evaluator(
     cfg: ccn::Config,
     out_dir: PathBuf,
-    g2e_rx: channel::Receiver<SetupBroadcast<SwankyAesHasher, DefaultLabelCommitHasher>>,
+    g2e_rx: channel::Receiver<SetupBroadcast<AesCcrGateHasher, DefaultLabelCommitHasher>>,
     e2g_tx: channel::Sender<SetupResponse<CiphertextSender>>,
 ) -> Vec<(usize, EvaluatedWire)> {
     let mut rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
@@ -304,7 +308,7 @@ fn run_evaluator(
     info!("Evaluator: setting up evaluator...");
     let mut eval: Evaluator<
         garbled_groth16::GarblerCompressedInput,
-        SwankyAesHasher,
+        AesCcrGateHasher,
         DefaultLabelCommitHasher,
     > = Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();

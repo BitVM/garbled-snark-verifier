@@ -16,7 +16,7 @@ use super::{
     vsss::{self, PolynomialCommits, ShareCommits},
 };
 use crate::{
-    Blake3AccumulatingHash, EvaluatedWire, GarbleMode, GarbledWire, S, SwankyAesHasher, WireId,
+    AesCcrGateHasher, Blake3AccumulatingHash, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
@@ -81,7 +81,7 @@ impl<GH: GateHasher, LH: LabelCommitHasher> Stage<GH, LH> {
 #[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
 pub struct Evaluator<
     I: CircuitInput + Clone + Serialize + DeserializeOwned,
-    GH: GateHasher = SwankyAesHasher,
+    GH: GateHasher = AesCcrGateHasher,
     LH: LabelCommitHasher = DefaultLabelCommitHasher,
 > {
     config: Config<I>,

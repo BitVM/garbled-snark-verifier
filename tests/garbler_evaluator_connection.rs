@@ -11,7 +11,7 @@ use garbled_snark_verifier::{
         modes::{EvaluateMode, GarbleMode},
     },
     garbled_groth16,
-    hashers::{Blake3Hasher, GateHasher, SwankyAesHasher},
+    hashers::{AesCcrGateHasher, Blake3Hasher, GateHasher},
 };
 use rand::{Rng, SeedableRng};
 use rand_chacha::{ChaCha20Rng, ChaChaRng};
@@ -167,7 +167,7 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
 fn test_garbler_evaluator_connection_swankyaes() {
     garbled_snark_verifier::init_tracing();
     let garbling_seed: u64 = rand::thread_rng().r#gen();
-    run_garbler_evaluator_test::<SwankyAesHasher>(garbling_seed);
+    run_garbler_evaluator_test::<AesCcrGateHasher>(garbling_seed);
 }
 
 #[test]

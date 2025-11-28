@@ -7,7 +7,7 @@ use garbled_snark_verifier::{
     ciphertext_hasher::HASH_OUTPUT_SIZE,
     circuit::{CircuitBuilder, StreamingResult},
     garbled_groth16,
-    hashers::SwankyAesHasher,
+    hashers::AesCcrGateHasher,
     test_utils::DummyCircuit,
 };
 use rand::SeedableRng;
@@ -42,7 +42,7 @@ fn multigarble_vs_sequential_equivalence() {
     let multi = CircuitBuilder::run_streaming::<_, _, Vec<_>>(
         inputs.clone(),
         garbled_snark_verifier::circuit::modes::MultigarblingMode::<
-            SwankyAesHasher,
+            AesCcrGateHasher,
             Blake3AccumulatingHashBatch<N>,
             N,
         >::new(cap, seeds, Blake3AccumulatingHashBatch::<N>::default()),
@@ -56,14 +56,14 @@ fn multigarble_vs_sequential_equivalence() {
     for &seed in seeds.iter() {
         let seq: StreamingResult<
             garbled_snark_verifier::circuit::modes::GarbleMode<
-                SwankyAesHasher,
+                AesCcrGateHasher,
                 Blake3AccumulatingHash,
             >,
             _,
             garbled_snark_verifier::GarbledWire,
         > = CircuitBuilder::<
             garbled_snark_verifier::circuit::modes::GarbleMode<
-                SwankyAesHasher,
+                AesCcrGateHasher,
                 Blake3AccumulatingHash,
             >,
         >::streaming_garbling(
