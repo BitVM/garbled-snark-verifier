@@ -102,9 +102,11 @@ impl HashWithGate<1> for AesNiHasher {
 pub struct SwankyAesHasher;
 
 #[inline(always)]
-fn swanky_gate_prf(label: S, gate_id: usize, domain: u8) -> S {
-    // Domain-separate half-gates by appending the domain byte to the tweak.
-    let tweak = ((gate_id as u128) << 8) | domain as u128;
+fn swanky_gate_prf(label: S, gate_id: usize) -> S {
+    // Keep the tweak identical for both HashWithGate<1> and HashWithGate<2> so that
+    // the evaluator recomputes the same value the garbler used, mirroring the AES
+    // hasher semantics.
+    let tweak = gate_id as u128;
     let block = Block::from_array(label.to_bytes());
     let hashed = TweakableCircularCorrelationRobustHash::fixed_key().hash(block, tweak);
 
@@ -118,8 +120,8 @@ impl HashWithGate<2> for SwankyAesHasher {
     #[inline(always)]
     fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
         [
-            swanky_gate_prf(labels[0], gate_id, 0),
-            swanky_gate_prf(labels[1], gate_id, 1),
+            swanky_gate_prf(labels[0], gate_id),
+            swanky_gate_prf(labels[1], gate_id),
         ]
     }
 }
@@ -127,7 +129,7 @@ impl HashWithGate<2> for SwankyAesHasher {
 impl HashWithGate<1> for SwankyAesHasher {
     #[inline(always)]
     fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
-        [swanky_gate_prf(label[0], gate_id, 0)]
+        [swanky_gate_prf(label[0], gate_id)]
     }
 }
 
