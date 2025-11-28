@@ -151,7 +151,7 @@ where
         maybe_log_progress("garbled", gate_id);
 
         let (c_base, ciphertext): ([S; N], Option<[S; N]>) =
-            halfgates_garbling::garble_gate_batch::<N>(
+            halfgates_garbling::garble_gate_batch::<H, N>(
                 gate.gate_type,
                 a_label0s,
                 b_label0s,

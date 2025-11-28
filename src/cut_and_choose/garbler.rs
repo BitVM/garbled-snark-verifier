@@ -18,7 +18,7 @@ use super::vsss::{self, Polynomial};
 #[cfg(feature = "sp1-soldering")]
 use crate::sp1_soldering::{self, SolderingProof};
 use crate::{
-    AesNiHasher, Blake3AccumulatingHash, GarbleMode, GarbledWire, S, WireId,
+    Blake3AccumulatingHash, GarbleMode, GarbledWire, S, SwankyAesHasher, WireId,
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
@@ -55,11 +55,11 @@ pub struct GarbledInstance {
 }
 
 impl<I: CircuitInput>
-    From<StreamingResult<GarbleMode<AesNiHasher, Blake3AccumulatingHash>, I, GarbledWire>>
+    From<StreamingResult<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>, I, GarbledWire>>
     for GarbledInstance
 {
     fn from(
-        res: StreamingResult<GarbleMode<AesNiHasher, Blake3AccumulatingHash>, I, GarbledWire>,
+        res: StreamingResult<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>, I, GarbledWire>,
     ) -> Self {
         GarbledInstance {
             false_wire_constant: res.false_wire_constant,
@@ -279,7 +279,7 @@ where
         + Clone
         + Send
         + Sync
-        + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+        + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send,
     I: 'static,
 {
@@ -287,7 +287,7 @@ where
     pub fn create<F>(mut rng: impl Rng, config: Config<I>, live_capacity: usize, builder: F) -> Self
     where
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -348,7 +348,7 @@ where
                     info!("Starting garbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
+                        GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -437,11 +437,11 @@ where
     ) -> (Vec<OpenVsssInstance>, Vec<FinalizedVsssInstance>)
     where
         F: 'static
-            + Fn(&mut StreamingMode<GarbleMode<AesNiHasher, CTH>>, &I::WireRepr) -> WireId
+            + Fn(&mut StreamingMode<GarbleMode<SwankyAesHasher, CTH>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
-        I: EncodeInput<GarbleMode<AesNiHasher, CTH>>,
+        I: EncodeInput<GarbleMode<SwankyAesHasher, CTH>>,
     {
         let seeds = self
             .stage
@@ -481,7 +481,7 @@ where
                         info!("Starting");
 
                         let _: StreamingResult<_, I, GarbledWire> =
-                            CircuitBuilder::<GarbleMode<AesNiHasher, _>>::streaming_garbling(
+                            CircuitBuilder::<GarbleMode<SwankyAesHasher, _>>::streaming_garbling(
                                 inputs,
                                 live_capacity,
                                 garbling_seed,
@@ -545,7 +545,7 @@ where
         + Clone
         + Send
         + Sync
-        + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+        + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send,
     I: 'static,
 {
@@ -553,7 +553,7 @@ where
     pub fn create<F>(mut rng: impl Rng, config: Config<I>, live_capacity: usize, builder: F) -> Self
     where
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -579,7 +579,7 @@ where
                     info!("Starting garbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
+                        GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -704,11 +704,11 @@ where
     ) -> Vec<OpenForInstance>
     where
         F: 'static
-            + Fn(&mut StreamingMode<GarbleMode<AesNiHasher, CTH>>, &I::WireRepr) -> WireId
+            + Fn(&mut StreamingMode<GarbleMode<SwankyAesHasher, CTH>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
-        I: EncodeInput<GarbleMode<AesNiHasher, CTH>>,
+        I: EncodeInput<GarbleMode<SwankyAesHasher, CTH>>,
     {
         let seeds = self
             .stage
@@ -739,7 +739,7 @@ where
                         info!("Starting");
 
                         let _: StreamingResult<_, I, GarbledWire> =
-                            CircuitBuilder::<GarbleMode<AesNiHasher, _>>::streaming_garbling(
+                            CircuitBuilder::<GarbleMode<SwankyAesHasher, _>>::streaming_garbling(
                                 inputs,
                                 live_capacity,
                                 garbling_seed,

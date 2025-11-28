@@ -2,12 +2,16 @@
 //! These mirror the previous implementations under core::gate::garbling::hashers
 //! without functional changes.
 
+use swanky_aes_hash::TweakableCircularCorrelationRobustHash;
+use swanky_block::Block;
+
 use crate::{S, core::s::S_SIZE};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HasherKind {
     Blake3,
     AesNi,
+    SwankyAes,
 }
 
 pub mod aes_ni;
@@ -90,6 +94,40 @@ impl HashWithGate<1> for AesNiHasher {
         let c = aes_ni::aes128_encrypt_block_static_xor(label[0].to_bytes(), to_tweak(gate_id))
             .expect("AES backend should be available (HW or software)");
         [S::from_bytes(c)]
+    }
+}
+
+/// Double-AES hasher backed by swanky-aes-hash's correlation-robust PRF.
+#[derive(Clone, Debug, Default)]
+pub struct SwankyAesHasher;
+
+#[inline(always)]
+fn swanky_gate_prf(label: S, gate_id: usize, domain: u8) -> S {
+    // Domain-separate half-gates by appending the domain byte to the tweak.
+    let tweak = ((gate_id as u128) << 8) | domain as u128;
+    let block = Block::from_array(label.to_bytes());
+    let hashed = TweakableCircularCorrelationRobustHash::fixed_key().hash(block, tweak);
+
+    // vectoreyes::U8x16 is a 16-byte block; transmute to a byte array.
+    const _: [u8; S_SIZE] = [0u8; core::mem::size_of::<Block>()];
+    let out: [u8; S_SIZE] = unsafe { core::mem::transmute(hashed) };
+    S::from_bytes(out)
+}
+
+impl HashWithGate<2> for SwankyAesHasher {
+    #[inline(always)]
+    fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
+        [
+            swanky_gate_prf(labels[0], gate_id, 0),
+            swanky_gate_prf(labels[1], gate_id, 1),
+        ]
+    }
+}
+
+impl HashWithGate<1> for SwankyAesHasher {
+    #[inline(always)]
+    fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
+        [swanky_gate_prf(label[0], gate_id, 0)]
     }
 }
 

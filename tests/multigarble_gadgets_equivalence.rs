@@ -12,7 +12,7 @@ use garbled_snark_verifier::{
         bigint::{self, BigIntWires, BigUint},
         bn254::fq::Fq,
     },
-    hashers::AesNiHasher,
+    hashers::SwankyAesHasher,
 };
 
 const CAP_SMALL: usize = 50_000;
@@ -31,7 +31,7 @@ macro_rules! equiv {
             let seeds = seeds_for::<N>($seed);
             let multi = CircuitBuilder::run_streaming::<_, _, Vec<_>>(
                 inputs.clone(),
-                MultigarblingMode::<AesNiHasher, Blake3AccumulatingHashBatch<N>, N>::new(
+                MultigarblingMode::<SwankyAesHasher, Blake3AccumulatingHashBatch<N>, N>::new(
                     $cap,
                     seeds,
                     Blake3AccumulatingHashBatch::<N>::default(),
@@ -45,7 +45,7 @@ macro_rules! equiv {
             let mut seq_hashes: Vec<[u8; HASH_OUTPUT_SIZE]> = Vec::with_capacity(N);
             for i in 0..N {
                 let seq: StreamingResult<
-                    GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
+                    GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
                     _,
                     Vec<GarbledWire>,
                 > = CircuitBuilder::<GarbleMode<_, _>>::streaming_garbling(

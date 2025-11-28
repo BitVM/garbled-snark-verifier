@@ -1,8 +1,8 @@
 // An example that creates a Groth16 proof (BN254),
 // then garbles the verification circuit using the new streaming garble mode.
 // Run with:
-//   Default (AES): `RUST_LOG=info cargo run --example groth16_garble --release`
-//   Blake3:        `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3`
+//   Default (Swanky AES): `RUST_LOG=info cargo run --example groth16_garble --release`
+//   Blake3:               `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3`
 
 use std::{env, fmt::Write as _, thread, time::Instant};
 
@@ -15,7 +15,7 @@ use garbled_snark_verifier::{
         modes::{EvaluateMode, GarbleMode},
     },
     garbled_groth16,
-    hashers::{AesNiHasher, Blake3Hasher, GateHasher},
+    hashers::{Blake3Hasher, GateHasher, SwankyAesHasher},
     test_utils::DummyCircuit,
 };
 use rand::{Rng, SeedableRng};
@@ -236,7 +236,7 @@ fn main() {
 
     let garbling_seed: u64 = rand::thread_rng().r#gen();
 
-    // Simple parser for `--hasher <name>` or `--hasher=<name>`; defaults to AES
+    // Simple parser for `--hasher <name>` or `--hasher=<name>`; defaults to Swanky AES
     let mut hasher_choice: Option<String> = None;
     let mut args = env::args().skip(1); // skip binary name
     while let Some(arg) = args.next() {
@@ -256,15 +256,13 @@ fn main() {
             info!("Using Blake3 hasher");
             run_with_hasher::<Blake3Hasher>(garbling_seed);
         }
-        Some("aes") | None => {
-            // Warn if hardware AES is not available or not used by this build
-            garbled_snark_verifier::warn_if_software_aes();
-            info!("Using AES-NI hasher (or software fallback)");
-            run_with_hasher::<AesNiHasher>(garbling_seed);
+        Some("swankyaes") | None => {
+            info!("Using Swanky AES hasher");
+            run_with_hasher::<SwankyAesHasher>(garbling_seed);
         }
         Some(other) => {
             panic!(
-                "Unknown hasher '{}'. Supported: aes, blake3. Defaulting to aes.",
+                "Unknown hasher '{}'. Supported: aes/swankyaes, blake3. Defaulting to aes.",
                 other
             );
         }

@@ -56,6 +56,8 @@ thiserror = "2.0.12"
 tracing = { version = "0.1.41", features = ["attributes", "std"] }
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "registry"] }
+swanky-aes-hash = { git = "https://github.com/GaloisInc/swanky", package = "swanky-aes-hash" }
+swanky-block = { git = "https://github.com/GaloisInc/swanky", package = "swanky-block" }
 
 bitcoin = { version = "0.32.7", features = ["rand", "rand-std"] }
 hex = "0.4.3"

@@ -25,6 +25,7 @@ pub use crate::hashers::{
     // Label commit hashers for cut-and-choose
     LabelCommitHasher,
     Sha256LabelCommitHasher,
+    SwankyAesHasher,
     commit_label_with,
 };
 pub type DefaultHasher = crate::hashers::Blake3Hasher;

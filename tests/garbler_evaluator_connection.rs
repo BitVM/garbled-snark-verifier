@@ -11,7 +11,7 @@ use garbled_snark_verifier::{
         modes::{EvaluateMode, GarbleMode},
     },
     garbled_groth16,
-    hashers::{AesNiHasher, Blake3Hasher, GateHasher},
+    hashers::{Blake3Hasher, GateHasher, SwankyAesHasher},
 };
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -87,7 +87,7 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
     let (ciphertext_sender, ciphertext_receiver) = crossbeam::channel::unbounded();
 
     let mut preallocated_wires =
-        GarbleMode::<AesNiHasher, ()>::preallocate_input(garbling_seed, &inputs_for_initial);
+        GarbleMode::<H, ()>::preallocate_input(garbling_seed, &inputs_for_initial);
     let false_wire = preallocated_wires.remove(0);
     let true_wire = preallocated_wires.remove(0);
 
@@ -157,10 +157,10 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
 
 #[test]
 #[ignore]
-fn test_garbler_evaluator_connection_aes() {
+fn test_garbler_evaluator_connection_swankyaes() {
     garbled_snark_verifier::init_tracing();
     let garbling_seed: u64 = rand::thread_rng().r#gen();
-    run_garbler_evaluator_test::<AesNiHasher>(garbling_seed);
+    run_garbler_evaluator_test::<SwankyAesHasher>(garbling_seed);
 }
 
 #[test]

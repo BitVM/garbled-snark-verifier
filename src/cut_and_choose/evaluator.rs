@@ -16,7 +16,7 @@ use super::{
     vsss::{self, PolynomialCommits, ShareCommits},
 };
 use crate::{
-    AesNiHasher, Blake3AccumulatingHash, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
+    Blake3AccumulatingHash, EvaluatedWire, GarbleMode, GarbledWire, S, SwankyAesHasher, WireId,
     circuit::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
@@ -99,7 +99,7 @@ where
         + Clone
         + Send
         + Sync
-        + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+        + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send + Sync,
     I: Serialize + DeserializeOwned,
     H: LabelCommitHasher,
@@ -303,7 +303,7 @@ where
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -375,7 +375,7 @@ where
                         info!("Starting regarbling of circuit (cut-and-choose)");
 
                         let res: StreamingResult<
-                            GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
+                            GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
                             I,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
@@ -431,7 +431,7 @@ where
     ) -> Result<(), ()>
     where
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -476,7 +476,7 @@ where
                     info!("Starting regarbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
+                        GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -532,7 +532,7 @@ where
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -636,7 +636,7 @@ where
                         info!("Starting regarbling of circuit (cut-and-choose)");
 
                         let res: StreamingResult<
-                            GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
+                            GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
                             I,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
@@ -735,7 +735,7 @@ mod test_utils {
             + Clone
             + Send
             + Sync
-            + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>
+            + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>
             + Serialize
             + DeserializeOwned,
         <I as CircuitInput>::WireRepr: Send + Sync,
@@ -931,8 +931,11 @@ where
     where
         CR: 'static + CiphertextSourceProvider + Sync,
         <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
-        E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>>,
-        F: Fn(&mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>, &E::WireRepr) -> WireId
+        E: CircuitInput + Send + EncodeInput<EvaluateMode<SwankyAesHasher, CR::Source>>,
+        F: Fn(
+                &mut StreamingMode<EvaluateMode<SwankyAesHasher, CR::Source>>,
+                &E::WireRepr,
+            ) -> WireId
             + Send
             + Sync
             + Copy,
@@ -961,7 +964,7 @@ where
 
                     let _span = tracing::info_span!("evaluate", instance = index).entered();
 
-                    let result = CircuitBuilder::<EvaluateMode<AesNiHasher, CR::Source>>::streaming_evaluation::<
+                    let result = CircuitBuilder::<EvaluateMode<SwankyAesHasher, CR::Source>>::streaming_evaluation::<
                         _,
                         _,
                         EvaluatedWire,
@@ -1384,10 +1387,16 @@ where
         builder: F,
     ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<Sha256LabelCommitHasher>>
     where
-        E: CircuitInput + Send + EncodeInput<EvaluateMode<AesNiHasher, CR::Source>> + SolderInput,
+        E: CircuitInput
+            + Send
+            + EncodeInput<EvaluateMode<SwankyAesHasher, CR::Source>>
+            + SolderInput,
         CR: 'static + CiphertextSourceProvider + Send + Sync,
         <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
-        F: Fn(&mut StreamingMode<EvaluateMode<AesNiHasher, CR::Source>>, &E::WireRepr) -> WireId
+        F: Fn(
+                &mut StreamingMode<EvaluateMode<SwankyAesHasher, CR::Source>>,
+                &E::WireRepr,
+            ) -> WireId
             + Send
             + Sync
             + Copy,

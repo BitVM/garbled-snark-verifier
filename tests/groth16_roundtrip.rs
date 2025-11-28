@@ -8,7 +8,7 @@ use garbled_snark_verifier::{
     ark::SNARK,
     circuit::modes::GarbleMode,
     garbled_groth16::{EvaluatorCompressedInput, GarblerInput},
-    hashers::AesNiHasher,
+    hashers::SwankyAesHasher,
     test_utils::dummy_vk_with_public_inputs,
 };
 
@@ -50,7 +50,7 @@ fn test_evaluator_compressed_input_roundtrip() {
     }
     .compress();
 
-    let mut garbled_wires = GarbleMode::<AesNiHasher, ()>::preallocate_input(42, &inputs);
+    let mut garbled_wires = GarbleMode::<SwankyAesHasher, ()>::preallocate_input(42, &inputs);
     garbled_wires.remove(0); // Remove FALSE_WIRE
     garbled_wires.remove(0); // Remove TRUE_WIRE
 
@@ -121,7 +121,7 @@ fn test_evaluator_compressed_input_verify() {
     }
     .compress();
 
-    let mut garbled_wires = GarbleMode::<AesNiHasher, ()>::preallocate_input(42, &inputs);
+    let mut garbled_wires = GarbleMode::<SwankyAesHasher, ()>::preallocate_input(42, &inputs);
     garbled_wires.remove(0); // Remove FALSE_WIRE
     garbled_wires.remove(0); // Remove TRUE_WIRE
 
