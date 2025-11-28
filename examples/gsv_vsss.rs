@@ -20,7 +20,7 @@ use garbled_snark_verifier::{
     },
     garbled_groth16::{self, EvaluatorCompressedInput},
     groth16_cut_and_choose::{self as ccn, DEFAULT_CAPACITY},
-    hashers::{AesCcrGateHasher, DefaultLabelCommitHasher},
+    hashers::{AesCcrGateHasher, Sha256LabelCommitHasher},
     test_utils::DummyCircuit,
 };
 use itertools::Itertools;
@@ -153,7 +153,7 @@ fn main() {
     );
 
     let (g2e_tx, g2e_rx) =
-        channel::unbounded::<SetupBroadcast<AesCcrGateHasher, DefaultLabelCommitHasher>>();
+        channel::unbounded::<SetupBroadcast<AesCcrGateHasher, Sha256LabelCommitHasher>>();
     let (e2g_tx, e2g_rx) = channel::unbounded::<SetupResponse<CiphertextSender>>();
 
     let garbler_cfg = ccn::Config::new(total, finalize, g_input.clone());
@@ -189,7 +189,7 @@ fn run_garbler(
     pk: ArkProvingKey<Bn254>,
     circuit: DummyCircuit<ark::Fr>,
     public_input: ark::Fr,
-    g2e_tx: channel::Sender<SetupBroadcast<AesCcrGateHasher, DefaultLabelCommitHasher>>,
+    g2e_tx: channel::Sender<SetupBroadcast<AesCcrGateHasher, Sha256LabelCommitHasher>>,
     e2g_rx: channel::Receiver<SetupResponse<CiphertextSender>>,
 ) {
     let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
@@ -209,7 +209,7 @@ fn run_garbler(
     ));
 
     info!("Garbler: generating commits...");
-    let commits = g.commit::<DefaultLabelCommitHasher>();
+    let commits = g.commit::<Sha256LabelCommitHasher>();
     let circuit_commits = commits.circuit_commits.clone();
     info!("Garbler: sending commits...");
     g2e_tx
@@ -290,7 +290,7 @@ fn run_garbler(
 fn run_evaluator(
     cfg: ccn::Config,
     out_dir: PathBuf,
-    g2e_rx: channel::Receiver<SetupBroadcast<AesCcrGateHasher, DefaultLabelCommitHasher>>,
+    g2e_rx: channel::Receiver<SetupBroadcast<AesCcrGateHasher, Sha256LabelCommitHasher>>,
     e2g_tx: channel::Sender<SetupResponse<CiphertextSender>>,
 ) -> Vec<(usize, EvaluatedWire)> {
     let mut rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
@@ -309,7 +309,7 @@ fn run_evaluator(
     let mut eval: Evaluator<
         garbled_groth16::GarblerCompressedInput,
         AesCcrGateHasher,
-        DefaultLabelCommitHasher,
+        Sha256LabelCommitHasher,
     > = Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
