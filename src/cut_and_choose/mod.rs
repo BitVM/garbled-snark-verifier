@@ -34,7 +34,7 @@ pub type Seed = u64;
 pub type CiphertextCommit = [u8; crate::ciphertext_hasher::HASH_OUTPUT_SIZE];
 
 /// Type alias for commitment tuple (phase one, phase two)
-pub type Commitment<HHasher> = (Vec<CommitPhaseOne<HHasher>>, Vec<CommitPhaseTwo<HHasher>>);
+pub type Commitment<GH, LH> = (Vec<CommitPhaseOne<GH, LH>>, Vec<CommitPhaseTwo<LH>>);
 
 /// Per-wire label commitments used in both `Commit₁` and `Commit₂`.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -137,56 +137,15 @@ static OPTIMIZED_POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
 /// Get the singleton optimized thread pool, creating it if necessary.
 /// This is for internal use only - not exposed in the public API.
 fn get_optimized_pool() -> &'static Arc<ThreadPool> {
-    OPTIMIZED_POOL.get_or_init(|| {
-        let n_threads = num_cpus::get_physical().max(1);
-        Arc::new(build_pinned_pool(n_threads))
-    })
+    OPTIMIZED_POOL.get_or_init(|| Arc::new(build_pinned_pool()))
 }
 
 /// Build a thread pool with threads pinned to specific CPU cores.
 /// This reduces thread migrations and can improve performance for CPU-intensive tasks.
-fn build_pinned_pool(n_threads: usize) -> ThreadPool {
-    let chosen_cores = select_cores_for_affinity(n_threads);
-
+fn build_pinned_pool() -> ThreadPool {
     ThreadPoolBuilder::new()
-        .num_threads(n_threads)
-        .start_handler(move |thread_idx| {
-            // Try to pin this thread to its assigned core
-            if let Some(core_id) = chosen_cores.get(thread_idx).cloned() {
-                // Silently ignore affinity errors (may not be supported on all systems)
-                let _ = core_affinity::set_for_current(core_id);
-            }
-        })
         .build()
-        .unwrap_or_else(|_| {
-            // Fallback to default thread pool if pinned pool creation fails
-            ThreadPoolBuilder::new()
-                .num_threads(n_threads)
-                .build()
-                .expect("failed to create fallback thread pool")
-        })
-}
-
-/// Select CPU cores for thread affinity.
-/// Strategy:
-/// - If we have at least 2x cores as threads, use every other core (avoid hyperthreads)
-/// - Otherwise, use the first N cores available
-/// - Returns empty vector if core detection fails (affinity will be skipped)
-fn select_cores_for_affinity(n: usize) -> Vec<core_affinity::CoreId> {
-    match core_affinity::get_core_ids() {
-        Some(cores) if cores.len() >= 2 * n => {
-            // Skip hyperthreads by taking every other core
-            cores.into_iter().step_by(2).take(n).collect()
-        }
-        Some(cores) => {
-            // Use first N cores available
-            cores.into_iter().take(n).collect()
-        }
-        None => {
-            // Core detection failed - affinity will not be set
-            Vec::new()
-        }
-    }
+        .expect("failed to create fallback thread pool")
 }
 
 #[cfg(test)]

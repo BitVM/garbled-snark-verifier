@@ -20,7 +20,7 @@ use garbled_snark_verifier::{
     },
     garbled_groth16::{self, EvaluatorCompressedInput},
     groth16_cut_and_choose::{self as ccn, DEFAULT_CAPACITY},
-    hashers::DefaultLabelCommitHasher,
+    hashers::{DefaultLabelCommitHasher, SwankyAesHasher},
     test_utils::DummyCircuit,
 };
 use itertools::Itertools;
@@ -29,11 +29,13 @@ use rand_chacha::ChaCha20Rng;
 use tracing::info;
 
 // Configuration constants - modify these as needed
-const TOTAL_INSTANCES: usize = 4;
-const FINALIZE_INSTANCES: usize = 2;
+const TOTAL_INSTANCES: usize = 181;
+const FINALIZE_INSTANCES: usize = 7;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
+const STREAM_PREALLOC_BYTES: u64 = 43_400_000_000; // ~43.4 GB per ciphertext stream (matches expected file size)
+const STREAM_BOUND_CIPHERTEXTS: usize = (1 << 30) / 16; // cap in-flight ciphertexts to ~1 GiB
 
 // Calculate and display total gates to process
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
@@ -150,7 +152,8 @@ fn main() {
         GATES_PER_INSTANCE as f64 / 1_000_000_000.0
     );
 
-    let (g2e_tx, g2e_rx) = channel::unbounded::<SetupBroadcast<DefaultLabelCommitHasher>>();
+    let (g2e_tx, g2e_rx) =
+        channel::unbounded::<SetupBroadcast<SwankyAesHasher, DefaultLabelCommitHasher>>();
     let (e2g_tx, e2g_rx) = channel::unbounded::<SetupResponse<CiphertextSender>>();
 
     let garbler_cfg = ccn::Config::new(total, finalize, g_input.clone());
@@ -186,7 +189,7 @@ fn run_garbler(
     pk: ArkProvingKey<Bn254>,
     circuit: DummyCircuit<ark::Fr>,
     public_input: ark::Fr,
-    g2e_tx: channel::Sender<SetupBroadcast<DefaultLabelCommitHasher>>,
+    g2e_tx: channel::Sender<SetupBroadcast<SwankyAesHasher, DefaultLabelCommitHasher>>,
     e2g_rx: channel::Receiver<SetupResponse<CiphertextSender>>,
 ) {
     let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
@@ -283,7 +286,7 @@ fn run_garbler(
 fn run_evaluator(
     cfg: ccn::Config,
     out_dir: PathBuf,
-    g2e_rx: channel::Receiver<SetupBroadcast<DefaultLabelCommitHasher>>,
+    g2e_rx: channel::Receiver<SetupBroadcast<SwankyAesHasher, DefaultLabelCommitHasher>>,
     e2g_tx: channel::Sender<SetupResponse<CiphertextSender>>,
 ) -> Vec<(usize, EvaluatedWire)> {
     let mut rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
@@ -299,14 +302,17 @@ fn run_evaluator(
 
     // Evaluator chooses which instances to finalize with first commits
     info!("Evaluator: setting up evaluator...");
-    let mut eval: Evaluator<garbled_groth16::GarblerCompressedInput, DefaultLabelCommitHasher> =
-        Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
+    let mut eval: Evaluator<
+        garbled_groth16::GarblerCompressedInput,
+        SwankyAesHasher,
+        DefaultLabelCommitHasher,
+    > = Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
     let (tx_data, receivers): (Vec<_>, Vec<_>) = finalize_indices
         .iter()
         .map(|&index| {
-            let (label_tx, label_rx) = channel::unbounded();
+            let (label_tx, label_rx) = channel::bounded(STREAM_BOUND_CIPHERTEXTS);
             let tx = FinalizeChallenge {
                 index,
                 ciphertext_handler: label_tx,
@@ -351,7 +357,8 @@ fn run_evaluator(
 
     let out_dir = PathBuf::from("target/cut_and_choose_test_simple");
     let handler_provider =
-        FileCiphertextHandlerProvider::new(out_dir.clone(), None).expect("create sink provider");
+        FileCiphertextHandlerProvider::new(out_dir.clone(), Some(STREAM_PREALLOC_BYTES))
+            .expect("create sink provider");
 
     info!("Evaluator: regarbling...");
     eval.run_regarbling_vsss(

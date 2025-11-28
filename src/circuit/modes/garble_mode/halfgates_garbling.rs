@@ -3,6 +3,7 @@ use crate::{GateType, hashers::GateHasher};
 
 #[inline(always)]
 pub fn garble_gate<H: GateHasher>(
+    gate_hasher: &H,
     gate_type: GateType,
     a_label0: S,
     b_label0: S,
@@ -23,7 +24,7 @@ pub fn garble_gate<H: GateHasher>(
                 (a_label0, a_label0 ^ delta)
             };
 
-            let [h_a0, h_a1] = H::hash_with_gate(&[selected_a, other_a], gate_id);
+            let [h_a0, h_a1] = gate_hasher.hash_with_gate(&[selected_a, other_a], gate_id);
 
             let b_sel = if alpha_b { b_label0 ^ delta } else { b_label0 };
 
@@ -40,6 +41,7 @@ pub fn garble_gate<H: GateHasher>(
 /// hasher.
 #[inline(always)]
 pub fn garble_gate_batch<H: GateHasher, const N: usize>(
+    gate_hashers: &[H; N],
     gate_type: GateType,
     a_label0: [S; N],
     b_label0: [S; N],
@@ -80,7 +82,8 @@ pub fn garble_gate_batch<H: GateHasher, const N: usize>(
                     (a_label0[i], a_label0[i] ^ &deltas[i])
                 };
 
-                let [h_sel, h_oth] = H::hash_with_gate(&[selected_a, other_a], gate_id);
+                let [h_sel, h_oth] =
+                    gate_hashers[i].hash_with_gate(&[selected_a, other_a], gate_id);
 
                 let b_sel = if alpha_b {
                     b_label0[i] ^ &deltas[i]
@@ -99,6 +102,7 @@ pub fn garble_gate_batch<H: GateHasher, const N: usize>(
 
 #[inline(always)]
 pub fn degarble_gate<H: GateHasher>(
+    gate_hasher: &H,
     gate_type: GateType,
     lazy_ciphertext: impl FnOnce() -> S,
     a_active_label: S,
@@ -115,7 +119,7 @@ pub fn degarble_gate<H: GateHasher>(
         }
         _ => {
             let ct = lazy_ciphertext();
-            let [h_a] = H::hash_with_gate(&[a_active_label], gate_id);
+            let [h_a] = gate_hasher.hash_with_gate(&[a_active_label], gate_id);
 
             let (alpha_a, _alpha_b, _alpha_c) = gate_type.alphas_const();
 
@@ -130,6 +134,8 @@ pub fn degarble_gate<H: GateHasher>(
 
 #[cfg(test)]
 mod tests {
+    use std::array;
+
     use super::{degarble_gate, garble_gate};
     use crate::{
         AesNiHasher, Blake3Hasher, Delta, GateHasher, GateType, S, SwankyAesHasher,
@@ -144,6 +150,7 @@ mod tests {
     fn garble_consistency<H: GateHasher>(gt: GateType) {
         let mut rng = trng();
         let delta = Delta::generate(&mut rng);
+        let gate_hasher = H::from_rng(&mut rng);
 
         #[derive(Debug, PartialEq, Eq)]
         struct FailedCase {
@@ -166,13 +173,15 @@ mod tests {
         // Create bitmask visualization (16 cases total: 2×2×4)
         let mut bitmask = String::with_capacity(16);
 
-        let (c_label0, ct) = garble_gate::<H>(gt, a_label0, b_label0, &delta, GATE_ID);
+        let (c_label0, ct) =
+            garble_gate::<H>(&gate_hasher, gt, a_label0, b_label0, &delta, GATE_ID);
 
         for (a_vl, b_vl) in TEST_CASES {
             let a_active_label = if a_vl { a_label0 ^ &delta } else { a_label0 };
             let b_active_label = if b_vl { b_label0 ^ &delta } else { b_label0 };
 
             let evaluated = degarble_gate::<H>(
+                &gate_hasher,
                 gt,
                 || ct.unwrap(),
                 a_active_label,
@@ -264,17 +273,25 @@ mod tests {
 
     fn garble_batch_consistency<H: GateHasher, const N: usize>(gt: GateType) {
         let mut rng = trng();
-        let deltas: [Delta; N] = core::array::from_fn(|_| Delta::generate(&mut rng));
-        let a_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
-        let b_label0: [S; N] = core::array::from_fn(|_| S::random(&mut rng));
+        let deltas: [Delta; N] = array::from_fn(|_| Delta::generate(&mut rng));
+        let a_label0: [S; N] = array::from_fn(|_| S::random(&mut rng));
+        let b_label0: [S; N] = array::from_fn(|_| S::random(&mut rng));
 
+        let gate_hashers: [H; N] = array::from_fn(|_| H::from_rng(&mut rng));
         let (w0_batch, ct_batch) =
-            super::garble_gate_batch::<H, N>(gt, a_label0, b_label0, &deltas, 0);
+            super::garble_gate_batch::<H, N>(&gate_hashers, gt, a_label0, b_label0, &deltas, 0);
 
         let ct_arr = ct_batch.as_ref();
 
         for i in 0..N {
-            let (w0, ct) = super::garble_gate::<H>(gt, a_label0[i], b_label0[i], &deltas[i], 0);
+            let (w0, ct) = super::garble_gate::<H>(
+                &gate_hashers[i],
+                gt,
+                a_label0[i],
+                b_label0[i],
+                &deltas[i],
+                0,
+            );
             assert_eq!(w0_batch[i], w0, "lane {i} w0 mismatch");
             match (ct_arr, ct) {
                 (None, None) => {}

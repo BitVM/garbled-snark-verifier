@@ -89,6 +89,7 @@ fn test_xor_evaluate_mode_basic() {
         5,
         true_wire.to_u128(),
         false_wire.to_u128(),
+        Blake3Hasher,
         receiver,
         |ctx, input_wires| {
             let output = ctx.issue_wire();
@@ -117,6 +118,7 @@ fn test_xor_evaluate_mode_with_constants() {
         5,
         true_wire.to_u128(),
         false_wire.to_u128(),
+        Blake3Hasher,
         receiver,
         |ctx, input_wires| {
             let output1 = ctx.issue_wire();
@@ -155,6 +157,7 @@ fn test_evaluate_mode() {
         10,
         true_wire.to_u128(),
         false_wire.to_u128(),
+        Blake3Hasher,
         receiver,
         |ctx, input_wires| {
             let val1 = ctx.issue_wire();

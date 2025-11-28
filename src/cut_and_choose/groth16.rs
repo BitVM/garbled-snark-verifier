@@ -10,7 +10,7 @@ pub use crate::cut_and_choose::{
     CommitPhaseOne, CommitPhaseTwo, LabelCommitHasher, OpenForInstance, Seed,
 };
 use crate::{
-    EvaluatedWire, GarbledWire, S,
+    EvaluatedWire, GarbledWire, S, SwankyAesHasher,
     circuit::{CiphertextHandler, CiphertextSource},
     cut_and_choose::{
         self as generic, CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider,
@@ -18,6 +18,7 @@ use crate::{
         vsss::{FinalizeChallenge, FinalizedVsssInstance, OpenVsssInstance, VsssCommit},
     },
     garbled_groth16::{self, PublicParams},
+    hashers::GateHasher,
 };
 
 pub type Config = generic::Config<garbled_groth16::GarblerCompressedInput>;
@@ -52,7 +53,7 @@ impl VsssGarbler {
         &mut self.inner
     }
 
-    pub fn commit<HHasher>(&self) -> VsssCommit<HHasher>
+    pub fn commit<HHasher>(&self) -> VsssCommit<SwankyAesHasher, HHasher>
     where
         HHasher: LabelCommitHasher,
     {
@@ -108,7 +109,7 @@ impl Garbler {
         Self { inner }
     }
 
-    pub fn commit_phase_one<HHasher>(&self) -> Vec<CommitPhaseOne<HHasher>>
+    pub fn commit_phase_one<HHasher>(&self) -> Vec<CommitPhaseOne<SwankyAesHasher, HHasher>>
     where
         HHasher: LabelCommitHasher,
     {
@@ -124,7 +125,7 @@ impl Garbler {
 
     pub fn get_commitment<HHasher: LabelCommitHasher>(
         &self,
-    ) -> Option<generic::Commitment<HHasher>> {
+    ) -> Option<generic::Commitment<SwankyAesHasher, HHasher>> {
         self.inner.get_commitment::<HHasher>()
     }
 
@@ -226,15 +227,18 @@ impl Garbler {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "HHasher: LabelCommitHasher")]
-pub struct Evaluator<HHasher: LabelCommitHasher = DefaultLabelCommitHasher> {
-    inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, HHasher>,
+#[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
+pub struct Evaluator<
+    GH: GateHasher = SwankyAesHasher,
+    LH: LabelCommitHasher = DefaultLabelCommitHasher,
+> {
+    inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, GH, LH>,
 }
 
-impl<H: LabelCommitHasher> Evaluator<H> {
+impl<GH: GateHasher + 'static, LH: LabelCommitHasher> Evaluator<GH, LH> {
     // Generate `to_finalize` with `rng` based on data on `Config`
-    pub fn create(rng: impl Rng, config: Config, commits: Vec<CommitPhaseOne<H>>) -> Self {
-        let inner = generic::Evaluator::<garbled_groth16::GarblerCompressedInput, H>::create(
+    pub fn create(rng: impl Rng, config: Config, commits: Vec<CommitPhaseOne<GH, LH>>) -> Self {
+        let inner = generic::Evaluator::<garbled_groth16::GarblerCompressedInput, GH, LH>::create(
             rng, config, commits,
         );
         Self { inner }
@@ -244,7 +248,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         self.inner.config()
     }
 
-    pub fn fill_second_commit(&mut self, commits: Vec<CommitPhaseTwo<H>>) {
+    pub fn fill_second_commit(&mut self, commits: Vec<CommitPhaseTwo<LH>>) {
         self.inner.fill_second_commit(commits);
     }
 
@@ -252,10 +256,10 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         self.inner.get_nonce()
     }
 
-    pub fn get_commitment(&self) -> Option<generic::Commitment<H>>
+    pub fn get_commitment(&self) -> Option<generic::Commitment<GH, LH>>
     where
-        generic::CommitPhaseOne<H>: Clone,
-        generic::CommitPhaseTwo<H>: Clone,
+        generic::CommitPhaseOne<GH, LH>: Clone,
+        generic::CommitPhaseTwo<LH>: Clone,
     {
         self.inner.get_commitment()
     }
@@ -264,7 +268,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         self.inner.finalized_indexes()
     }
 
-    pub fn get_commit_phase_one(&self, index: usize) -> Option<&CommitPhaseOne<H>> {
+    pub fn get_commit_phase_one(&self, index: usize) -> Option<&CommitPhaseOne<GH, LH>> {
         self.inner.get_commit_phase_one(index)
     }
 
@@ -323,7 +327,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
 pub type EvaluatorCaseInput =
     generic::EvaluatorCaseInput<garbled_groth16::EvaluatorCompressedInput>;
 
-impl<H: LabelCommitHasher> Evaluator<H> {
+impl<GH: GateHasher, LH: LabelCommitHasher> Evaluator<GH, LH> {
     /// Evaluate all finalized instances from saved ciphertext files with consistency checking.
     ///
     /// This method performs three consistency checks:
@@ -336,7 +340,7 @@ impl<H: LabelCommitHasher> Evaluator<H> {
         &self,
         ciphertext_repo: &CR,
         input_cases: Vec<EvaluatorCaseInput>,
-    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<H>>
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<LH>>
     where
         <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
     {
@@ -350,14 +354,16 @@ impl<H: LabelCommitHasher> Evaluator<H> {
 }
 
 #[cfg(feature = "test-utils")]
-impl<H: LabelCommitHasher> Evaluator<H> {
+impl<GH: GateHasher, LH: LabelCommitHasher> Evaluator<GH, LH> {
     pub fn from_raw_inner(
-        inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, H>,
+        inner: generic::Evaluator<garbled_groth16::GarblerCompressedInput, GH, LH>,
     ) -> Self {
         Self { inner }
     }
 
-    pub fn into_raw_inner(self) -> generic::Evaluator<garbled_groth16::GarblerCompressedInput, H> {
+    pub fn into_raw_inner(
+        self,
+    ) -> generic::Evaluator<garbled_groth16::GarblerCompressedInput, GH, LH> {
         self.inner
     }
 }
@@ -422,7 +428,7 @@ impl SolderInput for garbled_groth16::EvaluatorCompressedInput {
 }
 
 #[cfg(feature = "sp1-soldering")]
-impl Evaluator<generic::Sha256LabelCommitHasher> {
+impl<GH: GateHasher> Evaluator<GH, generic::Sha256LabelCommitHasher> {
     pub fn verified_soldered_base_commitment(
         &self,
     ) -> Option<Vec<generic::LabelCommit<crate::sp1_soldering::Sha256Commit>>> {

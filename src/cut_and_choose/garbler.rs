@@ -31,10 +31,12 @@ use crate::{
             transpose,
         },
     },
+    hashers::GateHasher,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct GarbledInstance {
+#[serde(bound = "GH: GateHasher")]
+pub struct GarbledInstance<GH: GateHasher> {
     /// Constant to represent false wire constant
     ///
     /// Necessary to restart the scheme and consistency
@@ -52,14 +54,19 @@ pub struct GarbledInstance {
     pub input_wire_values: Vec<GarbledWire>,
 
     pub ciphertext_handler_result: CiphertextCommit,
+
+    /// The seed for the gate hasher (used for regarbling/evaluation)
+    pub gate_hasher_seed: GH::Seed,
 }
 
-impl<I: CircuitInput>
-    From<StreamingResult<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>, I, GarbledWire>>
-    for GarbledInstance
-{
-    fn from(
-        res: StreamingResult<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>, I, GarbledWire>,
+impl<GH: GateHasher> GarbledInstance<GH> {
+    /// Create a `GarbledInstance` from a `StreamingResult` and the gate hasher seed.
+    pub fn from_streaming_result<
+        I: CircuitInput,
+        CTH: CiphertextHandler<Result = CiphertextCommit>,
+    >(
+        res: StreamingResult<GarbleMode<GH, CTH>, I, GarbledWire>,
+        gate_hasher_seed: GH::Seed,
     ) -> Self {
         GarbledInstance {
             false_wire_constant: res.false_wire_constant,
@@ -67,6 +74,7 @@ impl<I: CircuitInput>
             output_wire_values: res.output_value,
             input_wire_values: res.input_wire_values,
             ciphertext_handler_result: res.ciphertext_handler_result,
+            gate_hasher_seed,
         }
     }
 }
@@ -74,19 +82,21 @@ impl<I: CircuitInput>
 /// `Commit₁(i)` payload containing ciphertext hash, per-wire input commits,
 /// output commits, and constant wire values (spec Step 1.2).
 #[derive(Debug, Serialize, Deserialize, Eq)]
-#[serde(bound = "H: LabelCommitHasher")]
-pub struct CommitPhaseOne<H: LabelCommitHasher = DefaultLabelCommitHasher> {
+#[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
+pub struct CommitPhaseOne<GH: GateHasher, LH: LabelCommitHasher = DefaultLabelCommitHasher> {
     ciphertext_hash: CiphertextCommit,
-    input_commitments: Vec<LabelCommit<H::Output>>,
+    input_commitments: Vec<LabelCommit<LH::Output>>,
     /// Commitment to the active output label when the circuit output is `true`.
-    output_label1_commit: H::Output,
+    output_label1_commit: LH::Output,
     /// Commitment to the active output label when the circuit output is `false`.
-    output_label0_commit: H::Output,
+    output_label0_commit: LH::Output,
     true_constant: u128,
     false_constant: u128,
+    /// The gate hasher seed (needed for regarbling/evaluation).
+    gate_hasher_seed: GH::Seed,
 }
 
-impl<H: LabelCommitHasher> Clone for CommitPhaseOne<H> {
+impl<GH: GateHasher, LH: LabelCommitHasher> Clone for CommitPhaseOne<GH, LH> {
     fn clone(&self) -> Self {
         Self {
             ciphertext_hash: self.ciphertext_hash,
@@ -95,11 +105,15 @@ impl<H: LabelCommitHasher> Clone for CommitPhaseOne<H> {
             output_label1_commit: self.output_label1_commit,
             true_constant: self.true_constant,
             false_constant: self.false_constant,
+            gate_hasher_seed: self.gate_hasher_seed.clone(),
         }
     }
 }
 
-impl<H: LabelCommitHasher> PartialEq for CommitPhaseOne<H> {
+impl<GH: GateHasher, LH: LabelCommitHasher> PartialEq for CommitPhaseOne<GH, LH>
+where
+    GH::Seed: PartialEq,
+{
     fn eq(&self, other: &Self) -> bool {
         self.ciphertext_hash == other.ciphertext_hash
             && self.input_commitments == other.input_commitments
@@ -107,18 +121,20 @@ impl<H: LabelCommitHasher> PartialEq for CommitPhaseOne<H> {
             && self.output_label0_commit == other.output_label0_commit
             && self.true_constant == other.true_constant
             && self.false_constant == other.false_constant
+            && self.gate_hasher_seed == other.gate_hasher_seed
     }
 }
 
-impl<H: LabelCommitHasher> CommitPhaseOne<H> {
+impl<GH: GateHasher, LH: LabelCommitHasher> CommitPhaseOne<GH, LH> {
     /// Create a new `CommitPhaseOne` directly from its components.
     pub fn new(
         ciphertext_hash: CiphertextCommit,
-        input_commitments: Vec<LabelCommit<H::Output>>,
-        output_label1_commit: H::Output,
-        output_label0_commit: H::Output,
+        input_commitments: Vec<LabelCommit<LH::Output>>,
+        output_label1_commit: LH::Output,
+        output_label0_commit: LH::Output,
         true_constant: u128,
         false_constant: u128,
+        gate_hasher_seed: GH::Seed,
     ) -> Self {
         Self {
             ciphertext_hash,
@@ -127,18 +143,20 @@ impl<H: LabelCommitHasher> CommitPhaseOne<H> {
             output_label0_commit,
             true_constant,
             false_constant,
+            gate_hasher_seed,
         }
     }
 
     /// Recompute the `Commit₁` payload (without nonce injection) for a garbled instance.
-    pub fn from_instance(instance: &GarbledInstance) -> Self {
+    pub fn from_instance(instance: &GarbledInstance<GH>) -> Self {
         Self {
             ciphertext_hash: instance.ciphertext_handler_result,
-            input_commitments: commit_input_wires::<H>(&instance.input_wire_values, None),
-            output_label1_commit: commit_output_label1::<H>(&instance.output_wire_values),
-            output_label0_commit: commit_output_label0::<H>(&instance.output_wire_values),
+            input_commitments: commit_input_wires::<LH>(&instance.input_wire_values, None),
+            output_label1_commit: commit_output_label1::<LH>(&instance.output_wire_values),
+            output_label0_commit: commit_output_label0::<LH>(&instance.output_wire_values),
             true_constant: instance.true_wire_constant.select(true).to_u128(),
             false_constant: instance.false_wire_constant.select(false).to_u128(),
+            gate_hasher_seed: instance.gate_hasher_seed.clone(),
         }
     }
 
@@ -146,15 +164,15 @@ impl<H: LabelCommitHasher> CommitPhaseOne<H> {
         self.ciphertext_hash
     }
 
-    pub fn input_commitments(&self) -> &[LabelCommit<H::Output>] {
+    pub fn input_commitments(&self) -> &[LabelCommit<LH::Output>] {
         &self.input_commitments
     }
 
-    pub fn output_commit_true(&self) -> H::Output {
+    pub fn output_commit_true(&self) -> LH::Output {
         self.output_label1_commit
     }
 
-    pub fn output_commit_false(&self) -> H::Output {
+    pub fn output_commit_false(&self) -> LH::Output {
         self.output_label0_commit
     }
 
@@ -164,6 +182,10 @@ impl<H: LabelCommitHasher> CommitPhaseOne<H> {
 
     pub fn false_constant(&self) -> u128 {
         self.false_constant
+    }
+
+    pub fn gate_hasher_seed(&self) -> &GH::Seed {
+        &self.gate_hasher_seed
     }
 }
 
@@ -190,7 +212,7 @@ impl<H: LabelCommitHasher> CommitPhaseTwo<H> {
     }
 
     /// Recompute the `Commit₂` payload (with nonce injection) for a garbled instance.
-    pub fn from_instance(instance: &GarbledInstance, nonce: S) -> Self {
+    pub fn from_instance<GH: GateHasher>(instance: &GarbledInstance<GH>, nonce: S) -> Self {
         Self {
             input_commitments: commit_input_wires::<H>(&instance.input_wire_values, Some(nonce)),
         }
@@ -264,32 +286,27 @@ impl GarblerStage {
 pub type InstanceWideLabelLookup = Vec<GarbledWideLabelTable>;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VsssGarbler<I: CircuitInput + Clone> {
+#[serde(bound = "I: Serialize + serde::de::DeserializeOwned, GH: GateHasher")]
+pub struct VsssGarbler<I: CircuitInput + Clone, GH: GateHasher = SwankyAesHasher> {
     stage: GarblerStage,
-    instances: Vec<GarbledInstance>,
+    instances: Vec<GarbledInstance<GH>>,
     pub config: Config<I>,
     live_capacity: usize,
     polynomials: Vec<vsss::Polynomial<Canonical<Fr>>>,
     pub wide_label_tables: Vec<InstanceWideLabelLookup>,
 }
 
-impl<I> VsssGarbler<I>
+impl<I, GH> VsssGarbler<I, GH>
 where
-    I: CircuitInput
-        + Clone
-        + Send
-        + Sync
-        + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
+    I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<GH, Blake3AccumulatingHash>>,
+    GH: GateHasher + 'static,
     <I as CircuitInput>::WireRepr: Send,
     I: 'static,
 {
     /// Create garbled instances in parallel using the provided circuit builder function.
     pub fn create<F>(mut rng: impl Rng, config: Config<I>, live_capacity: usize, builder: F) -> Self
     where
-        F: Fn(
-                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
-                &I::WireRepr,
-            ) -> WireId
+        F: Fn(&mut StreamingMode<GarbleMode<GH, Blake3AccumulatingHash>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -348,7 +365,7 @@ where
                     info!("Starting garbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
+                        GarbleMode<GH, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -359,7 +376,15 @@ where
                         builder,
                     );
 
-                    let instance = GarbledInstance::from(res);
+                    // Derive gate hasher seed from garbling seed (same derivation as GarbleMode::new)
+                    let gate_hasher_seed = {
+                        use rand::SeedableRng;
+                        use rand_chacha::ChaChaRng;
+                        let mut rng = ChaChaRng::seed_from_u64(**garbling_seed);
+                        GH::from_rng(&mut rng).seed().clone()
+                    };
+                    let instance =
+                        GarbledInstance::<GH>::from_streaming_result(res, gate_hasher_seed);
                     let tables =
                         GarbledWideLabelTable::build_all(wide_labels, &instance.input_wire_values);
 
@@ -384,9 +409,9 @@ where
     }
 
     /// Produce the `Commit₁` transcript for every garbled instance (spec Step 1.2).
-    pub fn commit<HHasher>(&self) -> VsssCommit<HHasher>
+    pub fn commit<LH>(&self) -> VsssCommit<GH, LH>
     where
-        HHasher: LabelCommitHasher,
+        LH: LabelCommitHasher,
     {
         let secp = vsss::Secp256k1::new();
 
@@ -414,7 +439,7 @@ where
         let circuit_commits = self
             .instances
             .iter()
-            .map(|x| CommitPhaseOne::<HHasher>::from_instance(x))
+            .map(|x| CommitPhaseOne::<GH, LH>::from_instance(x))
             .collect_vec();
 
         let garbling_table_commits = self
@@ -437,11 +462,11 @@ where
     ) -> (Vec<OpenVsssInstance>, Vec<FinalizedVsssInstance>)
     where
         F: 'static
-            + Fn(&mut StreamingMode<GarbleMode<SwankyAesHasher, CTH>>, &I::WireRepr) -> WireId
+            + Fn(&mut StreamingMode<GarbleMode<GH, CTH>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
-        I: EncodeInput<GarbleMode<SwankyAesHasher, CTH>>,
+        I: EncodeInput<GarbleMode<GH, CTH>>,
     {
         let seeds = self
             .stage
@@ -481,7 +506,7 @@ where
                         info!("Starting");
 
                         let _: StreamingResult<_, I, GarbledWire> =
-                            CircuitBuilder::<GarbleMode<SwankyAesHasher, _>>::streaming_garbling(
+                            CircuitBuilder::<GarbleMode<GH, _>>::streaming_garbling(
                                 inputs,
                                 live_capacity,
                                 garbling_seed,
@@ -530,32 +555,27 @@ where
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Garbler<I: CircuitInput + Clone> {
+#[serde(bound = "I: Serialize + serde::de::DeserializeOwned, GH: GateHasher")]
+pub struct Garbler<I: CircuitInput + Clone, GH: GateHasher = SwankyAesHasher> {
     stage: GarblerStage,
-    instances: Vec<GarbledInstance>,
+    instances: Vec<GarbledInstance<GH>>,
     config: Config<I>,
     live_capacity: usize,
     /// Nonce received from evaluator, stored for internal use in `commit_phase_two` and `do_soldering`
     nonce: Option<S>,
 }
 
-impl<I> Garbler<I>
+impl<I, GH> Garbler<I, GH>
 where
-    I: CircuitInput
-        + Clone
-        + Send
-        + Sync
-        + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
+    I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<GH, Blake3AccumulatingHash>>,
+    GH: GateHasher + 'static,
     <I as CircuitInput>::WireRepr: Send,
     I: 'static,
 {
     /// Create garbled instances in parallel using the provided circuit builder function.
     pub fn create<F>(mut rng: impl Rng, config: Config<I>, live_capacity: usize, builder: F) -> Self
     where
-        F: Fn(
-                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
-                &I::WireRepr,
-            ) -> WireId
+        F: Fn(&mut StreamingMode<GarbleMode<GH, Blake3AccumulatingHash>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -579,7 +599,7 @@ where
                     info!("Starting garbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
+                        GarbleMode<GH, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -590,7 +610,14 @@ where
                         builder,
                     );
 
-                    GarbledInstance::from(res)
+                    // Derive gate hasher seed from garbling seed (same derivation as GarbleMode::new)
+                    let gate_hasher_seed = {
+                        use rand::SeedableRng;
+                        use rand_chacha::ChaChaRng;
+                        let mut rng = ChaChaRng::seed_from_u64(*garbling_seed);
+                        GH::from_rng(&mut rng).seed().clone()
+                    };
+                    GarbledInstance::<GH>::from_streaming_result(res, gate_hasher_seed)
                 })
                 .collect()
         });
@@ -605,22 +632,22 @@ where
     }
 
     /// Produce the `Commit₁` transcript for every garbled instance (spec Step 1.2).
-    pub fn commit_phase_one<HHasher>(&self) -> Vec<CommitPhaseOne<HHasher>>
+    pub fn commit_phase_one<LH>(&self) -> Vec<CommitPhaseOne<GH, LH>>
     where
-        HHasher: LabelCommitHasher,
+        LH: LabelCommitHasher,
     {
         self.instances
             .iter()
-            .map(CommitPhaseOne::<HHasher>::from_instance)
+            .map(CommitPhaseOne::<GH, LH>::from_instance)
             .collect()
     }
 
     /// Produce the `Commit₂` transcript (nonce-injected input commitments; spec Step 1.4).
     /// Stores the nonce internally for use in `do_soldering`.
     /// If called multiple times, the nonce must be the same; otherwise panics.
-    pub fn commit_phase_two<HHasher>(&mut self, nonce: S) -> Vec<CommitPhaseTwo<HHasher>>
+    pub fn commit_phase_two<LH>(&mut self, nonce: S) -> Vec<CommitPhaseTwo<LH>>
     where
-        HHasher: LabelCommitHasher,
+        LH: LabelCommitHasher,
     {
         if let Some(existing_nonce) = self.nonce {
             if existing_nonce != nonce {
@@ -632,23 +659,23 @@ where
 
         self.instances
             .iter()
-            .map(|instance| CommitPhaseTwo::<HHasher>::from_instance(instance, self.nonce.unwrap()))
+            .map(|instance| CommitPhaseTwo::<LH>::from_instance(instance, self.nonce.unwrap()))
             .collect()
     }
 
     /// Get both phase one and phase two commitments (backward compatibility)
-    pub fn get_commitment<HHasher: LabelCommitHasher>(&self) -> Option<super::Commitment<HHasher>> {
+    pub fn get_commitment<LH: LabelCommitHasher>(&self) -> Option<super::Commitment<GH, LH>> {
         self.nonce.map(|nonce| {
             let phase_one = self
                 .instances
                 .iter()
-                .map(CommitPhaseOne::<HHasher>::from_instance)
+                .map(CommitPhaseOne::<GH, LH>::from_instance)
                 .collect();
 
             let phase_two = self
                 .instances
                 .iter()
-                .map(|instance| CommitPhaseTwo::<HHasher>::from_instance(instance, nonce))
+                .map(|instance| CommitPhaseTwo::<LH>::from_instance(instance, nonce))
                 .collect();
 
             (phase_one, phase_two)
@@ -704,11 +731,11 @@ where
     ) -> Vec<OpenForInstance>
     where
         F: 'static
-            + Fn(&mut StreamingMode<GarbleMode<SwankyAesHasher, CTH>>, &I::WireRepr) -> WireId
+            + Fn(&mut StreamingMode<GarbleMode<GH, CTH>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
-        I: EncodeInput<GarbleMode<SwankyAesHasher, CTH>>,
+        I: EncodeInput<GarbleMode<GH, CTH>>,
     {
         let seeds = self
             .stage
@@ -739,7 +766,7 @@ where
                         info!("Starting");
 
                         let _: StreamingResult<_, I, GarbledWire> =
-                            CircuitBuilder::<GarbleMode<SwankyAesHasher, _>>::streaming_garbling(
+                            CircuitBuilder::<GarbleMode<GH, _>>::streaming_garbling(
                                 inputs,
                                 live_capacity,
                                 garbling_seed,
@@ -884,9 +911,12 @@ mod test_utils {
         pub false_constant: u128,
     }
 
-    impl<H: LabelCommitHasher> CommitPhaseOne<H> {
+    impl<GH: GateHasher, LH: LabelCommitHasher> CommitPhaseOne<GH, LH> {
         /// Construct a commit payload directly from raw components for testing helpers.
-        pub fn from_raw_parts(parts: CommitPhaseOneRawParts<H::Output>) -> Self {
+        pub fn from_raw_parts(
+            parts: CommitPhaseOneRawParts<LH::Output>,
+            gate_hasher_seed: GH::Seed,
+        ) -> Self {
             Self {
                 ciphertext_hash: parts.ciphertext_hash,
                 input_commitments: parts.input_commitments,
@@ -894,18 +924,22 @@ mod test_utils {
                 output_label0_commit: parts.output_label0_commit,
                 true_constant: parts.true_constant,
                 false_constant: parts.false_constant,
+                gate_hasher_seed,
             }
         }
 
-        pub fn into_raw_parts(self) -> CommitPhaseOneRawParts<H::Output> {
-            CommitPhaseOneRawParts {
-                ciphertext_hash: self.ciphertext_hash,
-                input_commitments: self.input_commitments,
-                output_label1_commit: self.output_label1_commit,
-                output_label0_commit: self.output_label0_commit,
-                true_constant: self.true_constant,
-                false_constant: self.false_constant,
-            }
+        pub fn into_raw_parts(self) -> (CommitPhaseOneRawParts<LH::Output>, GH::Seed) {
+            (
+                CommitPhaseOneRawParts {
+                    ciphertext_hash: self.ciphertext_hash,
+                    input_commitments: self.input_commitments,
+                    output_label1_commit: self.output_label1_commit,
+                    output_label0_commit: self.output_label0_commit,
+                    true_constant: self.true_constant,
+                    false_constant: self.false_constant,
+                },
+                self.gate_hasher_seed,
+            )
         }
     }
 
@@ -919,13 +953,14 @@ mod test_utils {
         }
     }
 
-    impl<I> Garbler<I>
+    impl<I, GH> Garbler<I, GH>
     where
         I: CircuitInput + Clone,
+        GH: GateHasher,
     {
         pub fn from_raw_parts(
             stage: GarblerStage,
-            instances: Vec<GarbledInstance>,
+            instances: Vec<GarbledInstance<GH>>,
             config: Config<I>,
             live_capacity: usize,
             nonce: Option<S>,
@@ -943,7 +978,7 @@ mod test_utils {
             self,
         ) -> (
             GarblerStage,
-            Vec<GarbledInstance>,
+            Vec<GarbledInstance<GH>>,
             Config<I>,
             usize,
             Option<S>,

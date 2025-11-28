@@ -1,4 +1,4 @@
-use std::{array, marker::PhantomData, num::NonZero};
+use std::{array, num::NonZero};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -28,18 +28,23 @@ pub struct MultigarblingMode<H: GateHasher, MCTH: MultiCiphertextHandler<N>, con
     deltas_arr: [Delta; N],
     false_label0s: [S; N],
     true_label0s: [S; N],
-    _hasher: PhantomData<H>,
+    gate_hashers: [H; N],
 }
 
 impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize> MultigarblingMode<H, MCTH, N> {
+    /// Create a new MultigarblingMode. Gate hashers are derived from each lane's RNG.
     pub fn new(capacity: usize, seeds: [u64; N], output_handler: MCTH) -> Self {
+        // First pass: create hashers from RNGs (before consuming RNG for other purposes)
+        let mut rngs: [ChaChaRng; N] = array::from_fn(|i| ChaChaRng::seed_from_u64(seeds[i]));
+        let gate_hashers: [H; N] = array::from_fn(|i| H::from_rng(&mut rngs[i]));
+
+        // Second pass: create lanes using the same RNGs (now advanced past hasher creation)
         let lanes: [LaneCtx; N] = array::from_fn(|i| {
-            let mut rng = ChaChaRng::seed_from_u64(seeds[i]);
-            let delta = Delta::generate(&mut rng);
-            let false_wire_label0 = GarbledWire::random(&mut rng, &delta).label0;
-            let true_wire_label0 = GarbledWire::random(&mut rng, &delta).label0;
+            let delta = Delta::generate(&mut rngs[i]);
+            let false_wire_label0 = GarbledWire::random(&mut rngs[i], &delta).label0;
+            let true_wire_label0 = GarbledWire::random(&mut rngs[i], &delta).label0;
             LaneCtx {
-                rng,
+                rng: core::mem::replace(&mut rngs[i], ChaChaRng::seed_from_u64(0)), // move RNG
                 delta,
                 false_wire_label0,
                 true_wire_label0,
@@ -58,8 +63,13 @@ impl<H: GateHasher, MCTH: MultiCiphertextHandler<N>, const N: usize> Multigarbli
             deltas_arr,
             false_label0s,
             true_label0s,
-            _hasher: PhantomData,
+            gate_hashers,
         }
+    }
+
+    /// Get the hasher seeds for inclusion in commitments
+    pub fn gate_hasher_seeds(&self) -> [&H::Seed; N] {
+        array::from_fn(|i| self.gate_hashers[i].seed())
     }
 
     #[inline]
@@ -152,6 +162,7 @@ where
 
         let (c_base, ciphertext): ([S; N], Option<[S; N]>) =
             halfgates_garbling::garble_gate_batch::<H, N>(
+                &self.gate_hashers,
                 gate.gate_type,
                 a_label0s,
                 b_label0s,

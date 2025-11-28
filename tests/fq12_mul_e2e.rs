@@ -201,6 +201,12 @@ fn test_fq12_mul_montgomery_e2e() {
         wires: garble_result.input_wire_values,
     };
 
+    // Derive same gate_hasher from same seed as garbling
+    let gate_hasher = {
+        let mut rng = ChaChaRng::seed_from_u64(SEED);
+        Blake3Hasher::from_rng(&mut rng)
+    };
+
     let eval: garbled_snark_verifier::circuit::StreamingResult<
         EvaluateMode<Blake3Hasher, _>,
         _,
@@ -210,6 +216,7 @@ fn test_fq12_mul_montgomery_e2e() {
         15_000,
         true_lbl,
         false_lbl,
+        gate_hasher,
         garbled_receiver,
         fq12_mul_circuit,
     );

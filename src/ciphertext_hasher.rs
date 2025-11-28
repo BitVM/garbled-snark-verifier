@@ -1,7 +1,7 @@
 use crate::{S, circuit::MultiCiphertextHandler};
 
 /// Batch size for Blake3 accumulating hash (64 ciphertexts = 1KB)
-pub const BATCH_SIZE: usize = 64;
+pub const BATCH_SIZE: usize = 61;
 /// Output hash size (full Blake3)
 pub const HASH_OUTPUT_SIZE: usize = 32;
 /// Batch input buffer size: 8 bytes index + 32 bytes prev_hash + 64 * 16 bytes ciphertexts

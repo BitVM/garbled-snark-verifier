@@ -63,18 +63,18 @@ pub struct EvaluateMode<H: GateHasher, SRC: CiphertextSource> {
     // Store the constant wires (provided externally)
     false_wire: S,
     true_wire: S,
-    _hasher: std::marker::PhantomData<H>,
+    gate_hasher: H,
 }
 
 impl<H: GateHasher, SRC: CiphertextSource> EvaluateMode<H, SRC> {
-    pub fn new(capacity: usize, true_wire: S, false_wire: S, source: SRC) -> Self {
+    pub fn new(gate_hasher: H, capacity: usize, true_wire: S, false_wire: S, source: SRC) -> Self {
         Self {
             storage: Storage::new(capacity),
             gate_index: 0,
             source,
             false_wire,
             true_wire,
-            _hasher: std::marker::PhantomData,
+            gate_hasher,
         }
     }
 
@@ -134,7 +134,9 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitMode for EvaluateMode<H, SRC> 
 
         maybe_log_progress("evaluated", gate_id);
 
-        let expected_label = halfgates_garbling::degarble_gate::<H>(
+        let gh = self.gate_hasher.clone();
+        let expected_label = halfgates_garbling::degarble_gate(
+            &gh,
             gate.gate_type,
             || {
                 self.consume_ciphertext()

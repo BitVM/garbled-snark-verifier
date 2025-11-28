@@ -19,7 +19,7 @@ use garbled_snark_verifier::{
     test_utils::DummyCircuit,
 };
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
+use rand_chacha::{ChaCha20Rng, ChaChaRng};
 use tracing::{info, info_span};
 
 enum G2EMsg {
@@ -71,7 +71,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         vk: vk.clone(),
     };
 
-    let hasher = Blake3AccumulatingHash::default();
+    let ciphertext_hasher = Blake3AccumulatingHash::default();
 
     info!("Starting garbling of Groth16 verification circuit...");
 
@@ -84,7 +84,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
             inputs.clone(),
             CAPACITY,
             garbling_seed,
-            hasher,
+            ciphertext_hasher,
             garbled_groth16::verify,
         )
     };
@@ -134,6 +134,12 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
     let (evaluator_sender, evaluator_receiver) = crossbeam::channel::unbounded::<G2EMsg>();
     let (ciphertext_to_evaluator_sender, ciphertext_to_evaluator_receiver) =
         crossbeam::channel::unbounded();
+
+    // Derive same gate_hasher from same seed as garbling (for evaluator)
+    let gate_hasher = {
+        let mut rng = ChaChaRng::seed_from_u64(garbling_seed);
+        H::from_rng(&mut rng)
+    };
 
     let garbler = thread::spawn(move || {
         evaluator_sender.send(msg).unwrap();
@@ -190,6 +196,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
                 CAPACITY,
                 true_wire,
                 false_wire,
+                gate_hasher,
                 proxy_receiver,
                 garbled_groth16::verify,
             )

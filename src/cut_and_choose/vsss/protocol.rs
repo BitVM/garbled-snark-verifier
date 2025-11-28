@@ -16,12 +16,12 @@ use crate::{
     AesNiHasher, CommitPhaseOne, EvaluatedWire, LabelCommitHasher, S, WireId,
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
     cut_and_choose::{GarbledWideLabelTable, InstanceWideLabelLookup, Seed},
-    hashers::DefaultLabelCommitHasher,
+    hashers::{DefaultLabelCommitHasher, GateHasher},
 };
 
 /// Messages emitted by the Garbler during Setup (spec Steps 1–4).
-pub enum SetupBroadcast<HHasher: LabelCommitHasher> {
-    Commit(VsssCommit<HHasher>),
+pub enum SetupBroadcast<GH: GateHasher, LH: LabelCommitHasher> {
+    Commit(VsssCommit<GH, LH>),
     OpenInstances(Vec<OpenVsssInstance>, Vec<(usize, InstanceWideLabelLookup)>),
     Assert(Vec<SignatureBytes>),
 }
@@ -77,6 +77,7 @@ where
 {
     // EvaluateMode<AesNiHasher, SRC>{}
     let mut dummy_evaluate_mode = EvaluateMode::<AesNiHasher, ciphertext_source::DummySource>::new(
+        AesNiHasher,
         0,
         S::ZERO,
         S::ZERO,
@@ -103,9 +104,9 @@ where
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(bound = "H: LabelCommitHasher")]
-pub struct VsssCommit<H: LabelCommitHasher = DefaultLabelCommitHasher> {
-    pub circuit_commits: Vec<CommitPhaseOne<H>>,
+#[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
+pub struct VsssCommit<GH: GateHasher, LH: LabelCommitHasher = DefaultLabelCommitHasher> {
+    pub circuit_commits: Vec<CommitPhaseOne<GH, LH>>,
     pub share_commits: Vec<ShareCommits<Canonical<Projective>>>,
     pub polynomial_commits: Vec<PolynomialCommits<Canonical<Projective>>>,
     pub garbling_table_commits: Vec<[u8; 32]>,

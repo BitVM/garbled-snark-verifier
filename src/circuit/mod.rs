@@ -253,6 +253,7 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitBuilder<EvaluateMode<H, SRC>> 
         live_wires_capacity: usize,
         true_wire: u128,
         false_wire: u128,
+        gate_hasher: H,
         source: SRC,
         f: F,
     ) -> StreamingResult<EvaluateMode<H, SRC>, I, O>
@@ -265,6 +266,7 @@ impl<H: GateHasher, SRC: CiphertextSource> CircuitBuilder<EvaluateMode<H, SRC>> 
         CircuitBuilder::run_streaming(
             inputs,
             EvaluateMode::new(
+                gate_hasher,
                 live_wires_capacity,
                 S::from_u128(true_wire),
                 S::from_u128(false_wire),

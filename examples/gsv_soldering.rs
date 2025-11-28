@@ -24,24 +24,28 @@ use rand_chacha::ChaCha20Rng;
 use tracing::{error, info};
 
 // Configuration constants - modify these as needed
-const TOTAL_INSTANCES: usize = 4;
-const FINALIZE_INSTANCES: usize = 2;
+const TOTAL_INSTANCES: usize = 181;
+const FINALIZE_INSTANCES: usize = 7;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
 const IS_PRE_BOOLEAN_EXEC: bool = false;
+const STREAM_PREALLOC_BYTES: u64 = 43_400_000_000; // ~43.4 GB per ciphertext stream (matches expected file size)
+const STREAM_BOUND_CIPHERTEXTS: usize = (1 << 30) / 16; // cap in-flight ciphertexts to ~1 GiB
 
 // Calculate and display total gates to process
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
-use garbled_snark_verifier::hashers::Sha256LabelCommitHasher as ExampleHasher;
+use garbled_snark_verifier::hashers::{
+    Sha256LabelCommitHasher as ExampleLabelHasher, SwankyAesHasher,
+};
 
 /// Messages emitted by the Garbler during Setup (spec Steps 1–4).
 enum SetupBroadcast {
     /// Step 1.2 — `Commit₁(i)` for every instance (ciphertext hash, inputs, outputs, constants).
-    Commit1(Vec<CommitPhaseOne<ExampleHasher>>),
+    Commit1(Vec<CommitPhaseOne<SwankyAesHasher, ExampleLabelHasher>>),
     /// Step 1.4 — `Commit₂(i)` records with nonce-injected input commitments.
-    Commit2(Vec<CommitPhaseTwo<ExampleHasher>>),
+    Commit2(Vec<CommitPhaseTwo<ExampleLabelHasher>>),
     /// Step 3 — seeds for all challenge instances (open set).
     OpenSeeds(Vec<(usize, ccn::Seed)>),
     /// Step 4 — SP1-based soldering proof plus per-instance deltas.
@@ -165,7 +169,7 @@ fn run_garbler(
     // Step 1.2 — Garbler publishes Commit₁ for every instance.
     g2e_tx
         .send(SetupBroadcast::Commit1(
-            g.commit_phase_one::<ExampleHasher>(),
+            g.commit_phase_one::<ExampleLabelHasher>(),
         ))
         .expect("send commits");
 
@@ -177,7 +181,7 @@ fn run_garbler(
     // Step 1.4 — Garbler republishes input commitments blended with the nonce.
     g2e_tx
         .send(SetupBroadcast::Commit2(
-            g.commit_phase_two::<ExampleHasher>(nonce),
+            g.commit_phase_two::<ExampleLabelHasher>(nonce),
         ))
         .expect("send commits");
 
@@ -285,7 +289,11 @@ fn run_evaluator(
         panic!("unexpected message; expected commits")
     };
 
-    let mut eval = ccn::Evaluator::<ExampleHasher>::create(&mut rng, cfg.clone(), commits);
+    let mut eval = ccn::Evaluator::<SwankyAesHasher, ExampleLabelHasher>::create(
+        &mut rng,
+        cfg.clone(),
+        commits,
+    );
 
     let nonce = eval.get_nonce();
 
@@ -307,7 +315,7 @@ fn run_evaluator(
     let (senders, receivers): (Vec<_>, Vec<_>) = finalize_indices
         .iter()
         .map(|&index| {
-            let (tx, rx) = channel::unbounded::<S>();
+            let (tx, rx) = channel::bounded::<S>(STREAM_BOUND_CIPHERTEXTS);
             ((index, tx), (index, rx))
         })
         .unzip();
@@ -336,7 +344,7 @@ fn run_evaluator(
     eval.full_check_commit(
         open_result,
         &receivers,
-        &FileCiphertextHandlerProvider::new(out_dir.clone(), None).unwrap(),
+        &FileCiphertextHandlerProvider::new(out_dir.clone(), Some(STREAM_PREALLOC_BYTES)).unwrap(),
     )
     .expect("full check commit");
 

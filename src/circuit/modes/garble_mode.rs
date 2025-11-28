@@ -1,4 +1,4 @@
-use std::{array, marker::PhantomData, num::NonZero};
+use std::{array, num::NonZero};
 
 use rand::SeedableRng;
 use rand_chacha::ChaChaRng;
@@ -73,12 +73,14 @@ pub struct GarbleMode<H: hashers::GateHasher, CTH: CiphertextHandler> {
     // Store the constant wires
     false_wire: GarbledWire,
     true_wire: GarbledWire,
-    _hasher: std::marker::PhantomData<H>,
+    gate_hasher: H,
 }
 
 impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
+    /// Create a new GarbleMode. The gate hasher is derived from the RNG seeded by `seed`.
     pub fn new(capacity: usize, seed: u64, output_handler: CTH) -> Self {
         let mut rng = ChaChaRng::seed_from_u64(seed);
+        let gate_hasher = H::from_rng(&mut rng);
         let delta = Delta::generate(&mut rng);
 
         // Generate constant wires like the original Garble does
@@ -92,8 +94,13 @@ impl<H: hashers::GateHasher, CTH: CiphertextHandler> GarbleMode<H, CTH> {
             output_handler,
             false_wire,
             true_wire,
-            _hasher: PhantomData,
+            gate_hasher,
         }
+    }
+
+    /// Get the hasher seed for inclusion in commitment
+    pub fn gate_hasher_seed(&self) -> &H::Seed {
+        self.gate_hasher.seed()
     }
 
     pub fn preallocate_input<I: EncodeInput<GarbleMode<H, ()>>>(
@@ -199,7 +206,8 @@ impl<H: GateHasher, CTH: CiphertextHandler> CircuitMode for GarbleMode<H, CTH> {
 
         maybe_log_progress("garbled", gate_id);
 
-        let (c_base, ciphertext): (S, Option<S>) = halfgates_garbling::garble_gate::<H>(
+        let (c_base, ciphertext): (S, Option<S>) = halfgates_garbling::garble_gate(
+            &self.gate_hasher,
             gate.gate_type,
             a_label0,
             b_label0,

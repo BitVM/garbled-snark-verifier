@@ -2,8 +2,10 @@
 //! These mirror the previous implementations under core::gate::garbling::hashers
 //! without functional changes.
 
-use swanky_aes_hash::TweakableCircularCorrelationRobustHash;
-use swanky_block::Block;
+use std::fmt::Debug;
+
+use rand::Rng;
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{S, core::s::S_SIZE};
 
@@ -23,29 +25,44 @@ pub use sha256::{
     Sha256LabelCommitHasher, commit_label_with,
 };
 
-pub trait GateHasher: HashWithGate<1> + HashWithGate<2> {}
-impl<H: HashWithGate<1> + HashWithGate<2>> GateHasher for H {}
+/// Trait for gate hashers used in garbling/degarbling.
+///
+/// Each hasher may have associated seed data (e.g., salt for SwankyAesHasher).
+/// Stateless hashers use `Seed = ()`.
+pub trait GateHasher: HashWithGate<1> + HashWithGate<2> + Clone + Debug + Send + Sync {
+    /// Data needed to reconstruct this hasher. `()` for stateless hashers, `S` for SwankyAes.
+    type Seed: Clone + Debug + PartialEq + Eq + Serialize + DeserializeOwned + Send + Sync;
+
+    /// Create hasher from RNG (used during garbling)
+    fn from_rng<R: Rng>(rng: &mut R) -> Self;
+
+    /// Reconstruct hasher from seed (used during evaluation)
+    fn from_seed(seed: Self::Seed) -> Self;
+
+    /// Get seed from hasher (no separate storage needed)
+    fn seed(&self) -> &Self::Seed;
+}
 
 pub trait HashWithGate<const N: usize>: Clone + Send + Sync {
-    fn hash_with_gate(labels: &[S; N], gate_id: usize) -> [S; N];
+    fn hash_with_gate(&self, labels: &[S; N], gate_id: usize) -> [S; N];
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Blake3Hasher;
 
 impl HashWithGate<2> for Blake3Hasher {
-    fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
+    fn hash_with_gate(&self, labels: &[S; 2], gate_id: usize) -> [S; 2] {
         let [selected_label, other_label] = labels;
 
-        let [h_selected] = Self::hash_with_gate(&[*selected_label], gate_id);
-        let [h_other] = Self::hash_with_gate(&[*other_label], gate_id);
+        let [h_selected] = self.hash_with_gate(&[*selected_label], gate_id);
+        let [h_other] = self.hash_with_gate(&[*other_label], gate_id);
 
         [h_selected, h_other]
     }
 }
 
 impl HashWithGate<1> for Blake3Hasher {
-    fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
+    fn hash_with_gate(&self, label: &[S; 1], gate_id: usize) -> [S; 1] {
         let mut result = [0u8; S_SIZE];
         let mut hasher = blake3::Hasher::new();
 
@@ -58,6 +75,22 @@ impl HashWithGate<1> for Blake3Hasher {
         result.copy_from_slice(&hash.as_bytes()[0..S_SIZE]);
 
         [S::from_bytes(result)]
+    }
+}
+
+impl GateHasher for Blake3Hasher {
+    type Seed = ();
+
+    fn from_rng<R: Rng>(_rng: &mut R) -> Self {
+        Self
+    }
+
+    fn from_seed(_seed: Self::Seed) -> Self {
+        Self
+    }
+
+    fn seed(&self) -> &Self::Seed {
+        &()
     }
 }
 
@@ -76,7 +109,7 @@ pub(crate) fn to_tweak(gate_id: usize) -> [u8; S_SIZE] {
 
 impl HashWithGate<2> for AesNiHasher {
     #[inline(always)]
-    fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
+    fn hash_with_gate(&self, labels: &[S; 2], gate_id: usize) -> [S; 2] {
         let (c0, c1) = aes_ni::aes128_encrypt2_blocks_static_xor(
             labels[0].to_bytes(),
             labels[1].to_bytes(),
@@ -90,46 +123,119 @@ impl HashWithGate<2> for AesNiHasher {
 
 impl HashWithGate<1> for AesNiHasher {
     #[inline(always)]
-    fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
+    fn hash_with_gate(&self, label: &[S; 1], gate_id: usize) -> [S; 1] {
         let c = aes_ni::aes128_encrypt_block_static_xor(label[0].to_bytes(), to_tweak(gate_id))
             .expect("AES backend should be available (HW or software)");
         [S::from_bytes(c)]
     }
 }
 
-/// Double-AES hasher backed by swanky-aes-hash's correlation-robust PRF.
-#[derive(Clone, Debug, Default)]
-pub struct SwankyAesHasher;
+impl GateHasher for AesNiHasher {
+    type Seed = ();
 
-#[inline(always)]
-fn swanky_gate_prf(label: S, gate_id: usize) -> S {
-    // Keep the tweak identical for both HashWithGate<1> and HashWithGate<2> so that
-    // the evaluator recomputes the same value the garbler used, mirroring the AES
-    // hasher semantics.
-    let tweak = gate_id as u128;
-    let block = Block::from_array(label.to_bytes());
-    let hashed = TweakableCircularCorrelationRobustHash::fixed_key().hash(block, tweak);
+    fn from_rng<R: Rng>(_rng: &mut R) -> Self {
+        Self
+    }
 
-    // vectoreyes::U8x16 is a 16-byte block; transmute to a byte array.
-    const _: [u8; S_SIZE] = [0u8; core::mem::size_of::<Block>()];
-    let out: [u8; S_SIZE] = unsafe { core::mem::transmute(hashed) };
-    S::from_bytes(out)
+    fn from_seed(_seed: Self::Seed) -> Self {
+        Self
+    }
+
+    fn seed(&self) -> &Self::Seed {
+        &()
+    }
+}
+
+/// Single-AES hasher
+/// 1-AES circular correlation-robust hash from Guo–Katz–Wang–Yu (ePrint 2019/074, Section 7.3, Theorem 5) combined with
+/// the half-gates salt construction from their Section 5 / Theorem 3:
+///
+/// `H_S(label, tweak) = AES_K(perm(S ⊕ label ⊕ tweak)) ⊕ perm(S ⊕ label ⊕ tweak)`
+///
+/// where `perm(x_L || x_R) = (x_L ⊕ x_R) || x_L`. The salt `S` is public and
+/// must be set once via [`set_garbling_salt`] before hashing.
+#[derive(Clone, Debug)]
+pub struct SwankyAesHasher {
+    pub salt: S,
+}
+
+/// Linear orthomorphism σ from Section 7.3:
+/// `σ(x_L || x_R) = (x_L ⊕ x_R) || x_L`.
+#[inline]
+fn perm_u128(x: S) -> S {
+    let x = x.to_u128();
+    let x_l = x as u64;
+    let x_r = (x >> 64) as u64;
+
+    let y_l = x_l ^ x_r;
+    let y_r = x_l;
+
+    S::from_u128((y_l as u128) | ((y_r as u128) << 64))
+}
+
+#[inline]
+fn hash_label_with_gate(salt: S, label: S, gate_id: usize) -> S {
+    let tweak = S::from_u128(gate_id as u128);
+
+    let x0 = label ^ &tweak ^ &salt;
+
+    let p = perm_u128(x0);
+
+    let c = aes_ni::aes128_encrypt_block_static(p.to_le_bytes()).expect("AES backend unavailable");
+
+    S::from_le_bytes(c) ^ &p
 }
 
 impl HashWithGate<2> for SwankyAesHasher {
     #[inline(always)]
-    fn hash_with_gate(labels: &[S; 2], gate_id: usize) -> [S; 2] {
-        [
-            swanky_gate_prf(labels[0], gate_id),
-            swanky_gate_prf(labels[1], gate_id),
-        ]
+    fn hash_with_gate(&self, labels: &[S; 2], gate_id: usize) -> [S; 2] {
+        let tweak = S::from_u128(gate_id as u128);
+
+        let x0 = labels[0] ^ &tweak ^ &self.salt;
+        let x1 = labels[1] ^ &tweak ^ &self.salt;
+
+        let p0 = perm_u128(x0);
+        let p1 = perm_u128(x1);
+
+        let (c0, c1) = aes_ni::aes128_encrypt2_blocks_static(p0.to_le_bytes(), p1.to_le_bytes())
+            .expect("AES backend unavailable");
+
+        let h0 = S::from_le_bytes(c0) ^ &p0;
+        let h1 = S::from_le_bytes(c1) ^ &p1;
+
+        [h0, h1]
     }
 }
 
 impl HashWithGate<1> for SwankyAesHasher {
     #[inline(always)]
-    fn hash_with_gate(label: &[S; 1], gate_id: usize) -> [S; 1] {
-        [swanky_gate_prf(label[0], gate_id)]
+    fn hash_with_gate(&self, label: &[S; 1], gate_id: usize) -> [S; 1] {
+        [hash_label_with_gate(self.salt, label[0], gate_id)]
+    }
+}
+
+impl SwankyAesHasher {
+    /// Create a new SwankyAesHasher with the given salt.
+    pub fn new(salt: S) -> Self {
+        Self { salt }
+    }
+}
+
+impl GateHasher for SwankyAesHasher {
+    type Seed = S;
+
+    fn from_rng<R: Rng>(rng: &mut R) -> Self {
+        Self {
+            salt: S::random(rng),
+        }
+    }
+
+    fn from_seed(seed: Self::Seed) -> Self {
+        Self { salt: seed }
+    }
+
+    fn seed(&self) -> &Self::Seed {
+        &self.salt
     }
 }
 

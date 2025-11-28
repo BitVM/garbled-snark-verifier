@@ -14,7 +14,7 @@ use garbled_snark_verifier::{
     hashers::{Blake3Hasher, GateHasher, SwankyAesHasher},
 };
 use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha20Rng;
+use rand_chacha::{ChaCha20Rng, ChaChaRng};
 
 // Simple multiplicative circuit for testing
 #[derive(Copy, Clone)]
@@ -96,6 +96,12 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
     let vk_evaluator = vk.clone();
     let proof_clone = proof.clone();
 
+    // Derive same gate_hasher from same seed as garbling (for evaluator)
+    let gate_hasher = {
+        let mut rng = ChaChaRng::seed_from_u64(garbling_seed);
+        H::from_rng(&mut rng)
+    };
+
     // Garbler thread
     let garbler = thread::spawn(move || {
         let inputs = garbled_groth16::GarblerInput {
@@ -130,6 +136,7 @@ fn run_garbler_evaluator_test<H: GateHasher + 'static>(garbling_seed: u64) {
                 CAPACITY,
                 true_wire.select(true).to_u128(),
                 false_wire.select(false).to_u128(),
+                gate_hasher,
                 ciphertext_receiver,
                 garbled_groth16::verify,
             );

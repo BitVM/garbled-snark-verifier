@@ -105,12 +105,19 @@ fn test_garble_evaluate_and_consistency() {
         let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
+        // Derive same gate_hasher from same seed as garbling
+        let gate_hasher = {
+            let mut rng = ChaChaRng::seed_from_u64(seed);
+            Blake3Hasher::from_rng(&mut rng)
+        };
+
         let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
             CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
                 eval_inputs,
                 10,
                 garble_result.true_wire_constant.select(true).to_u128(),
                 garble_result.false_wire_constant.select(false).to_u128(),
+                gate_hasher,
                 receiver,
                 circuit_fn,
             );
@@ -171,12 +178,19 @@ macro_rules! test_gate_consistency {
                     Vec<GarbledWire>,
                 > = CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
+                // Derive same gate_hasher from same seed as garbling
+                let gate_hasher = {
+                    let mut rng = ChaChaRng::seed_from_u64(seed);
+                    Blake3Hasher::from_rng(&mut rng)
+                };
+
                 let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
                     CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
                         eval_inputs,
                         10,
                         garble_result.true_wire_constant.select(true).to_u128(),
                         garble_result.false_wire_constant.select(false).to_u128(),
+                        gate_hasher,
                         receiver,
                         circuit_fn,
                     );
@@ -291,12 +305,19 @@ fn test_not_garble_evaluate_consistency() {
         let garble_result: StreamingResult<GarbleMode<Blake3Hasher, _>, _, Vec<GarbledWire>> =
             CircuitBuilder::streaming_garbling(garble_inputs, 10, seed, sender, circuit_fn);
 
+        // Derive same gate_hasher from same seed as garbling
+        let gate_hasher = {
+            let mut rng = ChaChaRng::seed_from_u64(seed);
+            Blake3Hasher::from_rng(&mut rng)
+        };
+
         let evaluate_result: StreamingResult<_, _, Vec<EvaluatedWire>> =
             CircuitBuilder::<EvaluateMode<Blake3Hasher, _>>::streaming_evaluation(
                 eval_inputs,
                 10,
                 garble_result.true_wire_constant.select(true).to_u128(),
                 garble_result.false_wire_constant.select(false).to_u128(),
+                gate_hasher,
                 receiver,
                 circuit_fn,
             );
@@ -430,12 +451,19 @@ fn test_bn254_fq_complex_chain_garble_eval() {
     let true_s = garble_res.true_wire_constant.select(true);
     let false_s = garble_res.false_wire_constant.select(false);
 
+    // Derive same gate_hasher from same seed as garbling
+    let gate_hasher = {
+        let mut rng = ChaChaRng::seed_from_u64(99);
+        Blake3Hasher::from_rng(&mut rng)
+    };
+
     let eval: StreamingResult<EvaluateMode<Blake3Hasher, _>, _, Vec<EvaluatedWire>> =
         CircuitBuilder::streaming_evaluation(
             inputs,
             100_000,
             true_s.to_u128(),
             false_s.to_u128(),
+            gate_hasher,
             e_receiver,
             fq_complex_circuit,
         );

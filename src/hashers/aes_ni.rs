@@ -463,7 +463,6 @@ pub(crate) mod aes_ni_impl {
     /// Encrypt two 16-byte blocks using a static, shared AES-128 key.
     /// Avoids per-call key schedule and exploits instruction-level parallelism.
     #[inline(always)]
-    #[cfg(test)]
     pub fn aes128_encrypt2_blocks_static(
         b0: [u8; 16],
         b1: [u8; 16],
@@ -687,6 +686,25 @@ pub mod aes_ni_unavailable {
         let mut out = [0u8; 16];
         out.copy_from_slice(&b);
         Some(out)
+    }
+
+    /// Encrypt two 16-byte blocks using a static, shared AES-128 key.
+    #[inline(always)]
+    pub fn aes128_encrypt2_blocks_static(
+        b0: [u8; 16],
+        b1: [u8; 16],
+    ) -> Option<([u8; 16], [u8; 16])> {
+        let cipher = get_or_init_static_cipher();
+        let mut blocks = [
+            GenericArray::clone_from_slice(&b0),
+            GenericArray::clone_from_slice(&b1),
+        ];
+        cipher.encrypt_blocks(&mut blocks);
+        let mut out0 = [0u8; 16];
+        let mut out1 = [0u8; 16];
+        out0.copy_from_slice(&blocks[0]);
+        out1.copy_from_slice(&blocks[1]);
+        Some((out0, out1))
     }
 
     /// Encrypt a single block using the static key, applying a 128-bit XOR mask before encryption.

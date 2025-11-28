@@ -28,6 +28,7 @@ use crate::{
         vsss::{OpenVsssInstance, VsssCommit},
         write_commit_hex,
     },
+    hashers::GateHasher,
 };
 #[cfg(feature = "sp1-soldering")]
 use crate::{
@@ -36,28 +37,28 @@ use crate::{
 };
 
 #[derive(Default, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound = "H: LabelCommitHasher")]
-pub enum Stage<H: LabelCommitHasher> {
+#[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
+pub enum Stage<GH: GateHasher, LH: LabelCommitHasher> {
     #[default]
     Empty,
-    Created(Vec<CommitPhaseOne<H>>),
+    Created(Vec<CommitPhaseOne<GH, LH>>),
     Filled {
-        first: Vec<CommitPhaseOne<H>>,
-        second: Vec<CommitPhaseTwo<H>>,
+        first: Vec<CommitPhaseOne<GH, LH>>,
+        second: Vec<CommitPhaseTwo<LH>>,
     },
     Vsss {
-        commits: VsssCommit<H>,
+        commits: VsssCommit<GH, LH>,
     },
     #[cfg(feature = "sp1-soldering")]
     Soldered {
-        first: Vec<CommitPhaseOne<H>>,
-        second: Vec<CommitPhaseTwo<H>>,
+        first: Vec<CommitPhaseOne<GH, LH>>,
+        second: Vec<CommitPhaseTwo<LH>>,
         soldering_deltas: Vec<Vec<(S, S)>>,
     },
 }
 
-impl<H: LabelCommitHasher> Stage<H> {
-    fn get_commit_if_ready(&self, regarbled: bool) -> Option<&[CommitPhaseOne<H>]> {
+impl<GH: GateHasher, LH: LabelCommitHasher> Stage<GH, LH> {
+    fn get_commit_if_ready(&self, regarbled: bool) -> Option<&[CommitPhaseOne<GH, LH>]> {
         if !regarbled {
             return None;
         }
@@ -77,10 +78,11 @@ impl<H: LabelCommitHasher> Stage<H> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(bound = "H: LabelCommitHasher")]
+#[serde(bound = "GH: GateHasher, LH: LabelCommitHasher")]
 pub struct Evaluator<
     I: CircuitInput + Clone + Serialize + DeserializeOwned,
-    H: LabelCommitHasher = DefaultLabelCommitHasher,
+    GH: GateHasher = SwankyAesHasher,
+    LH: LabelCommitHasher = DefaultLabelCommitHasher,
 > {
     config: Config<I>,
 
@@ -90,21 +92,18 @@ pub struct Evaluator<
     to_finalize: Box<[usize]>,
     /// Tracks whether opened instances have been successfully regarbled and verified
     regarbled: bool,
-    stage: Stage<H>,
+    stage: Stage<GH, LH>,
 }
 
-impl<I, H> Evaluator<I, H>
+impl<I, GH, LH> Evaluator<I, GH, LH>
 where
-    I: CircuitInput
-        + Clone
-        + Send
-        + Sync
-        + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
+    I: CircuitInput + Clone + Send + Sync + EncodeInput<GarbleMode<GH, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send + Sync,
     I: Serialize + DeserializeOwned,
-    H: LabelCommitHasher,
+    GH: GateHasher + 'static,
+    LH: LabelCommitHasher,
 {
-    pub fn create_vsss(mut rng: impl Rng, config: Config<I>, commits: VsssCommit<H>) -> Self {
+    pub fn create_vsss(mut rng: impl Rng, config: Config<I>, commits: VsssCommit<GH, LH>) -> Self {
         let polynomial_commits = commits
             .polynomial_commits
             .iter()
@@ -180,7 +179,11 @@ where
     }
 
     // Generate `to_finalize` with `rng` based on data on `Config`
-    pub fn create(mut rng: impl Rng, config: Config<I>, commits: Vec<CommitPhaseOne<H>>) -> Self {
+    pub fn create(
+        mut rng: impl Rng,
+        config: Config<I>,
+        commits: Vec<CommitPhaseOne<GH, LH>>,
+    ) -> Self {
         assert!(
             config.to_finalize <= config.total,
             "to_finalize must be <= total"
@@ -211,7 +214,7 @@ where
         &self.config
     }
 
-    pub fn fill_second_commit(&mut self, commits: Vec<CommitPhaseTwo<H>>) {
+    pub fn fill_second_commit(&mut self, commits: Vec<CommitPhaseTwo<LH>>) {
         let first = match &mut self.stage {
             Stage::Created(first) => mem::take(first),
             _ => panic!("fill_second_commit can only be called once"),
@@ -228,10 +231,10 @@ where
     }
 
     /// Get both phase one and phase two commitments if available (backward compatibility)
-    pub fn get_commitment(&self) -> Option<super::Commitment<H>>
+    pub fn get_commitment(&self) -> Option<super::Commitment<GH, LH>>
     where
-        CommitPhaseOne<H>: Clone,
-        CommitPhaseTwo<H>: Clone,
+        CommitPhaseOne<GH, LH>: Clone,
+        CommitPhaseTwo<LH>: Clone,
     {
         match &self.stage {
             Stage::Filled { first, second } => Some((first.clone(), second.clone())),
@@ -265,7 +268,7 @@ where
     }
 
     /// Get a specific commit from phase one by index (backward compatibility)
-    pub fn get_commit_phase_one(&self, index: usize) -> Option<&CommitPhaseOne<H>> {
+    pub fn get_commit_phase_one(&self, index: usize) -> Option<&CommitPhaseOne<GH, LH>> {
         match &self.stage {
             Stage::Empty => None,
             Stage::Created(first) => first.get(index),
@@ -302,10 +305,7 @@ where
         CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
-        F: Fn(
-                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
-                &I::WireRepr,
-            ) -> WireId
+        F: Fn(&mut StreamingMode<GarbleMode<GH, Blake3AccumulatingHash>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -375,7 +375,7 @@ where
                         info!("Starting regarbling of circuit (cut-and-choose)");
 
                         let res: StreamingResult<
-                            GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
+                            GarbleMode<GH, Blake3AccumulatingHash>,
                             I,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
@@ -386,8 +386,11 @@ where
                             builder,
                         );
 
-                        let res = res.into();
-                        let regarbling_first_commit = CommitPhaseOne::<H>::from_instance(&res);
+                        let res = GarbledInstance::from_streaming_result(
+                            res,
+                            first_commit.gate_hasher_seed().clone(),
+                        );
+                        let regarbling_first_commit = CommitPhaseOne::<GH, LH>::from_instance(&res);
 
                         if &regarbling_first_commit != first_commit {
                             error!("regarbling failed, first commit not equal");
@@ -395,7 +398,7 @@ where
                         }
 
                         let regarbling_second_commit =
-                            CommitPhaseTwo::<H>::from_instance(&res, nonce);
+                            CommitPhaseTwo::<LH>::from_instance(&res, nonce);
 
                         if regarbling_second_commit.input_commitments()
                             != second_commit.input_commitments()
@@ -430,10 +433,7 @@ where
         builder: F,
     ) -> Result<(), ()>
     where
-        F: Fn(
-                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
-                &I::WireRepr,
-            ) -> WireId
+        F: Fn(&mut StreamingMode<GarbleMode<GH, Blake3AccumulatingHash>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -476,7 +476,7 @@ where
                     info!("Starting regarbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
+                        GarbleMode<GH, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -487,15 +487,18 @@ where
                         builder,
                     );
 
-                    let res = res.into();
-                    let regarbling_first_commit = CommitPhaseOne::<H>::from_instance(&res);
+                    let res = GarbledInstance::from_streaming_result(
+                        res,
+                        first_commit.gate_hasher_seed().clone(),
+                    );
+                    let regarbling_first_commit = CommitPhaseOne::<GH, LH>::from_instance(&res);
 
                     if &regarbling_first_commit != first_commit {
                         error!("regarbling failed, first commit not equal");
                         return Err(());
                     }
 
-                    let regarbling_second_commit = CommitPhaseTwo::<H>::from_instance(&res, nonce);
+                    let regarbling_second_commit = CommitPhaseTwo::<LH>::from_instance(&res, nonce);
 
                     if regarbling_second_commit.input_commitments()
                         != second_commit.input_commitments()
@@ -531,10 +534,7 @@ where
         CHandlerProvider: CiphertextHandlerProvider + Send + Sync,
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
-        F: Fn(
-                &mut StreamingMode<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>,
-                &I::WireRepr,
-            ) -> WireId
+        F: Fn(&mut StreamingMode<GarbleMode<GH, Blake3AccumulatingHash>>, &I::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -552,124 +552,145 @@ where
         let to_finalize = &self.to_finalize;
 
         let secp = vsss::Secp256k1::new();
-        info!("Evaluator: verifying share commits...");
+        let share_commits = &commits.share_commits;
+        let garbling_table_commits = &commits.garbling_table_commits;
 
-        super::get_optimized_pool().install(|| {
-            commits
-                .share_commits
-                .iter()
-                .enumerate()
-                .par_bridge()
-                .for_each(|(i, share_commits)| {
-                    let shares = open_instance_data
-                        .iter()
-                        .map(|x| (x.index, x.shares[i].0))
-                        .collect_vec();
+        info!("Evaluator: running share verification and regarbling in parallel...");
 
-                    share_commits
-                        .from_canonical()
-                        .verify_shares(&secp, &shares)
-                        .expect("Received shares inconsistent with commits");
-                })
+        // Run share commit verification AND regarbling in parallel using rayon::join
+        let (share_verify_result, regarble_result) = super::get_optimized_pool().install(|| {
+            rayon::join(
+                // Task 1: Verify share commits (secp256k1)
+                || {
+                    info!("Evaluator: verifying share commits...");
+                    let result = share_commits.iter().enumerate().par_bridge().try_for_each(
+                        |(i, share_commit)| {
+                            let shares = open_instance_data
+                                .iter()
+                                .map(|x| (x.index, x.shares[i].0))
+                                .collect_vec();
+
+                            share_commit
+                                .from_canonical()
+                                .verify_shares(&secp, &shares)
+                                .map_err(|_| ())
+                        },
+                    );
+                    info!("Evaluator: finished verifying share commits...");
+                    result
+                },
+                // Task 2: Regarbling and ciphertext verification
+                || {
+                    iter.par_bridge()
+                        .map(|(index, first_commit)| {
+                            if to_finalize.contains(&index) {
+                                let mut source = match ciphertext_sources_provider.source_for(index)
+                                {
+                                    Ok(source) => source,
+                                    Err(err) => {
+                                        error!(index, ?err, "failed to get ciphertext source");
+                                        return Err(());
+                                    }
+                                };
+
+                                let mut handler =
+                                    match ciphertext_handler_provider.handler_for(index) {
+                                        Ok(sink) => sink,
+                                        Err(err) => {
+                                            error!(index, ?err, "failed to create ciphertext sink");
+                                            return Err(());
+                                        }
+                                    };
+
+                                while let Some(s) = source.recv() {
+                                    handler.handle(s);
+                                }
+
+                                let computed_commit: CiphertextCommit = handler.finalize().into();
+
+                                if computed_commit != first_commit.ciphertext_hash() {
+                                    error!("ciphertext corrupted");
+                                    return Err(());
+                                }
+
+                                let wide_label_lookup = wide_label_lookups
+                                    .iter()
+                                    .find(|x| x.0 == index)
+                                    .unwrap()
+                                    .1
+                                    .clone();
+                                let tables_hash =
+                                    GarbledWideLabelTable::aggregate_hash(&wide_label_lookup);
+                                if tables_hash != garbling_table_commits[index] {
+                                    error!("wide label table corrupted");
+                                    return Err(());
+                                }
+
+                                Ok(())
+                            } else {
+                                let Some(info) =
+                                    open_instance_data.iter().find(|x| x.index == index)
+                                else {
+                                    error!("failed to find seed");
+                                    return Err(());
+                                };
+                                let garbling_seed = info.seed;
+
+                                let inputs = inputs.clone();
+                                let hasher = Blake3AccumulatingHash::default();
+
+                                let span = tracing::info_span!("regarble", instance = index);
+                                let _enter = span.enter();
+
+                                info!("Starting regarbling of circuit (cut-and-choose)");
+
+                                let res: StreamingResult<
+                                    GarbleMode<GH, Blake3AccumulatingHash>,
+                                    I,
+                                    GarbledWire,
+                                > = CircuitBuilder::streaming_garbling(
+                                    inputs.clone(),
+                                    live_capacity,
+                                    garbling_seed,
+                                    hasher,
+                                    builder,
+                                );
+
+                                let instance = GarbledInstance::from_streaming_result(
+                                    res,
+                                    first_commit.gate_hasher_seed().clone(),
+                                );
+                                let wide_labels = info.shares.iter().map(|x| x.0).collect_vec();
+                                let tables = GarbledWideLabelTable::build_all(
+                                    &wide_labels,
+                                    &instance.input_wire_values,
+                                );
+                                let tables_hash = GarbledWideLabelTable::aggregate_hash(&tables);
+                                if tables_hash != garbling_table_commits[index] {
+                                    error!("regarbling failed, wide label table hash not equal");
+                                    return Err(());
+                                }
+
+                                let regarbling_first_commit =
+                                    CommitPhaseOne::<GH, LH>::from_instance(&instance);
+                                if &regarbling_first_commit != first_commit {
+                                    error!("regarbling failed, first commit not equal");
+                                    return Err(());
+                                }
+
+                                Ok(())
+                            }
+                        })
+                        .collect::<Result<Vec<()>, ()>>()
+                },
+            )
         });
 
-        info!("Evaluator: finished verifying share commits...");
-
-        super::get_optimized_pool().install(|| {
-            iter.par_bridge()
-                .map(|(index, first_commit)| {
-                    if to_finalize.contains(&index) {
-                        let mut source = match ciphertext_sources_provider.source_for(index) {
-                            Ok(source) => source,
-                            Err(err) => {
-                                error!(index, ?err, "failed to get ciphertext source");
-                                return Err(());
-                            }
-                        };
-
-                        let mut handler = match ciphertext_handler_provider.handler_for(index) {
-                            Ok(sink) => sink,
-                            Err(err) => {
-                                error!(index, ?err, "failed to create ciphertext sink");
-                                return Err(());
-                            }
-                        };
-
-                        while let Some(s) = source.recv() {
-                            handler.handle(s);
-                        }
-
-                        let computed_commit: CiphertextCommit = handler.finalize().into();
-
-                        if computed_commit != first_commit.ciphertext_hash() {
-                            error!("ciphertext corrupted");
-                            return Err(());
-                        }
-
-                        let wide_label_lookup = wide_label_lookups
-                            .iter()
-                            .find(|x| x.0 == index)
-                            .unwrap()
-                            .1
-                            .clone();
-                        let tables_hash = GarbledWideLabelTable::aggregate_hash(&wide_label_lookup);
-                        if tables_hash != commits.garbling_table_commits[index] {
-                            error!("wide label table corrupted");
-                            return Err(());
-                        }
-
-                        Ok(())
-                    } else {
-                        let Some(info) = open_instance_data.iter().find(|x| x.index == index)
-                        else {
-                            error!("failed to find seed");
-                            return Err(());
-                        };
-                        let garbling_seed = info.seed;
-
-                        let inputs = inputs.clone();
-                        let hasher = Blake3AccumulatingHash::default();
-
-                        let span = tracing::info_span!("regarble", instance = index);
-                        let _enter = span.enter();
-
-                        info!("Starting regarbling of circuit (cut-and-choose)");
-
-                        let res: StreamingResult<
-                            GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>,
-                            I,
-                            GarbledWire,
-                        > = CircuitBuilder::streaming_garbling(
-                            inputs.clone(),
-                            live_capacity,
-                            garbling_seed,
-                            hasher,
-                            builder,
-                        );
-
-                        let instance = GarbledInstance::from(res);
-                        let wide_labels = info.shares.iter().map(|x| x.0).collect_vec();
-                        let tables = GarbledWideLabelTable::build_all(
-                            &wide_labels,
-                            &instance.input_wire_values,
-                        );
-                        let tables_hash = GarbledWideLabelTable::aggregate_hash(&tables);
-                        if tables_hash != commits.garbling_table_commits[index] {
-                            error!("regarbling failed, wide label table hash not equal");
-                            return Err(());
-                        }
-
-                        let regarbling_first_commit = CommitPhaseOne::<H>::from_instance(&instance);
-                        if &regarbling_first_commit != first_commit {
-                            error!("regarbling failed, first commit not equal");
-                            return Err(());
-                        }
-
-                        Ok(())
-                    }
-                })
-                .collect::<Result<Vec<()>, ()>>()
+        // Check both results
+        share_verify_result.map_err(|_| {
+            error!("Share commit verification failed");
         })?;
+        regarble_result?;
 
         self.regarbled = true;
 
@@ -683,17 +704,18 @@ mod test_utils {
 
     use super::*;
 
-    impl<I, H> Evaluator<I, H>
+    impl<I, GH, LH> Evaluator<I, GH, LH>
     where
         I: CircuitInput + Clone + Serialize + DeserializeOwned,
-        H: LabelCommitHasher,
+        GH: GateHasher,
+        LH: LabelCommitHasher,
     {
         pub fn from_raw_parts(
             config: Config<I>,
             nonce: u128,
             to_finalize: Box<[usize]>,
             regarbled: bool,
-            stage: Stage<H>,
+            stage: Stage<GH, LH>,
         ) -> Self {
             Self {
                 config,
@@ -704,7 +726,8 @@ mod test_utils {
             }
         }
 
-        pub fn into_raw_parts(self) -> (Config<I>, S, Box<[usize]>, bool, Stage<H>) {
+        #[allow(clippy::type_complexity)]
+        pub fn into_raw_parts(self) -> (Config<I>, S, Box<[usize]>, bool, Stage<GH, LH>) {
             (
                 self.config,
                 self.nonce,
@@ -716,32 +739,36 @@ mod test_utils {
     }
 
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(bound = "I: CircuitInput + Clone + Serialize + DeserializeOwned, H: LabelCommitHasher")]
-    pub struct EvaluatorRawParts<I, H>
+    #[serde(
+        bound = "I: CircuitInput + Clone + Serialize + DeserializeOwned, GH: GateHasher, LH: LabelCommitHasher"
+    )]
+    pub struct EvaluatorRawParts<I, GH, LH>
     where
         I: CircuitInput + Clone + Serialize + DeserializeOwned,
-        H: LabelCommitHasher,
+        GH: GateHasher,
+        LH: LabelCommitHasher,
     {
         pub config: Config<I>,
         pub nonce: S,
         pub to_finalize: Box<[usize]>,
         pub regarbled: bool,
-        pub stage: Stage<H>,
+        pub stage: Stage<GH, LH>,
     }
 
-    impl<I, H> From<EvaluatorRawParts<I, H>> for Evaluator<I, H>
+    impl<I, GH, LH> From<EvaluatorRawParts<I, GH, LH>> for Evaluator<I, GH, LH>
     where
         I: CircuitInput
             + Clone
             + Send
             + Sync
-            + EncodeInput<GarbleMode<SwankyAesHasher, Blake3AccumulatingHash>>
+            + EncodeInput<GarbleMode<GH, Blake3AccumulatingHash>>
             + Serialize
             + DeserializeOwned,
         <I as CircuitInput>::WireRepr: Send + Sync,
-        H: LabelCommitHasher,
+        GH: GateHasher + 'static,
+        LH: LabelCommitHasher,
     {
-        fn from(parts: EvaluatorRawParts<I, H>) -> Self {
+        fn from(parts: EvaluatorRawParts<I, GH, LH>) -> Self {
             Self::from_raw_parts(
                 parts.config,
                 parts.nonce.to_u128(),
@@ -752,12 +779,13 @@ mod test_utils {
         }
     }
 
-    impl<I, H> From<Evaluator<I, H>> for EvaluatorRawParts<I, H>
+    impl<I, GH, LH> From<Evaluator<I, GH, LH>> for EvaluatorRawParts<I, GH, LH>
     where
         I: CircuitInput + Clone + Serialize + DeserializeOwned,
-        H: LabelCommitHasher,
+        GH: GateHasher,
+        LH: LabelCommitHasher,
     {
-        fn from(value: Evaluator<I, H>) -> Self {
+        fn from(value: Evaluator<I, GH, LH>) -> Self {
             let (config, nonce, to_finalize, regarbled, stage) = value.into_raw_parts();
             Self {
                 config,
@@ -911,10 +939,11 @@ impl<H: LabelCommitHasher> fmt::Display for ConsistencyError<H> {
     }
 }
 
-impl<I, H> Evaluator<I, H>
+impl<I, GH, LH> Evaluator<I, GH, LH>
 where
     I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
-    H: LabelCommitHasher,
+    GH: GateHasher,
+    LH: LabelCommitHasher,
 {
     /// Evaluate all finalized instances from saved ciphertext files in `folder`.
     /// Returns `(index, EvaluatedWire)` pairs.
@@ -927,15 +956,12 @@ where
         input_cases: Vec<EvaluatorCaseInput<E>>,
         capacity: usize,
         builder: F,
-    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<H>>
+    ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<LH>>
     where
         CR: 'static + CiphertextSourceProvider + Sync,
         <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
-        E: CircuitInput + Send + EncodeInput<EvaluateMode<SwankyAesHasher, CR::Source>>,
-        F: Fn(
-                &mut StreamingMode<EvaluateMode<SwankyAesHasher, CR::Source>>,
-                &E::WireRepr,
-            ) -> WireId
+        E: CircuitInput + Send + EncodeInput<EvaluateMode<GH, CR::Source>>,
+        F: Fn(&mut StreamingMode<EvaluateMode<GH, CR::Source>>, &E::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
@@ -964,18 +990,21 @@ where
 
                     let _span = tracing::info_span!("evaluate", instance = index).entered();
 
-                    let result = CircuitBuilder::<EvaluateMode<SwankyAesHasher, CR::Source>>::streaming_evaluation::<
-                        _,
-                        _,
-                        EvaluatedWire,
-                    >(
-                        eval_input,
-                        capacity,
-                        commit.true_constant(),
-                        commit.false_constant(),
-                        source,
-                        builder,
-                    );
+                    let gate_hasher = GH::from_seed(commit.gate_hasher_seed().clone());
+                    let result =
+                        CircuitBuilder::<EvaluateMode<GH, CR::Source>>::streaming_evaluation::<
+                            _,
+                            _,
+                            EvaluatedWire,
+                        >(
+                            eval_input,
+                            capacity,
+                            commit.true_constant(),
+                            commit.false_constant(),
+                            gate_hasher,
+                            source,
+                            builder,
+                        );
 
                     if expected_input_commits.len() != result.input_wire_values.len() {
                         return Err(ConsistencyError::InputLabelsCountMismatch {
@@ -991,7 +1020,7 @@ where
                         .enumerate()
                     {
                         let expected_hash = expected_commit.commit_for_value(evaluated_wire.value);
-                        let actual_hash = commit_label_with::<H>(evaluated_wire.active_label);
+                        let actual_hash = commit_label_with::<LH>(evaluated_wire.active_label);
 
                         if actual_hash != expected_hash {
                             let mut actual_commit = expected_commit.clone();
@@ -1021,7 +1050,7 @@ where
                         });
                     }
 
-                    let output_hash = commit_label_with::<H>(result.output_value.active_label);
+                    let output_hash = commit_label_with::<LH>(result.output_value.active_label);
 
                     let expected_output_hash = if result.output_value.value {
                         commit.output_commit_true()
@@ -1139,9 +1168,10 @@ impl fmt::Display for SolderingCheckError {
     }
 }
 
-impl<I> Evaluator<I, super::Sha256LabelCommitHasher>
+impl<I, GH> Evaluator<I, GH, super::Sha256LabelCommitHasher>
 where
     I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
+    GH: GateHasher,
 {
     /// Verify the garbler-provided soldering proof and compare its bound commitments
     /// against local commits for the finalized instances. Returns the verified
@@ -1374,9 +1404,10 @@ where
 }
 
 #[cfg(feature = "sp1-soldering")]
-impl<I> Evaluator<I, Sha256LabelCommitHasher>
+impl<I, GH> Evaluator<I, GH, Sha256LabelCommitHasher>
 where
     I: CircuitInput + Clone + Send + Sync + Serialize + DeserializeOwned,
+    GH: GateHasher,
 {
     #[allow(clippy::result_large_err)]
     pub fn evaluate_with_soldered_instances_from<E, F, CR>(
@@ -1387,16 +1418,10 @@ where
         builder: F,
     ) -> Result<Vec<(usize, EvaluatedWire)>, ConsistencyError<Sha256LabelCommitHasher>>
     where
-        E: CircuitInput
-            + Send
-            + EncodeInput<EvaluateMode<SwankyAesHasher, CR::Source>>
-            + SolderInput,
+        E: CircuitInput + Send + EncodeInput<EvaluateMode<GH, CR::Source>> + SolderInput,
         CR: 'static + CiphertextSourceProvider + Send + Sync,
         <CR::Source as CiphertextSource>::Result: Into<CiphertextCommit>,
-        F: Fn(
-                &mut StreamingMode<EvaluateMode<SwankyAesHasher, CR::Source>>,
-                &E::WireRepr,
-            ) -> WireId
+        F: Fn(&mut StreamingMode<EvaluateMode<GH, CR::Source>>, &E::WireRepr) -> WireId
             + Send
             + Sync
             + Copy,
