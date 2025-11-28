@@ -43,7 +43,7 @@ jobs:
         uses: aig787/cargo-udeps-action@v1
         with:
           version: "latest"
-          args: "--workspace --no-default-features --all-targets --release"
+          args: "--workspace --no-default-features --features test-utils --all-targets --release"
 
   codespell:
     name: Check spelling
