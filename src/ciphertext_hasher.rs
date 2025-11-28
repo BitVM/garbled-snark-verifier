@@ -1,88 +1,176 @@
 use std::array;
 
-use crate::{
-    S,
-    circuit::MultiCiphertextHandler,
-    hashers::aes_ni::{aes128_encrypt_block_static, aes128_encrypt_blocks_static_xor_masks},
-};
+use crate::{S, circuit::MultiCiphertextHandler};
 
-// It can be any, we use it to use AES as a hash.
-pub struct AESAccumulatingHash {
-    running_hash: S,
+/// Batch size for Blake3 accumulating hash (64 ciphertexts = 1KB)
+pub const BATCH_SIZE: usize = 64;
+/// Output hash size (full Blake3)
+pub const HASH_OUTPUT_SIZE: usize = 32;
+/// Batch input buffer size: 8 bytes index + 64 * 16 bytes ciphertexts
+const BATCH_INPUT_SIZE: usize = 8 + BATCH_SIZE * 16;
+
+/// Blake3-based accumulating hash optimized for high-volume ciphertext hashing.
+///
+/// Designed for 2.7B+ ciphertexts with zero heap allocations in hot path:
+/// - Batches 64 ciphertexts (1KB) before hashing
+/// - Uses batch index prefix for domain separation
+/// - Sequential batch hash combination (order-dependent)
+pub struct Blake3AccumulatingHash {
+    buffer: [S; BATCH_SIZE],
+    buffer_pos: usize,
+    running_hasher: blake3::Hasher,
+    batch_index: u64,
+    batch_input: [u8; BATCH_INPUT_SIZE],
 }
 
-impl Default for AESAccumulatingHash {
+impl Default for Blake3AccumulatingHash {
     fn default() -> Self {
         Self {
-            running_hash: S::ZERO,
+            buffer: [S::ZERO; BATCH_SIZE],
+            buffer_pos: 0,
+            running_hasher: blake3::Hasher::new(),
+            batch_index: 0,
+            batch_input: [0u8; BATCH_INPUT_SIZE],
         }
     }
 }
 
-impl AESAccumulatingHash {
-    pub fn digest(input: S) -> [u8; 16] {
+impl Blake3AccumulatingHash {
+    pub fn digest(input: S) -> [u8; HASH_OUTPUT_SIZE] {
         let mut h = Self::default();
         h.update(input);
         h.finalize()
     }
 
+    #[inline]
     pub fn update(&mut self, ciphertext: S) {
-        // Use the static pre-expanded AES key to avoid per-call key schedule cost.
-        self.running_hash = S::from_bytes(
-            aes128_encrypt_block_static((self.running_hash ^ &ciphertext).to_bytes())
-                .expect("AES backend should be available (HW or software)"),
-        );
+        self.buffer[self.buffer_pos] = ciphertext;
+        self.buffer_pos += 1;
+        if self.buffer_pos == BATCH_SIZE {
+            self.flush_batch();
+        }
     }
 
-    pub fn finalize(&self) -> [u8; 16] {
-        self.running_hash.to_bytes()
+    fn flush_batch(&mut self) {
+        if self.buffer_pos == 0 {
+            return;
+        }
+
+        // Write batch index to pre-allocated buffer (first 8 bytes)
+        self.batch_input[..8].copy_from_slice(&self.batch_index.to_le_bytes());
+
+        // Serialize ciphertexts to pre-allocated buffer (no allocation!)
+        for i in 0..self.buffer_pos {
+            let start = 8 + i * 16;
+            self.batch_input[start..start + 16].copy_from_slice(&self.buffer[i].to_bytes());
+        }
+
+        // Hash only the filled portion (handles partial batches)
+        let filled_len = 8 + self.buffer_pos * 16;
+        let batch_hash = blake3::hash(&self.batch_input[..filled_len]);
+
+        // Feed batch hash into running hasher (order-dependent)
+        self.running_hasher.update(batch_hash.as_bytes());
+
+        // Increment batch index, reset position
+        self.batch_index += 1;
+        self.buffer_pos = 0;
+    }
+
+    pub fn finalize(mut self) -> [u8; HASH_OUTPUT_SIZE] {
+        self.flush_batch();
+        *self.running_hasher.finalize().as_bytes()
     }
 }
 
-pub struct AESAccumulatingHashBatch<const N: usize> {
-    running_hashes: [[u8; 16]; N],
+/// Batch version for N parallel lanes, used in multigarbling mode.
+pub struct Blake3AccumulatingHashBatch<const N: usize> {
+    buffers: [[S; BATCH_SIZE]; N],
+    buffer_positions: [usize; N],
+    running_hashers: [blake3::Hasher; N],
+    batch_indices: [u64; N],
+    batch_inputs: [[u8; BATCH_INPUT_SIZE]; N],
 }
 
-impl<const N: usize> Default for AESAccumulatingHashBatch<N> {
+impl<const N: usize> Default for Blake3AccumulatingHashBatch<N> {
     fn default() -> Self {
         Self {
-            running_hashes: [[0u8; 16]; N],
+            buffers: [[S::ZERO; BATCH_SIZE]; N],
+            buffer_positions: [0; N],
+            running_hashers: array::from_fn(|_| blake3::Hasher::new()),
+            batch_indices: [0; N],
+            batch_inputs: [[0u8; BATCH_INPUT_SIZE]; N],
         }
     }
 }
 
-pub struct AESHashBatchResult<const N: usize>(pub [[u8; 16]; N]);
+impl<const N: usize> Blake3AccumulatingHashBatch<N> {
+    fn flush_batch(&mut self, lane: usize) {
+        let pos = self.buffer_positions[lane];
+        if pos == 0 {
+            return;
+        }
 
-impl<const N: usize> Default for AESHashBatchResult<N> {
-    fn default() -> Self {
-        AESHashBatchResult([[0u8; 16]; N])
+        let batch_input = &mut self.batch_inputs[lane];
+        let batch_index = self.batch_indices[lane];
+
+        // Write batch index
+        batch_input[..8].copy_from_slice(&batch_index.to_le_bytes());
+
+        // Serialize ciphertexts
+        for i in 0..pos {
+            let start = 8 + i * 16;
+            batch_input[start..start + 16].copy_from_slice(&self.buffers[lane][i].to_bytes());
+        }
+
+        // Hash the filled portion
+        let filled_len = 8 + pos * 16;
+        let batch_hash = blake3::hash(&batch_input[..filled_len]);
+
+        // Feed to running hasher
+        self.running_hashers[lane].update(batch_hash.as_bytes());
+
+        // Reset
+        self.batch_indices[lane] += 1;
+        self.buffer_positions[lane] = 0;
     }
 }
 
-impl<const N: usize> IntoIterator for AESHashBatchResult<N> {
-    type Item = [u8; 16];
-    type IntoIter = std::array::IntoIter<[u8; 16], N>;
+pub struct Blake3HashBatchResult<const N: usize>(pub [[u8; HASH_OUTPUT_SIZE]; N]);
+
+impl<const N: usize> Default for Blake3HashBatchResult<N> {
+    fn default() -> Self {
+        Blake3HashBatchResult([[0u8; HASH_OUTPUT_SIZE]; N])
+    }
+}
+
+impl<const N: usize> IntoIterator for Blake3HashBatchResult<N> {
+    type Item = [u8; HASH_OUTPUT_SIZE];
+    type IntoIter = std::array::IntoIter<[u8; HASH_OUTPUT_SIZE], N>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
     }
 }
 
-impl<const N: usize> MultiCiphertextHandler<N> for AESAccumulatingHashBatch<N> {
-    type Result = AESHashBatchResult<N>;
+impl<const N: usize> MultiCiphertextHandler<N> for Blake3AccumulatingHashBatch<N> {
+    type Result = Blake3HashBatchResult<N>;
 
     fn handle(&mut self, cts: [S; N]) {
-        let blocks: [[u8; 16]; N] = array::from_fn(|i| cts[i].to_bytes());
-        let masks: [[u8; 16]; N] = self.running_hashes;
-        // SAFETY: When the AES-NI backend is compiled in, the re-exported function requires
-        // `aes`/`sse2` CPU features. The crate enables those features via `.cargo/config.toml`,
-        // so the call site satisfies the preconditions.
-        #[allow(unused_unsafe)]
-        let out = unsafe { aes128_encrypt_blocks_static_xor_masks::<N>(blocks, masks) }
-            .expect("AES backend should be available (HW or software)");
-        self.running_hashes = out;
+        for (i, ct) in cts.into_iter().enumerate() {
+            self.buffers[i][self.buffer_positions[i]] = ct;
+            self.buffer_positions[i] += 1;
+            if self.buffer_positions[i] == BATCH_SIZE {
+                self.flush_batch(i);
+            }
+        }
     }
 
-    fn finalize(self) -> Self::Result {
-        AESHashBatchResult(self.running_hashes)
+    fn finalize(mut self) -> Self::Result {
+        let mut result = [[0u8; HASH_OUTPUT_SIZE]; N];
+        for (i, res) in result.iter_mut().enumerate() {
+            self.flush_batch(i);
+            *res = *self.running_hashers[i].finalize().as_bytes();
+        }
+        Blake3HashBatchResult(result)
     }
 }

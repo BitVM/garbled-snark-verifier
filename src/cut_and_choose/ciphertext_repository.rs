@@ -11,7 +11,7 @@ use crossbeam::channel;
 use tracing::error;
 
 use crate::{
-    AESAccumulatingHash, S,
+    Blake3AccumulatingHash, S,
     circuit::{CiphertextHandler, MultiCiphertextHandler, ciphertext_source},
     cut_and_choose::{CiphertextCommit, vsss::VsssStreamReceivers},
 };
@@ -72,7 +72,7 @@ pub trait CiphertextHandlerProvider {
 pub struct FileCiphertextHandler {
     path: PathBuf,
     writer: BufWriter<File>,
-    hasher: AESAccumulatingHash,
+    hasher: Blake3AccumulatingHash,
     bytes_written: u64,
 }
 
@@ -95,7 +95,7 @@ impl FileCiphertextHandler {
         Ok(Self {
             path,
             writer: BufWriter::with_capacity(buffer_size, file),
-            hasher: AESAccumulatingHash::default(),
+            hasher: Blake3AccumulatingHash::default(),
             bytes_written: 0,
         })
     }
@@ -145,7 +145,7 @@ impl MultiCiphertextHandler<1> for FileCiphertextHandler {
             );
         }
 
-        AESAccumulatingHash::finalize(&self.hasher)
+        Blake3AccumulatingHash::finalize(self.hasher)
     }
 }
 

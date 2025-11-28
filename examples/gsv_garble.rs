@@ -7,8 +7,9 @@
 use std::{env, fmt::Write as _, thread, time::Instant};
 
 use garbled_snark_verifier::{
-    AESAccumulatingHash, EvaluatedWire, GarbledWire,
+    Blake3AccumulatingHash, EvaluatedWire, GarbledWire,
     ark::{self, CircuitSpecificSetupSNARK, SNARK, UniformRand},
+    ciphertext_hasher::HASH_OUTPUT_SIZE,
     circuit::{
         CircuitBuilder, StreamingResult,
         modes::{EvaluateMode, GarbleMode},
@@ -27,7 +28,7 @@ enum G2EMsg {
         output_label0_hash: [u8; 32],
         /// Hash of the label that proof is correct
         output_label1_hash: [u8; 32],
-        ciphertext_hash: [u8; 16],
+        ciphertext_hash: [u8; HASH_OUTPUT_SIZE],
 
         input_labels: garbled_groth16::EvaluatorInput,
         true_wire: u128,
@@ -70,7 +71,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         vk: vk.clone(),
     };
 
-    let hasher = AESAccumulatingHash::default();
+    let hasher = Blake3AccumulatingHash::default();
 
     info!("Starting garbling of Groth16 verification circuit...");
 
@@ -170,7 +171,7 @@ fn run_with_hasher<H: GateHasher + 'static>(garbling_seed: u64) {
         let (proxy_sender, proxy_receiver) = crossbeam::channel::unbounded();
 
         let calculated_ciphertext_hash = std::thread::spawn(move || {
-            let mut hasher = AESAccumulatingHash::default();
+            let mut hasher = Blake3AccumulatingHash::default();
 
             while let Ok(ciphertext) = ciphertext_to_evaluator_receiver.recv() {
                 proxy_sender.send(ciphertext).unwrap();

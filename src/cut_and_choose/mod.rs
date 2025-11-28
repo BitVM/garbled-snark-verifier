@@ -31,7 +31,7 @@ pub mod groth16;
 
 pub type Seed = u64;
 
-pub type CiphertextCommit = [u8; 16];
+pub type CiphertextCommit = [u8; crate::ciphertext_hasher::HASH_OUTPUT_SIZE];
 
 /// Type alias for commitment tuple (phase one, phase two)
 pub type Commitment<HHasher> = (Vec<CommitPhaseOne<HHasher>>, Vec<CommitPhaseTwo<HHasher>>);

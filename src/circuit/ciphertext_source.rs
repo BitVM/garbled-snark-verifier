@@ -7,7 +7,7 @@ use std::{
 use crossbeam::channel;
 use tracing::error;
 
-use crate::{AESAccumulatingHash, S};
+use crate::{Blake3AccumulatingHash, S, ciphertext_hasher::HASH_OUTPUT_SIZE};
 
 /// Abstraction over a stream of ciphertexts
 /// Mirrors `CiphertextHandler` on the consumption side.
@@ -16,7 +16,8 @@ pub trait CiphertextSource: Send {
 
     /// Receive next ciphertext label in stream order.
     fn recv(&mut self) -> Option<S>;
-    fn finalize(&self) -> Self::Result;
+    /// Finalize and return accumulated hash. Consumes self to flush any buffered data.
+    fn finalize(self) -> Self::Result;
 }
 
 /// Channel-based source to preserve backward compatibility.
@@ -28,7 +29,7 @@ impl CiphertextSource for ChannelSource {
     fn recv(&mut self) -> Option<S> {
         channel::Receiver::recv(self).ok()
     }
-    fn finalize(&self) {}
+    fn finalize(self) {}
 }
 
 /// File-backed source that reads records directly from disk.
@@ -38,8 +39,8 @@ pub struct FileSource {
     // Scratch buffer for a single record (16)
     rec: [u8; 16],
     eof: bool,
-    // Optional hasher to accumulate ciphertext hash for verification
-    hasher: AESAccumulatingHash,
+    // Hasher to accumulate ciphertext hash for verification
+    hasher: Blake3AccumulatingHash,
 }
 
 impl FileSource {
@@ -52,13 +53,14 @@ impl FileSource {
             reader,
             rec: [0u8; 16],
             eof: false,
-            hasher: AESAccumulatingHash::default(),
+            hasher: Blake3AccumulatingHash::default(),
         })
     }
 }
 
 impl CiphertextSource for FileSource {
-    type Result = [u8; 16];
+    type Result = [u8; HASH_OUTPUT_SIZE];
+
     fn recv(&mut self) -> Option<S> {
         if self.eof {
             return None;
@@ -69,9 +71,8 @@ impl CiphertextSource for FileSource {
             match self.reader.read(&mut self.rec[read..]) {
                 Ok(0) => {
                     if read == 0 {
-                        // Clean EOF - finalize hash if enabled
+                        // Clean EOF
                         self.eof = true;
-
                         return None;
                     } else {
                         error!(
@@ -101,8 +102,8 @@ impl CiphertextSource for FileSource {
         Some(s)
     }
 
-    fn finalize(&self) -> Self::Result {
-        AESAccumulatingHash::finalize(&self.hasher)
+    fn finalize(self) -> Self::Result {
+        Blake3AccumulatingHash::finalize(self.hasher)
     }
 }
 pub struct DummySource;
@@ -113,5 +114,5 @@ impl CiphertextSource for DummySource {
     fn recv(&mut self) -> Option<S> {
         None
     }
-    fn finalize(&self) -> Self::Result {}
+    fn finalize(self) -> Self::Result {}
 }

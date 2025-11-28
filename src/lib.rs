@@ -29,7 +29,9 @@ pub use crate::hashers::{
 };
 pub type DefaultHasher = crate::hashers::Blake3Hasher;
 
-pub use ciphertext_hasher::{AESAccumulatingHash, AESAccumulatingHashBatch};
+pub use ciphertext_hasher::{
+    Blake3AccumulatingHash, Blake3AccumulatingHashBatch, Blake3HashBatchResult,
+};
 pub use circuit::CircuitContext;
 pub use circuit_component_macro::component;
 // Publicly re-export commonly used BN254 wire types for examples/binaries

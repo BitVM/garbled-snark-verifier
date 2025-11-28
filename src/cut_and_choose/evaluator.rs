@@ -16,7 +16,7 @@ use super::{
     vsss::{self, PolynomialCommits, ShareCommits},
 };
 use crate::{
-    AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
+    AesNiHasher, Blake3AccumulatingHash, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
@@ -99,7 +99,7 @@ where
         + Clone
         + Send
         + Sync
-        + EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+        + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send + Sync,
     I: Serialize + DeserializeOwned,
     H: LabelCommitHasher,
@@ -303,7 +303,7 @@ where
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -367,7 +367,7 @@ where
                         };
 
                         let inputs = inputs.clone();
-                        let hasher = AESAccumulatingHash::default();
+                        let hasher = Blake3AccumulatingHash::default();
 
                         let span = tracing::info_span!("regarble", instance = index);
                         let _enter = span.enter();
@@ -375,7 +375,7 @@ where
                         info!("Starting regarbling of circuit (cut-and-choose)");
 
                         let res: StreamingResult<
-                            GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                            GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
                             I,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
@@ -431,7 +431,7 @@ where
     ) -> Result<(), ()>
     where
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -468,7 +468,7 @@ where
                     };
 
                     let inputs = inputs.clone();
-                    let hasher = AESAccumulatingHash::default();
+                    let hasher = Blake3AccumulatingHash::default();
 
                     let span = tracing::info_span!("regarble", instance = index);
                     let _enter = span.enter();
@@ -476,7 +476,7 @@ where
                     info!("Starting regarbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                        GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -532,7 +532,7 @@ where
         CHandlerProvider::Handler: 'static,
         <CHandlerProvider::Handler as CiphertextHandler>::Result: 'static + Into<CiphertextCommit>,
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -628,7 +628,7 @@ where
                         let garbling_seed = info.seed;
 
                         let inputs = inputs.clone();
-                        let hasher = AESAccumulatingHash::default();
+                        let hasher = Blake3AccumulatingHash::default();
 
                         let span = tracing::info_span!("regarble", instance = index);
                         let _enter = span.enter();
@@ -636,7 +636,7 @@ where
                         info!("Starting regarbling of circuit (cut-and-choose)");
 
                         let res: StreamingResult<
-                            GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                            GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
                             I,
                             GarbledWire,
                         > = CircuitBuilder::streaming_garbling(
@@ -735,7 +735,7 @@ mod test_utils {
             + Clone
             + Send
             + Sync
-            + EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>
+            + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>
             + Serialize
             + DeserializeOwned,
         <I as CircuitInput>::WireRepr: Send + Sync,

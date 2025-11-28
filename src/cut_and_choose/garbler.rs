@@ -18,7 +18,7 @@ use super::vsss::{self, Polynomial};
 #[cfg(feature = "sp1-soldering")]
 use crate::sp1_soldering::{self, SolderingProof};
 use crate::{
-    AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, S, WireId,
+    AesNiHasher, Blake3AccumulatingHash, GarbleMode, GarbledWire, S, WireId,
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,
@@ -55,11 +55,11 @@ pub struct GarbledInstance {
 }
 
 impl<I: CircuitInput>
-    From<StreamingResult<GarbleMode<AesNiHasher, AESAccumulatingHash>, I, GarbledWire>>
+    From<StreamingResult<GarbleMode<AesNiHasher, Blake3AccumulatingHash>, I, GarbledWire>>
     for GarbledInstance
 {
     fn from(
-        res: StreamingResult<GarbleMode<AesNiHasher, AESAccumulatingHash>, I, GarbledWire>,
+        res: StreamingResult<GarbleMode<AesNiHasher, Blake3AccumulatingHash>, I, GarbledWire>,
     ) -> Self {
         GarbledInstance {
             false_wire_constant: res.false_wire_constant,
@@ -279,7 +279,7 @@ where
         + Clone
         + Send
         + Sync
-        + EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+        + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send,
     I: 'static,
 {
@@ -287,7 +287,7 @@ where
     pub fn create<F>(mut rng: impl Rng, config: Config<I>, live_capacity: usize, builder: F) -> Self
     where
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -340,7 +340,7 @@ where
                 .enumerate()
                 .map(|(index, (garbling_seed, wide_labels))| {
                     let inputs = config.input.clone();
-                    let hasher = AESAccumulatingHash::default();
+                    let hasher = Blake3AccumulatingHash::default();
 
                     let span = tracing::info_span!("garble", instance = index);
                     let _enter = span.enter();
@@ -348,7 +348,7 @@ where
                     info!("Starting garbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                        GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(
@@ -545,7 +545,7 @@ where
         + Clone
         + Send
         + Sync
-        + EncodeInput<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+        + EncodeInput<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
     <I as CircuitInput>::WireRepr: Send,
     I: 'static,
 {
@@ -553,7 +553,7 @@ where
     pub fn create<F>(mut rng: impl Rng, config: Config<I>, live_capacity: usize, builder: F) -> Self
     where
         F: Fn(
-                &mut StreamingMode<GarbleMode<AesNiHasher, AESAccumulatingHash>>,
+                &mut StreamingMode<GarbleMode<AesNiHasher, Blake3AccumulatingHash>>,
                 &I::WireRepr,
             ) -> WireId
             + Send
@@ -571,7 +571,7 @@ where
                 .enumerate()
                 .map(|(index, garbling_seed)| {
                     let inputs = config.input.clone();
-                    let hasher = AESAccumulatingHash::default();
+                    let hasher = Blake3AccumulatingHash::default();
 
                     let span = tracing::info_span!("garble", instance = index);
                     let _enter = span.enter();
@@ -579,7 +579,7 @@ where
                     info!("Starting garbling of circuit (cut-and-choose)");
 
                     let res: StreamingResult<
-                        GarbleMode<AesNiHasher, AESAccumulatingHash>,
+                        GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
                         I,
                         GarbledWire,
                     > = CircuitBuilder::streaming_garbling(

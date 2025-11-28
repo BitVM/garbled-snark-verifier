@@ -2,8 +2,9 @@
 // Verifies that for identical seeds, the accumulated ciphertext hashes match lane-by-lane.
 
 use garbled_snark_verifier::{
-    AESAccumulatingHash, AESAccumulatingHashBatch,
+    Blake3AccumulatingHash, Blake3AccumulatingHashBatch,
     ark::{self, CircuitSpecificSetupSNARK, UniformRand},
+    ciphertext_hasher::HASH_OUTPUT_SIZE,
     circuit::{CircuitBuilder, StreamingResult},
     garbled_groth16,
     hashers::AesNiHasher,
@@ -42,27 +43,28 @@ fn multigarble_vs_sequential_equivalence() {
         inputs.clone(),
         garbled_snark_verifier::circuit::modes::MultigarblingMode::<
             AesNiHasher,
-            AESAccumulatingHashBatch<N>,
+            Blake3AccumulatingHashBatch<N>,
             N,
-        >::new(cap, seeds, AESAccumulatingHashBatch::<N>::default()),
+        >::new(cap, seeds, Blake3AccumulatingHashBatch::<N>::default()),
         |root, input| vec![garbled_groth16::verify(root, input)],
     );
 
-    let multi_hashes: Vec<[u8; 16]> = multi.ciphertext_handler_result.into_iter().collect();
+    let multi_hashes: Vec<[u8; HASH_OUTPUT_SIZE]> =
+        multi.ciphertext_handler_result.into_iter().collect();
 
-    let mut seq_hashes: Vec<[u8; 16]> = Vec::with_capacity(N);
+    let mut seq_hashes: Vec<[u8; HASH_OUTPUT_SIZE]> = Vec::with_capacity(N);
     for &seed in seeds.iter() {
         let seq: StreamingResult<
-            garbled_snark_verifier::circuit::modes::GarbleMode<AesNiHasher, AESAccumulatingHash>,
+            garbled_snark_verifier::circuit::modes::GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
             _,
             garbled_snark_verifier::GarbledWire,
         > = CircuitBuilder::<
-            garbled_snark_verifier::circuit::modes::GarbleMode<AesNiHasher, AESAccumulatingHash>,
+            garbled_snark_verifier::circuit::modes::GarbleMode<AesNiHasher, Blake3AccumulatingHash>,
         >::streaming_garbling(
             inputs.clone(),
             cap,
             seed,
-            AESAccumulatingHash::default(),
+            Blake3AccumulatingHash::default(),
             garbled_groth16::verify,
         );
         seq_hashes.push(seq.ciphertext_handler_result);
