@@ -9,6 +9,7 @@ use garbled_snark_verifier::{
     ark::{CircuitSpecificSetupSNARK, SNARK, UniformRand},
     circuit::{CircuitBuilder, StreamingResult},
     garbled_groth16,
+    test_utils::DummyCircuit,
 };
 use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
@@ -28,39 +29,6 @@ fn format_number(n: u64) -> String {
 
 /// Circuit size parameter k, where constraints = 2^k
 const K: usize = 6; // match main branch default
-
-#[derive(Copy, Clone)]
-struct DummyCircuit<F: ark::PrimeField> {
-    pub a: Option<F>,
-    pub b: Option<F>,
-    pub num_variables: usize,
-    pub num_constraints: usize,
-}
-
-impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(
-        self,
-        cs: ark::ConstraintSystemRef<F>,
-    ) -> Result<(), ark::SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(ark::SynthesisError::AssignmentMissing))?;
-        let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(ark::SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(ark::SynthesisError::AssignmentMissing)?;
-            Ok(a * b)
-        })?;
-
-        for _ in 0..(self.num_variables - 3) {
-            let _ =
-                cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
-        }
-        for _ in 0..self.num_constraints - 1 {
-            cs.enforce_constraint(ark::lc!() + a, ark::lc!() + b, ark::lc!() + c)?;
-        }
-        cs.enforce_constraint(ark::lc!(), ark::lc!(), ark::lc!())?;
-        Ok(())
-    }
-}
 
 fn main() {
     let args: Vec<String> = env::args().collect();

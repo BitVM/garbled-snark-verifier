@@ -21,6 +21,7 @@ use garbled_snark_verifier::{
     garbled_groth16::{self, EvaluatorCompressedInput},
     groth16_cut_and_choose::{self as ccn, DEFAULT_CAPACITY},
     hashers::DefaultLabelCommitHasher,
+    test_utils::DummyCircuit,
 };
 use itertools::Itertools;
 use rand::{Rng, SeedableRng};
@@ -96,46 +97,6 @@ mod dummy_circuit {
         circuit.add_gate(Gate::and(ones_ok, zeroes_ok, output_wire));
 
         output_wire
-    }
-}
-
-// Simple multiplicative circuit used to produce a valid Groth16 proof.
-#[derive(Copy, Clone)]
-#[allow(unused)]
-struct DummyCircuit<F: ark::PrimeField> {
-    pub a: Option<F>,
-    pub b: Option<F>,
-    pub num_variables: usize,
-    pub num_constraints: usize,
-}
-
-impl<F: ark::PrimeField> ark::ConstraintSynthesizer<F> for DummyCircuit<F> {
-    fn generate_constraints(
-        self,
-        cs: ark::ConstraintSystemRef<F>,
-    ) -> Result<(), ark::SynthesisError> {
-        let a = cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
-        let b = cs.new_witness_variable(|| self.b.ok_or(ark::SynthesisError::AssignmentMissing))?;
-        let c = cs.new_input_variable(|| {
-            let a = self.a.ok_or(ark::SynthesisError::AssignmentMissing)?;
-            let b = self.b.ok_or(ark::SynthesisError::AssignmentMissing)?;
-            Ok(a * b)
-        })?;
-
-        // pad witnesses
-        for _ in 0..(self.num_variables - 3) {
-            let _ =
-                cs.new_witness_variable(|| self.a.ok_or(ark::SynthesisError::AssignmentMissing))?;
-        }
-
-        // repeat the same multiplicative constraint
-        for _ in 0..self.num_constraints - 1 {
-            cs.enforce_constraint(ark::lc!() + a, ark::lc!() + b, ark::lc!() + c)?;
-        }
-
-        // final no-op constraint keeps ark-relations happy
-        cs.enforce_constraint(ark::lc!(), ark::lc!(), ark::lc!())?;
-        Ok(())
     }
 }
 

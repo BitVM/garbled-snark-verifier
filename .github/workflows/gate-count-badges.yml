@@ -38,7 +38,7 @@ jobs:
           --release \
           --no-default-features \
           --features "tracing_max_level tracing_scopes" \
-          --example groth16_gc_gate_count \
+          --example gate_count \
           -- \
           --json > raw_output.txt 2>&1
         
