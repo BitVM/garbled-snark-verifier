@@ -40,9 +40,8 @@ const STREAM_BOUND_CIPHERTEXTS: usize = (1 << 30) / 16; // cap in-flight ciphert
 // Calculate and display total gates to process
 const GATES_PER_INSTANCE: u64 = 11_174_708_821;
 
-// note: uncomment to use a dummy circuit for faster tetsing. Note that the evaluation will fail
+// note: uncomment to use a dummy circuit for faster testing. Note that the evaluation will fail
 // due to the input being incorrect.
-// use dummy_circuit::verify_compressed as circuit_verify;
 use garbled_groth16::verify_compressed as circuit_verify;
 
 mod dummy_circuit {
