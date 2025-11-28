@@ -36,6 +36,12 @@ impl S {
         *out = self.0.to_be_bytes();
     }
 
+    /// Write bytes in little-endian format (zero-cost on x86/ARM).
+    #[inline]
+    pub fn write_bytes_le(&self, out: &mut [u8; S_SIZE]) {
+        *out = self.0.to_le_bytes();
+    }
+
     #[inline]
     pub fn from_u128(l: u128) -> Self {
         Self(l)
