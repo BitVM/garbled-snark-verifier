@@ -7,8 +7,35 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
-use super::utils::neg_pos_sum_of_powers_of_two;
-use crate::cut_and_choose::vsss::Canonical;
+use super::types::Canonical;
+
+/// Returns the representation of number with given le bits as minimum number of additions/subtractions with powers of two.
+pub fn neg_pos_sum_of_powers_of_two(bits: Vec<bool>) -> Vec<i8> {
+    let mut len = bits.len();
+    let mut res = vec![0i8; len + 1];
+    let mut l: i32 = -1;
+    for i in 0..len {
+        if !bits[i] {
+            l = -1;
+        } else if i == len - 1 || !bits[i + 1] {
+            if l == -1 {
+                res[i] = 1;
+            } else {
+                res[i + 1] = 1;
+                res[l as usize] = -1;
+            }
+        } else if l == -1 {
+            l = i as i32;
+        }
+    }
+
+    while len > 0 && res[len] == 0 {
+        res.pop();
+        len -= 1;
+    }
+
+    res
+}
 
 pub struct Secp256k1 {
     pub generator: BatchMulPreprocessing<Projective>,
@@ -88,7 +115,7 @@ fn precalculated_factorials_and_inverses(n: usize) -> (Vec<Fr>, Vec<Fr>, Vec<Fr>
     let inv: Vec<Fr> = (0..n)
         .map(|i| {
             if i == 0 {
-                Fr::zero() //This should never be used
+                Fr::zero() // This should never be used
             } else {
                 inv_factorial[i] * factorial[i - 1]
             }
@@ -106,6 +133,7 @@ impl<T: CanonicalSerialize + CanonicalDeserialize> Polynomial<T> {
         Polynomial(self.0.into_iter().map(Canonical).collect())
     }
 }
+
 impl<T: CanonicalSerialize + CanonicalDeserialize + Clone> Polynomial<Canonical<T>> {
     pub fn from_canonical(&self) -> Polynomial<T> {
         Polynomial(self.0.iter().map(|x| x.0.clone()).collect())
@@ -147,8 +175,8 @@ where
             })
     }
 
-    /// evaluates the function at smallest consecutive integer points bigger than the degree
-    /// functions similar to [`lagrange_interpolate_whole_polynomial`],
+    /// Evaluates the function at smallest consecutive integer points bigger than the degree.
+    /// Functions similar to [`lagrange_interpolate_whole_polynomial`].
     fn eval_at_suffix_points<const USE_TABLES: bool>(&self, n_points: usize) -> Vec<T> {
         let n_known = self.0.len();
         let n = n_known + n_points;
@@ -262,16 +290,19 @@ impl<T: CanonicalSerialize + CanonicalDeserialize + Clone> PolynomialCommits<Can
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ShareCommits<T>(pub Vec<T>);
+
 impl<T: CanonicalSerialize + CanonicalDeserialize> ShareCommits<T> {
     pub fn to_canonical(self) -> ShareCommits<Canonical<T>> {
         ShareCommits(self.0.into_iter().map(Canonical).collect())
     }
 }
+
 impl<T: CanonicalSerialize + CanonicalDeserialize + Clone> ShareCommits<Canonical<T>> {
     pub fn from_canonical(&self) -> ShareCommits<T> {
         ShareCommits(self.0.iter().map(|x| x.0.clone()).collect())
     }
 }
+
 impl ShareCommits<Projective> {
     pub fn verify(&self, polynomial_commits: &PolynomialCommits<Projective>) -> Result<(), String> {
         let n_known = polynomial_commits.0.0.len();
@@ -316,10 +347,10 @@ impl ShareCommits<Projective> {
     }
 }
 
-/// Returns the values of the polynomial defined by known_points at missing_points, in the given order
-/// Assumes that points in the two sets are disjoint and their union is set of natural numbers smaller than < n (including 0) for n = len(known_points) + len(missing_points)
+/// Returns the values of the polynomial defined by known_points at missing_points, in the given order.
+/// Assumes that points in the two sets are disjoint and their union is set of natural numbers smaller than < n (including 0) for n = len(known_points) + len(missing_points).
 /// Uses the fact that the number of missing points will be small compared to the known ones to evaluate polynomials with factorials
-/// so, assuming field inversion and multiplication complexity are I and M, total complexity is O(I + len(missing_points) * n * M)
+/// so, assuming field inversion and multiplication complexity are I and M, total complexity is O(I + len(missing_points) * n * M).
 pub fn lagrange_interpolate_whole_polynomial(
     known_points: &[(usize, Fr)],
     missing_points: &[usize],

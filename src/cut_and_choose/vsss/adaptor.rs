@@ -70,7 +70,7 @@ impl AdaptorInfo {
 
         let s = nonce + e * evaluator_secret;
 
-        AdaptorInfo {
+        Self {
             evaluator_nonce_commit: nonce_commit,
             garbler_commit,
             evaluator_s: s,

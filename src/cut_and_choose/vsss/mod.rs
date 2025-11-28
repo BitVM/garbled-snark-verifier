@@ -1,6 +1,18 @@
-pub mod adaptor_sigs;
-pub mod utils;
-pub mod vsss;
+pub mod adaptor;
+pub mod core;
+pub mod protocol;
+pub mod types;
+
+pub use core::{
+    Polynomial, PolynomialCommits, Secp256k1, ShareCommits, lagrange_interpolate_whole_polynomial,
+};
+
+pub use adaptor::{AdaptorInfo, SignatureBytes, WideAdaptorInfo};
+pub use protocol::{
+    Challenge, EvaluatorAdaptorSigs, FinalizeChallenge, FinalizedVsssInstance, OpenVsssInstance,
+    SetupBroadcast, SetupResponse, VsssCommit, VsssStreamReceivers, encode_input,
+};
+pub use types::{Canonical, transpose};
 
 #[cfg(test)]
 mod tests {
@@ -11,20 +23,19 @@ mod tests {
     use rand::prelude::IteratorRandom;
     use sha2::{Digest, Sha256};
 
-    use super::*;
-    use crate::cac::{adaptor_sigs::AdaptorInfo, vsss::lagrange_interpolate_whole_polynomial};
+    use super::{AdaptorInfo, Polynomial, Secp256k1, lagrange_interpolate_whole_polynomial};
 
     #[test]
     fn test_full_flow() {
         let n = 181;
         let k = 181 - 7;
 
-        let secp = vsss::Secp256k1::new();
+        let secp = Secp256k1::new();
 
         let mut rng = rand::thread_rng();
 
         // step 1: garbler generates secret:
-        let polynomial = vsss::Polynomial::rand(&mut rng, k);
+        let polynomial = Polynomial::rand(&mut rng, k);
 
         // step 2: garbler send commitments to the polynomial coefficients to the evaluator
         let coefficient_commits = polynomial.coefficient_commits(&secp);

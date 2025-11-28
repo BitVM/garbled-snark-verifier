@@ -2,18 +2,18 @@ use std::thread::JoinHandle;
 
 use ark_ff::UniformRand;
 use ark_secp256k1::{Fr, Projective};
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use crossbeam::channel;
 use itertools::Itertools;
 use rand::Rng;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
+use super::{
+    adaptor::{SignatureBytes, WideAdaptorInfo},
+    core::{PolynomialCommits, ShareCommits, lagrange_interpolate_whole_polynomial},
+    types::{Canonical, transpose},
+};
 use crate::{
     AesNiHasher, CommitPhaseOne, EvaluatedWire, LabelCommitHasher, S, WireId,
-    cac::{
-        adaptor_sigs::{SignatureBytes, WideAdaptorInfo},
-        vsss::{PolynomialCommits, ShareCommits, lagrange_interpolate_whole_polynomial},
-    },
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
     cut_and_choose::{GarbledWideLabelTable, InstanceWideLabelLookup, Seed},
     hashers::DefaultLabelCommitHasher,
@@ -100,41 +100,6 @@ where
                 .value
         })
         .collect_vec()
-}
-
-pub fn transpose<T: Clone>(m: &[Vec<T>]) -> Vec<Vec<T>> {
-    (0..m[0].len())
-        .map(|i| m.iter().map(|row| row[i].clone()).collect())
-        .collect()
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct Canonical<T: CanonicalDeserialize + CanonicalSerialize>(pub T);
-
-impl<T: CanonicalSerialize + CanonicalDeserialize> Serialize for Canonical<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut bytes = Vec::new();
-        self.0
-            .serialize_compressed(&mut bytes)
-            .map_err(serde::ser::Error::custom)?;
-        serializer.serialize_bytes(&bytes)
-    }
-}
-
-impl<'de, T: CanonicalSerialize + CanonicalDeserialize> Deserialize<'de> for Canonical<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
-
-        Ok(Canonical(
-            T::deserialize_compressed(&bytes[..]).map_err(serde::de::Error::custom)?,
-        ))
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

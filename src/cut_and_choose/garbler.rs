@@ -14,11 +14,11 @@ use rayon::{iter::IntoParallelRefIterator, prelude::*};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use super::vsss::{self, Polynomial};
 #[cfg(feature = "sp1-soldering")]
 use crate::sp1_soldering::{self, SolderingProof};
 use crate::{
     AESAccumulatingHash, AesNiHasher, GarbleMode, GarbledWire, S, WireId,
-    cac::vsss::{self, Polynomial},
     circuit::{
         CiphertextHandler, CircuitBuilder, CircuitInput, EncodeInput, StreamingMode,
         StreamingResult,

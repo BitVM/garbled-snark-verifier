@@ -13,10 +13,10 @@ use tracing::{error, info};
 use super::{
     Config,
     garbler::{CommitPhaseOne, CommitPhaseTwo},
+    vsss::{self, PolynomialCommits, ShareCommits},
 };
 use crate::{
     AESAccumulatingHash, AesNiHasher, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
-    cac::vsss::{self, PolynomialCommits, ShareCommits},
     circuit::{
         CiphertextHandler, CiphertextSource, CircuitBuilder, CircuitInput, EncodeInput,
         StreamingMode, StreamingResult, modes::EvaluateMode,
