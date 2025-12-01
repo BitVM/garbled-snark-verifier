@@ -97,7 +97,13 @@ panic = "abort"       # Faster execution, smaller binary
 
 [package.metadata.cargo-udeps.ignore]
 # `cargo-husky` is intentionally present for git hooks and should be ignored by udeps
-development = ["cargo-husky"]
+development = [
+    "cargo-husky",
+    # Used in vsss integration-style tests gated behind the `vsss` feature, which is disabled in the CI udeps run.
+    "bitcoin",
+    "bitcoin-script",
+    "bitvm",
+]
 normal = ["aes"]
 
 [profile.release]
