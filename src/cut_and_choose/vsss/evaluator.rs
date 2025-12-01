@@ -11,7 +11,7 @@ use tracing::{error, info};
 
 use super::{
     OpenVsssInstance, PolynomialCommits, Secp256k1, ShareCommits, VsssCommit,
-    garbler::InstanceWideLabelLookup,
+    garbler::InstanceWideLabelLookup, wide_garbling::GarbledWideLabelTable,
 };
 use crate::{
     AesCcrGateHasher, Blake3AccumulatingHash, EvaluatedWire, GarbleMode, GarbledWire, S, WireId,
@@ -21,7 +21,7 @@ use crate::{
     },
     cut_and_choose::{
         CiphertextCommit, CiphertextHandlerProvider, CiphertextSourceProvider, Config,
-        DefaultLabelCommitHasher, GarbledWideLabelTable, LabelCommitHasher, commit_label_with,
+        DefaultLabelCommitHasher, LabelCommitHasher, commit_label_with,
         vanilla::{CommitPhaseOne, ConsistencyError, EvaluatorCaseInput, GarbledInstance},
     },
     hashers::GateHasher,

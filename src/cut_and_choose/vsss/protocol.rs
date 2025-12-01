@@ -12,11 +12,12 @@ use super::{
     core::{PolynomialCommits, ShareCommits, lagrange_interpolate_whole_polynomial},
     garbler::InstanceWideLabelLookup,
     types::{Canonical, transpose},
+    wide_garbling::GarbledWideLabelTable,
 };
 use crate::{
     EvaluatedWire, S, WireId,
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
-    cut_and_choose::{CommitPhaseOne, GarbledWideLabelTable, LabelCommitHasher, Seed},
+    cut_and_choose::{CommitPhaseOne, LabelCommitHasher, Seed},
     hashers::{DefaultLabelCommitHasher, GateHasher},
 };
 

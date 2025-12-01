@@ -25,7 +25,6 @@ use crate::{S, circuit::CircuitInput};
 
 // Internal modules
 mod ciphertext_repository;
-mod wide_garbling;
 
 // Protocol variants (vanilla is the base)
 pub mod vanilla;
@@ -48,7 +47,6 @@ pub use vanilla::{
     ChosenInstances, CommitPhaseOne, CommitPhaseTwo, ConsistencyError, EvaluatorCaseInput,
     GarbledInstance, GarblerStage, OpenForInstance, Stage,
 };
-pub use wide_garbling::GarbledWideLabelTable;
 
 pub type Seed = u64;
 

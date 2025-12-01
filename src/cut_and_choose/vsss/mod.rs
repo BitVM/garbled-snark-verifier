@@ -5,6 +5,7 @@ pub mod garbler;
 pub mod groth16;
 pub mod protocol;
 pub mod types;
+pub mod wide_garbling;
 
 pub use core::{
     Polynomial, PolynomialCommits, Secp256k1, ShareCommits, lagrange_interpolate_whole_polynomial,

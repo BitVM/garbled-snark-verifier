@@ -14,7 +14,7 @@ use tracing::info;
 
 use super::{
     Canonical, FinalizeChallenge, FinalizedVsssInstance, OpenVsssInstance, Polynomial, Secp256k1,
-    VsssCommit, transpose,
+    VsssCommit, transpose, wide_garbling::GarbledWideLabelTable,
 };
 use crate::{
     AesCcrGateHasher, Blake3AccumulatingHash, GarbleMode, GarbledWire, WireId,
@@ -23,7 +23,7 @@ use crate::{
         StreamingResult,
     },
     cut_and_choose::{
-        Config, GarbledWideLabelTable, LabelCommitHasher, Seed,
+        Config, LabelCommitHasher, Seed,
         vanilla::{CommitPhaseOne, GarbledInstance, GarblerStage},
     },
     hashers::GateHasher,
