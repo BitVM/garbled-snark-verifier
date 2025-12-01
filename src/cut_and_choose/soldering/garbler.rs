@@ -12,7 +12,7 @@ use crate::{
         LabelCommit, LabelCommitHasher,
         vanilla::{
             Garbler as VanillaGarbler, GarblerStage,
-            types::{commit_input_wires, commit_output_label0, commit_output_label1},
+            types::{commit_input_wires, commit_output_false, commit_output_true},
         },
     },
     hashers::GateHasher,
@@ -31,7 +31,7 @@ pub trait SolderingGarblerExt {
     fn soldered_base_commitment<H: LabelCommitHasher>(&self)
     -> Option<Vec<LabelCommit<H::Output>>>;
 
-    /// Output label commitments (label0, label1) for all finalized instances.
+    /// Output label commitments (false, true) for all finalized instances.
     fn finalized_output_label_commitment<H: LabelCommitHasher>(
         &self,
     ) -> Option<Vec<(H::Output, H::Output)>>;
@@ -99,8 +99,8 @@ where
                 .filter_map(|&idx| {
                     self.output_wire(idx).map(|wire| {
                         (
-                            commit_output_label0::<H>(wire),
-                            commit_output_label1::<H>(wire),
+                            commit_output_false::<H>(wire),
+                            commit_output_true::<H>(wire),
                         )
                     })
                 })

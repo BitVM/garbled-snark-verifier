@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use super::types::{
-    CommitPhaseOne, CommitPhaseTwo, GarbledInstance, GarblerStage, OpenCommit, OpenForInstance,
+    ChosenInstances, CommitPhaseOne, CommitPhaseTwo, GarbledInstance, GarblerStage, OpenForInstance,
 };
 use crate::{
     AesCcrGateHasher, Blake3AccumulatingHash, GarbleMode, GarbledWire, S, WireId,
@@ -170,7 +170,7 @@ where
     pub fn open_commit_without_ciphertexts(
         &mut self,
         mut indexes_to_finalize: Vec<usize>,
-    ) -> OpenCommit {
+    ) -> ChosenInstances {
         indexes_to_finalize.sort();
         indexes_to_finalize.dedup();
 
@@ -180,9 +180,9 @@ where
             .stage
             .next_stage(indexes_to_finalize.clone().into_boxed_slice());
 
-        let mut commit = OpenCommit {
-            open: vec![],
-            closed: vec![],
+        let mut result = ChosenInstances {
+            revealed: vec![],
+            finalized: vec![],
         };
 
         seeds
@@ -191,13 +191,13 @@ where
             .enumerate()
             .for_each(|(index, seed)| {
                 if indexes_to_finalize.binary_search(&index).is_ok() {
-                    commit.closed.push((index, seed));
+                    result.finalized.push((index, seed));
                 } else {
-                    commit.open.push((index, seed));
+                    result.revealed.push((index, seed));
                 }
             });
 
-        commit
+        result
     }
 
     /// Open commitments with ciphertext handlers for finalized instances.

@@ -12,8 +12,8 @@ pub type Garbler<I, GH = crate::AesCcrGateHasher> = crate::cut_and_choose::vanil
 
 // Re-export core types for convenience
 pub use crate::cut_and_choose::vanilla::{
-    CommitPhaseOne, CommitPhaseTwo, ConsistencyError, EvaluatorCaseInput, GarbledInstance,
-    GarblerStage, OpenCommit, OpenForInstance, Stage,
+    ChosenInstances, CommitPhaseOne, CommitPhaseTwo, ConsistencyError, EvaluatorCaseInput,
+    GarbledInstance, GarblerStage, OpenForInstance, Stage,
 };
 // Re-export common types from cut_and_choose
 pub use crate::cut_and_choose::{

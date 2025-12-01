@@ -45,8 +45,8 @@ pub use ciphertext_repository::{
 #[cfg(feature = "sp1-soldering")]
 pub use soldering::SolderingCheckError;
 pub use vanilla::{
-    CommitPhaseOne, CommitPhaseTwo, ConsistencyError, EvaluatorCaseInput, GarbledInstance,
-    GarblerStage, OpenCommit, OpenForInstance, Stage,
+    ChosenInstances, CommitPhaseOne, CommitPhaseTwo, ConsistencyError, EvaluatorCaseInput,
+    GarbledInstance, GarblerStage, OpenForInstance, Stage,
 };
 pub use wide_garbling::GarbledWideLabelTable;
 
@@ -60,44 +60,44 @@ pub type Commitment<GH, LH> = (Vec<CommitPhaseOne<GH, LH>>, Vec<CommitPhaseTwo<L
 /// Per-wire label commitments used in both `Commit₁` and `Commit₂`.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct LabelCommit<H: Clone + Copy> {
-    pub commit_label0: H,
-    pub commit_label1: H,
+    pub commit_false: H,
+    pub commit_true: H,
 }
 
 impl<H: Clone + Copy> LabelCommit<H> {
     /// Hash both labels, optionally XOR-ing a nonce before hashing (spec Step 1.4).
     pub fn new<Hasher: LabelCommitHasher<Output = H>>(
-        label0: S,
-        label1: S,
+        label_false: S,
+        label_true: S,
         nonce: &Option<S>,
     ) -> Self {
         match nonce {
             Some(nonce) => Self {
-                commit_label0: commit_label_with::<Hasher>(label0.bitxor(nonce)),
-                commit_label1: commit_label_with::<Hasher>(label1.bitxor(nonce)),
+                commit_false: commit_label_with::<Hasher>(label_false.bitxor(nonce)),
+                commit_true: commit_label_with::<Hasher>(label_true.bitxor(nonce)),
             },
             None => Self {
-                commit_label0: commit_label_with::<Hasher>(label0),
-                commit_label1: commit_label_with::<Hasher>(label1),
+                commit_false: commit_label_with::<Hasher>(label_false),
+                commit_true: commit_label_with::<Hasher>(label_true),
             },
         }
     }
 
     pub fn commit_for_value(&self, bit: bool) -> H {
         if bit {
-            self.commit_label1
+            self.commit_true
         } else {
-            self.commit_label0
+            self.commit_false
         }
     }
 }
 
 impl<H: Clone + Copy + AsRef<[u8]>> fmt::Display for LabelCommit<H> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "LabelCommit {{ label0: 0x")?;
-        write_commit_hex(f, self.commit_label0.as_ref())?;
-        write!(f, ", label1: 0x")?;
-        write_commit_hex(f, self.commit_label1.as_ref())?;
+        write!(f, "LabelCommit {{ false: 0x")?;
+        write_commit_hex(f, self.commit_false.as_ref())?;
+        write!(f, ", true: 0x")?;
+        write_commit_hex(f, self.commit_true.as_ref())?;
         write!(f, " }}")
     }
 }

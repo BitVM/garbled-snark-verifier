@@ -218,14 +218,14 @@ where
         let base_commitment: Vec<(Sha256Commit, Sha256Commit)> = first_commits[base_idx]
             .input_commitments()
             .iter()
-            .map(|lc| (lc.commit_label0, lc.commit_label1))
+            .map(|lc| (lc.commit_false, lc.commit_true))
             .collect();
 
         // Prepare base nonce commitments (from second commit which has nonce applied)
         let base_nonce_commitment: Vec<(Sha256Commit, Sha256Commit)> = second_commits[base_idx]
             .input_commitments()
             .iter()
-            .map(|lc| (lc.commit_label0, lc.commit_label1))
+            .map(|lc| (lc.commit_false, lc.commit_true))
             .collect();
 
         // Prepare commitments for additional instances
@@ -236,7 +236,7 @@ where
                 first_commits[idx]
                     .input_commitments()
                     .iter()
-                    .map(|lc| (lc.commit_label0, lc.commit_label1))
+                    .map(|lc| (lc.commit_false, lc.commit_true))
                     .collect()
             })
             .collect();
@@ -314,21 +314,21 @@ where
         for (wire_idx, base_pair) in base_local.input_commitments().iter().enumerate() {
             let (exp0, exp1) = verified_public_params.base_commitment[wire_idx];
 
-            if base_pair.commit_label0 != exp0 {
+            if base_pair.commit_false != exp0 {
                 return Err(SolderingCheckError::BaseCommitMismatch {
                     wire_index: wire_idx,
                     which: "label0",
                     expected: exp0,
-                    actual: base_pair.commit_label0,
+                    actual: base_pair.commit_false,
                 });
             }
 
-            if base_pair.commit_label1 != exp1 {
+            if base_pair.commit_true != exp1 {
                 return Err(SolderingCheckError::BaseCommitMismatch {
                     wire_index: wire_idx,
                     which: "label1",
                     expected: exp1,
-                    actual: base_pair.commit_label1,
+                    actual: base_pair.commit_true,
                 });
             }
         }
@@ -341,20 +341,20 @@ where
             .zip(base_second.input_commitments().iter())
             .enumerate()
         {
-            if nonce_commit.0 != nonce_local_commit.commit_label0 {
+            if nonce_commit.0 != nonce_local_commit.commit_false {
                 return Err(SolderingCheckError::BaseNonceCommitMismatch {
                     wire_index: wire_idx,
                     which: "label0_with_nonce",
-                    expected: nonce_local_commit.commit_label0,
+                    expected: nonce_local_commit.commit_false,
                     actual: nonce_commit.0,
                 });
             }
 
-            if nonce_commit.1 != nonce_local_commit.commit_label1 {
+            if nonce_commit.1 != nonce_local_commit.commit_true {
                 return Err(SolderingCheckError::BaseNonceCommitMismatch {
                     wire_index: wire_idx,
                     which: "label1_with_nonce",
-                    expected: nonce_local_commit.commit_label1,
+                    expected: nonce_local_commit.commit_true,
                     actual: nonce_commit.1,
                 });
             }
@@ -367,23 +367,23 @@ where
             for (wire_idx, local_pair) in local.input_commitments().iter().enumerate() {
                 let (exp0, exp1) = verified_public_params.commitments[j][wire_idx];
 
-                if local_pair.commit_label0 != exp0 {
+                if local_pair.commit_false != exp0 {
                     return Err(SolderingCheckError::InstanceCommitMismatch {
                         instance_index: inst_idx,
                         wire_index: wire_idx,
                         which: "label0",
                         expected: exp0,
-                        actual: local_pair.commit_label0,
+                        actual: local_pair.commit_false,
                     });
                 }
 
-                if local_pair.commit_label1 != exp1 {
+                if local_pair.commit_true != exp1 {
                     return Err(SolderingCheckError::InstanceCommitMismatch {
                         instance_index: inst_idx,
                         wire_index: wire_idx,
                         which: "label1",
                         expected: exp1,
-                        actual: local_pair.commit_label1,
+                        actual: local_pair.commit_true,
                     });
                 }
             }

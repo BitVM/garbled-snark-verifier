@@ -441,9 +441,9 @@ where
                             let mut actual_commit = expected_commit.clone();
 
                             if evaluated_wire.value {
-                                actual_commit.commit_label1 = actual_hash;
+                                actual_commit.commit_true = actual_hash;
                             } else {
-                                actual_commit.commit_label0 = actual_hash;
+                                actual_commit.commit_false = actual_hash;
                             }
 
                             return Err(ConsistencyError::InputLabelsMismatch {

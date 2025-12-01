@@ -66,9 +66,9 @@ pub struct CommitPhaseOne<GH: GateHasher, LH: LabelCommitHasher = DefaultLabelCo
     ciphertext_hash: CiphertextCommit,
     input_commitments: Vec<LabelCommit<LH::Output>>,
     /// Commitment to the active output label when the circuit output is `true`.
-    output_label1_commit: LH::Output,
+    output_commit_true: LH::Output,
     /// Commitment to the active output label when the circuit output is `false`.
-    output_label0_commit: LH::Output,
+    output_commit_false: LH::Output,
     true_constant: u128,
     false_constant: u128,
     /// The gate hasher seed (needed for regarbling/evaluation).
@@ -80,8 +80,8 @@ impl<GH: GateHasher, LH: LabelCommitHasher> Clone for CommitPhaseOne<GH, LH> {
         Self {
             ciphertext_hash: self.ciphertext_hash,
             input_commitments: self.input_commitments.clone(),
-            output_label0_commit: self.output_label0_commit,
-            output_label1_commit: self.output_label1_commit,
+            output_commit_false: self.output_commit_false,
+            output_commit_true: self.output_commit_true,
             true_constant: self.true_constant,
             false_constant: self.false_constant,
             gate_hasher_seed: self.gate_hasher_seed.clone(),
@@ -96,8 +96,8 @@ where
     fn eq(&self, other: &Self) -> bool {
         self.ciphertext_hash == other.ciphertext_hash
             && self.input_commitments == other.input_commitments
-            && self.output_label1_commit == other.output_label1_commit
-            && self.output_label0_commit == other.output_label0_commit
+            && self.output_commit_true == other.output_commit_true
+            && self.output_commit_false == other.output_commit_false
             && self.true_constant == other.true_constant
             && self.false_constant == other.false_constant
             && self.gate_hasher_seed == other.gate_hasher_seed
@@ -109,8 +109,8 @@ impl<GH: GateHasher, LH: LabelCommitHasher> CommitPhaseOne<GH, LH> {
     pub fn new(
         ciphertext_hash: CiphertextCommit,
         input_commitments: Vec<LabelCommit<LH::Output>>,
-        output_label1_commit: LH::Output,
-        output_label0_commit: LH::Output,
+        output_commit_true: LH::Output,
+        output_commit_false: LH::Output,
         true_constant: u128,
         false_constant: u128,
         gate_hasher_seed: GH::Seed,
@@ -118,8 +118,8 @@ impl<GH: GateHasher, LH: LabelCommitHasher> CommitPhaseOne<GH, LH> {
         Self {
             ciphertext_hash,
             input_commitments,
-            output_label1_commit,
-            output_label0_commit,
+            output_commit_true,
+            output_commit_false,
             true_constant,
             false_constant,
             gate_hasher_seed,
@@ -131,8 +131,8 @@ impl<GH: GateHasher, LH: LabelCommitHasher> CommitPhaseOne<GH, LH> {
         Self {
             ciphertext_hash: instance.ciphertext_handler_result,
             input_commitments: commit_input_wires::<LH>(&instance.input_wire_values, None),
-            output_label1_commit: commit_output_label1::<LH>(&instance.output_wire_values),
-            output_label0_commit: commit_output_label0::<LH>(&instance.output_wire_values),
+            output_commit_true: commit_output_true::<LH>(&instance.output_wire_values),
+            output_commit_false: commit_output_false::<LH>(&instance.output_wire_values),
             true_constant: instance.true_wire_constant.select(true).to_u128(),
             false_constant: instance.false_wire_constant.select(false).to_u128(),
             gate_hasher_seed: instance.gate_hasher_seed.clone(),
@@ -148,11 +148,11 @@ impl<GH: GateHasher, LH: LabelCommitHasher> CommitPhaseOne<GH, LH> {
     }
 
     pub fn output_commit_true(&self) -> LH::Output {
-        self.output_label1_commit
+        self.output_commit_true
     }
 
     pub fn output_commit_false(&self) -> LH::Output {
-        self.output_label0_commit
+        self.output_commit_false
     }
 
     pub fn true_constant(&self) -> u128 {
@@ -217,11 +217,14 @@ pub enum OpenForInstance {
     },
 }
 
-/// Result of opening commitments without ciphertext handlers.
+/// Result of cut-and-choose challenge, partitioning instances into
+/// those revealed for verification and those finalized for evaluation.
 #[derive(Debug)]
-pub struct OpenCommit {
-    pub open: Vec<(usize, crate::cut_and_choose::Seed)>,
-    pub closed: Vec<(usize, crate::cut_and_choose::Seed)>,
+pub struct ChosenInstances {
+    /// Instances revealed for evaluator to verify by re-garbling
+    pub revealed: Vec<(usize, crate::cut_and_choose::Seed)>,
+    /// Instances finalized for actual circuit evaluation
+    pub finalized: Vec<(usize, crate::cut_and_choose::Seed)>,
 }
 
 /// Garbler state machine stages.
@@ -254,11 +257,11 @@ impl GarblerStage {
 
 // Helper functions for label commitments
 
-pub(crate) fn commit_output_label1<H: LabelCommitHasher>(wire: &GarbledWire) -> H::Output {
+pub(crate) fn commit_output_true<H: LabelCommitHasher>(wire: &GarbledWire) -> H::Output {
     commit_label_with::<H>(wire.label1)
 }
 
-pub(crate) fn commit_output_label0<H: LabelCommitHasher>(wire: &GarbledWire) -> H::Output {
+pub(crate) fn commit_output_false<H: LabelCommitHasher>(wire: &GarbledWire) -> H::Output {
     commit_label_with::<H>(wire.label0)
 }
 
@@ -269,6 +272,7 @@ pub(crate) fn commit_input_wires<H: LabelCommitHasher>(
     inputs
         .iter()
         .map(|GarbledWire { label0, label1 }| {
+            // label0 = false label, label1 = true label (from GarbledWire)
             LabelCommit::<H::Output>::new::<H>(*label0, *label1, &nonce)
         })
         .collect()
@@ -283,8 +287,8 @@ mod test_utils {
     pub struct CommitPhaseOneRawParts<H: Clone + Copy> {
         pub ciphertext_hash: CiphertextCommit,
         pub input_commitments: Vec<LabelCommit<H>>,
-        pub output_label1_commit: H,
-        pub output_label0_commit: H,
+        pub output_commit_true: H,
+        pub output_commit_false: H,
         pub true_constant: u128,
         pub false_constant: u128,
     }
@@ -298,8 +302,8 @@ mod test_utils {
             Self {
                 ciphertext_hash: parts.ciphertext_hash,
                 input_commitments: parts.input_commitments,
-                output_label1_commit: parts.output_label1_commit,
-                output_label0_commit: parts.output_label0_commit,
+                output_commit_true: parts.output_commit_true,
+                output_commit_false: parts.output_commit_false,
                 true_constant: parts.true_constant,
                 false_constant: parts.false_constant,
                 gate_hasher_seed,
@@ -311,8 +315,8 @@ mod test_utils {
                 CommitPhaseOneRawParts {
                     ciphertext_hash: self.ciphertext_hash,
                     input_commitments: self.input_commitments,
-                    output_label1_commit: self.output_label1_commit,
-                    output_label0_commit: self.output_label0_commit,
+                    output_commit_true: self.output_commit_true,
+                    output_commit_false: self.output_commit_false,
                     true_constant: self.true_constant,
                     false_constant: self.false_constant,
                 },

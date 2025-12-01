@@ -74,7 +74,7 @@ impl Garbler {
     pub fn open_commit_without_ciphertexts(
         &mut self,
         indexes_to_finalize: Vec<usize>,
-    ) -> cut_and_choose::vanilla::OpenCommit {
+    ) -> cut_and_choose::vanilla::ChosenInstances {
         self.inner
             .open_commit_without_ciphertexts(indexes_to_finalize)
     }

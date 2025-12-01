@@ -15,7 +15,7 @@ pub use garbler::Garbler;
 #[cfg(feature = "test-utils")]
 pub use garbler::GarblerRawParts;
 pub use types::{
-    CommitPhaseOne, CommitPhaseTwo, GarbledInstance, GarblerStage, OpenCommit, OpenForInstance,
+    ChosenInstances, CommitPhaseOne, CommitPhaseTwo, GarbledInstance, GarblerStage, OpenForInstance,
 };
 
 // Re-export common types from cut_and_choose
