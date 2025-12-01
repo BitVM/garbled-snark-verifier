@@ -6,14 +6,21 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha20Rng;
 use serde::{Deserialize, Serialize};
 
-use super::*;
+use super::{
+    CircuitInput, Config, DefaultLabelCommitHasher, FileCiphertextHandlerProvider, OpenForInstance,
+};
 use crate::{
     AesCcrGateHasher, EvaluatedWire, GarbleMode, GarbledWire, Gate, S, WireId, ark,
     circuit::{
         CiphertextHandler, CircuitContext, EncodeInput, EvaluateMode, FALSE_WIRE, TRUE_WIRE,
         ciphertext_source, modes::CircuitMode,
     },
-    cut_and_choose::vsss::{FinalizeChallenge, encode_input},
+    cut_and_choose::{
+        soldering::{Evaluator, Garbler},
+        vanilla::EvaluatorCaseInput,
+        vsss,
+        vsss::{FinalizeChallenge, encode_input},
+    },
     gadgets::bn254::fq6::Fq6,
     hashers::GateHasher,
 };
@@ -241,7 +248,7 @@ fn cut_and_choose_one_bit_e2e_vsss() {
 
     // Garbler creates all instances
     let cfg_g = Config::new(total, finalize, OneBitGarblerInput);
-    let mut garbler = VsssGarbler::create(&mut rng, cfg_g, CAPACITY, one_bit_circuit);
+    let mut garbler = vsss::Garbler::create(&mut rng, cfg_g, CAPACITY, one_bit_circuit);
 
     // First phase: commit without nonce
     let commits = garbler.commit::<DefaultLabelCommitHasher>();
@@ -249,8 +256,8 @@ fn cut_and_choose_one_bit_e2e_vsss() {
 
     // Evaluator chooses which instances to finalize with first commits
     let cfg_e = Config::new(total, finalize, OneBitGarblerInput);
-    let mut evaluator: Evaluator<OneBitGarblerInput> =
-        Evaluator::create_vsss(&mut rng, cfg_e, commits);
+    let mut evaluator: vsss::Evaluator<OneBitGarblerInput> =
+        vsss::Evaluator::create(&mut rng, cfg_e, commits);
 
     // Todo: check vsss polynomial
     // todo: add Ci commits
@@ -287,7 +294,7 @@ fn cut_and_choose_one_bit_e2e_vsss() {
         .unzip();
 
     evaluator
-        .run_regarbling_vsss(
+        .run_regarbling(
             &opened_instance_data,
             &receivers,
             &handler_provider,
@@ -379,7 +386,7 @@ fn cut_and_choose_one_bit_e2e_vsss() {
 ///   - True case: `(a, b)` against `prod_m` → `ok = true` and commit equals committed label1.
 ///   - False case: `(a, b_alt)` vs `prod_m` → `ok = false` and commit equals committed label0.
 ///
-/// The test keeps `total=1` and `to_finalize=1` to minimize runtime while exercising the full flow.
+/// The test keeps `total=1` and `finalized_count=1` to minimize runtime while exercising the full flow.
 #[test_log::test]
 fn cut_and_choose_fq12_mul_e2e() {
     const CAPACITY: usize = 16_000;
@@ -534,10 +541,10 @@ fn cut_and_choose_fq12_mul_e2e() {
     // Fill evaluator with second commits
     evaluator.fill_second_commit(second_commits.clone());
 
-    let to_finalize = evaluator.finalized_indexes().to_vec().into_boxed_slice();
+    let finalized_indexes = evaluator.finalized_indexes().to_vec().into_boxed_slice();
 
     // Prepare channels for finalized instances using iterator + unzip
-    let (senders, receivers): (Vec<_>, Vec<_>) = to_finalize
+    let (senders, receivers): (Vec<_>, Vec<_>) = finalized_indexes
         .iter()
         .map(|&index| {
             let (tx, rx) = channel::unbounded::<S>();
@@ -582,7 +589,7 @@ fn cut_and_choose_fq12_mul_e2e() {
     // Build true cases (a,b)
     let mut cases_true = Vec::new();
 
-    for idx in to_finalize.iter().copied() {
+    for idx in finalized_indexes.iter().copied() {
         let labels = garbler.input_labels_for(idx);
         let input_true = Fq12MulInput {
             labels: labels.clone(),
@@ -615,7 +622,7 @@ fn cut_and_choose_fq12_mul_e2e() {
 
     let mut cases_false = Vec::new();
 
-    for idx in to_finalize.iter().copied() {
+    for idx in finalized_indexes.iter().copied() {
         let labels = garbler.input_labels_for(idx);
         let input_false = Fq12MulInput {
             a_m: input.a_m,

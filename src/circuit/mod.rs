@@ -1,4 +1,4 @@
-use std::{array, fmt::Debug};
+use std::{array, fmt::Debug, marker::PhantomData};
 
 use crossbeam::channel;
 use tracing::info;
@@ -74,8 +74,7 @@ mod streaming_mode;
 pub use streaming_mode::{StreamingContext, StreamingMode};
 
 pub struct CircuitBuilder<M: CircuitMode> {
-    #[allow(dead_code)]
-    mode: M,
+    _m: PhantomData<M>,
 }
 
 #[derive(Debug)]

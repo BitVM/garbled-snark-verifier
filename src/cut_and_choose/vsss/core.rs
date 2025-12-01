@@ -145,7 +145,7 @@ where
     for<'a> T:
         Add<T, Output = T> + Mul<&'a Fr, Output = T> + std::ops::Sub<Output = T> + Clone + Zero,
 {
-    #[allow(dead_code)]
+    #[cfg(test)]
     // naive lagrange interpolation, used for testing
     fn eval_at(&self, x: usize) -> T {
         if x < self.0.len() {

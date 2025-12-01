@@ -3,6 +3,7 @@
 use std::{path::PathBuf, thread};
 
 use ark_ff::AdditiveGroup;
+use ccn::{DEFAULT_CAPACITY, Evaluator, EvaluatorCaseInput};
 use crossbeam::channel::{self};
 use garbled_snark_verifier::{
     EvaluatedWire,
@@ -11,15 +12,11 @@ use garbled_snark_verifier::{
         SNARK, UniformRand,
     },
     circuit::CiphertextSender,
-    cut_and_choose::{
-        Evaluator, EvaluatorCaseInput, FileCiphertextHandlerProvider, VsssGarbler,
-        vsss::{
-            Challenge, EvaluatorAdaptorSigs, FinalizeChallenge, SetupBroadcast, SetupResponse,
-            VsssStreamReceivers,
-        },
+    cut_and_choose::vsss::{
+        Challenge, EvaluatorAdaptorSigs, FileCiphertextHandlerProvider, FinalizeChallenge,
+        SetupBroadcast, SetupResponse, VsssStreamReceivers, groth16 as ccn,
     },
     garbled_groth16::{self, EvaluatorCompressedInput},
-    groth16_cut_and_choose::{self as ccn, DEFAULT_CAPACITY},
     hashers::{AesCcrGateHasher, Sha256LabelCommitHasher},
     test_utils::DummyCircuit,
 };
@@ -29,8 +26,8 @@ use rand_chacha::ChaCha20Rng;
 use tracing::info;
 
 // Configuration constants - modify these as needed
-const TOTAL_INSTANCES: usize = 181;
-const FINALIZE_INSTANCES: usize = 7;
+const TOTAL_INSTANCES: usize = 4;
+const FINALIZE_INSTANCES: usize = 2;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
@@ -194,18 +191,13 @@ fn run_garbler(
     let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
 
     info!(
-        "Garbler: {total}/{to_finalize}",
+        "Garbler: {total}/{finalized_count}",
         total = cfg.total(),
-        to_finalize = cfg.to_finalize(),
+        finalized_count = cfg.finalized_count(),
     );
 
     info!("Garbler: creating instances...");
-    let mut g = ccn::VsssGarbler::from_inner(VsssGarbler::create(
-        &mut seed_rng,
-        cfg.clone(),
-        DEFAULT_CAPACITY,
-        circuit_verify,
-    ));
+    let mut g = ccn::Garbler::create(&mut seed_rng, cfg.clone(), DEFAULT_CAPACITY, circuit_verify);
 
     info!("Garbler: generating commits...");
     let commits = g.commit::<Sha256LabelCommitHasher>();
@@ -221,10 +213,9 @@ fn run_garbler(
     info!("Garbler: received FinalizeChallenge...");
 
     info!("Garbler: opening instances...");
-    let finalize_indices = challenge.to_finalize.iter().map(|x| x.index).collect_vec();
-    let (opened_instance_data, finalized_instance_data) = g
-        .inner()
-        .open_commit(challenge.to_finalize.clone(), circuit_verify);
+    let finalize_indices = challenge.finalized.iter().map(|x| x.index).collect_vec();
+    let (opened_instance_data, finalized_instance_data) =
+        g.open_commit(challenge.finalized.clone(), circuit_verify);
 
     let finalized_instance_data_indices = finalized_instance_data
         .iter()
@@ -267,9 +258,13 @@ fn run_garbler(
     );
 
     info!("Garbler: generating adaptor signatures...");
-    let inputs = g
-        .prepare_input_labels(vec![public_input], challenge_proof, challenge.assert_index)
-        .input;
+    let inputs = ccn::prepare_input_labels(
+        &g,
+        vec![public_input],
+        challenge_proof,
+        challenge.assert_index,
+    )
+    .input;
     let wide_labels = g.wide_labels_for(challenge.assert_index);
     let gate_hasher_seed = circuit_commits[challenge.assert_index].gate_hasher_seed();
     let sigs = challenge.compute_signatures::<AesCcrGateHasher, _>(
@@ -294,7 +289,7 @@ fn run_evaluator(
 ) -> Vec<(usize, EvaluatedWire)> {
     let mut rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
 
-    let finalize = cfg.to_finalize();
+    let finalize = cfg.finalized_count();
 
     // Step 1 — receive Commits.
     info!("Evaluator: waiting for commits...");
@@ -305,11 +300,8 @@ fn run_evaluator(
 
     // Evaluator chooses which instances to finalize with first commits
     info!("Evaluator: setting up evaluator...");
-    let mut eval: Evaluator<
-        garbled_groth16::GarblerCompressedInput,
-        AesCcrGateHasher,
-        Sha256LabelCommitHasher,
-    > = Evaluator::create_vsss(&mut rng, cfg.clone(), commits.clone());
+    let mut eval: Evaluator<AesCcrGateHasher, Sha256LabelCommitHasher> =
+        Evaluator::create(&mut rng, cfg.clone(), commits.clone());
     let finalize_indices: Vec<usize> = eval.finalized_indexes().to_vec();
 
     let (tx_data, receivers): (Vec<_>, Vec<_>) = finalize_indices
@@ -344,7 +336,7 @@ fn run_evaluator(
     info!("Evaluator: sending FinalizeChallenge...");
     e2g_tx
         .send(SetupResponse::FinalizeChallenge(Challenge {
-            to_finalize: tx_data,
+            finalized: tx_data,
             adaptor_sigs: adaptor_sigs.adaptor_sigs.clone(),
             assert_index: adaptor_sigs.assert_index,
         }))
@@ -364,7 +356,7 @@ fn run_evaluator(
             .expect("create sink provider");
 
     info!("Evaluator: regarbling...");
-    eval.run_regarbling_vsss(
+    eval.run_regarbling(
         &open_instance_data,
         &receivers,
         &handler_provider,

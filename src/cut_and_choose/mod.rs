@@ -1,6 +1,12 @@
 //! Cut-and-choose protocol primitives that implement the Setup and Evaluate
 //! phases described in `docs/gsv_spec.md`. The submodules expose garbler and
 //! evaluator roles plus utilities for ciphertext storage.
+//!
+//! # Module Structure
+//!
+//! - `vanilla` - Base cut-and-choose with two-phase commit protocol (and shared types)
+//! - `soldering` - Extends vanilla with SP1 soldering proofs (requires `sp1-soldering` feature)
+//! - `vsss` - Verifiable Secret Sharing Scheme variant (requires `vsss` feature)
 use std::{
     fmt,
     ops::BitXor,
@@ -17,17 +23,32 @@ pub use crate::hashers::{
 };
 use crate::{S, circuit::CircuitInput};
 
-pub mod ciphertext_repository;
-pub mod evaluator;
-pub mod garbler;
-pub mod vsss;
-pub mod wide_garbling;
+// Internal modules
+mod ciphertext_repository;
+mod wide_garbling;
 
-pub use ciphertext_repository::*;
-pub use evaluator::*;
-pub use garbler::*;
-pub use wide_garbling::*;
-pub mod groth16;
+// Protocol variants (vanilla is the base)
+pub mod vanilla;
+
+#[cfg(feature = "sp1-soldering")]
+pub mod soldering;
+
+#[cfg(feature = "vsss")]
+pub mod vsss;
+
+// Ciphertext handling (shared across all variants)
+// Re-export vanilla types for backwards compatibility
+pub use ciphertext_repository::{
+    CiphertextHandlerProvider, CiphertextSourceProvider, FileCiphertextHandler,
+    FileCiphertextHandlerProvider,
+};
+#[cfg(feature = "sp1-soldering")]
+pub use soldering::SolderingCheckError;
+pub use vanilla::{
+    CommitPhaseOne, CommitPhaseTwo, ConsistencyError, EvaluatorCaseInput, GarbledInstance,
+    GarblerStage, OpenCommit, OpenForInstance, Stage,
+};
+pub use wide_garbling::GarbledWideLabelTable;
 
 pub type Seed = u64;
 
@@ -100,7 +121,7 @@ pub(crate) fn write_commit_hex(f: &mut fmt::Formatter<'_>, bytes: &[u8]) -> fmt:
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config<I: CircuitInput> {
     pub total: usize,
-    to_finalize: usize,
+    finalized_count: usize,
     input: I,
 }
 
@@ -108,10 +129,10 @@ impl<I: CircuitInput> Config<I> {
     /// Create a new configuration with the total instance count, the number
     /// of finalized instances, and the compressed circuit input shared between
     /// garbler and evaluator.
-    pub fn new(total: usize, to_finalize: usize, input: I) -> Self {
+    pub fn new(total: usize, finalized_count: usize, input: I) -> Self {
         Self {
             total,
-            to_finalize,
+            finalized_count,
             input,
         }
     }
@@ -122,8 +143,8 @@ impl<I: CircuitInput> Config<I> {
     }
 
     /// Number of circuits `f` that will remain closed/finalized.
-    pub fn to_finalize(&self) -> usize {
-        self.to_finalize
+    pub fn finalized_count(&self) -> usize {
+        self.finalized_count
     }
 
     /// Immutable access to the shared circuit input payload.

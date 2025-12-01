@@ -10,12 +10,13 @@ use serde::{Deserialize, Serialize};
 use super::{
     adaptor::{SignatureBytes, WideAdaptorInfo},
     core::{PolynomialCommits, ShareCommits, lagrange_interpolate_whole_polynomial},
+    garbler::InstanceWideLabelLookup,
     types::{Canonical, transpose},
 };
 use crate::{
-    CommitPhaseOne, EvaluatedWire, LabelCommitHasher, S, WireId,
+    EvaluatedWire, S, WireId,
     circuit::{CiphertextHandler, CircuitMode, EncodeInput, EvaluateMode, ciphertext_source},
-    cut_and_choose::{GarbledWideLabelTable, InstanceWideLabelLookup, Seed},
+    cut_and_choose::{CommitPhaseOne, GarbledWideLabelTable, LabelCommitHasher, Seed},
     hashers::{DefaultLabelCommitHasher, GateHasher},
 };
 
@@ -33,7 +34,7 @@ pub enum SetupResponse<CTH: 'static + Send + CiphertextHandler> {
 }
 
 pub struct Challenge<CTH: 'static + Send + CiphertextHandler> {
-    pub to_finalize: Vec<FinalizeChallenge<CTH>>,
+    pub finalized: Vec<FinalizeChallenge<CTH>>,
     pub adaptor_sigs: Vec<WideAdaptorInfo>,
     pub assert_index: usize,
 }
@@ -74,6 +75,17 @@ pub struct FinalizeChallenge<CTH: 'static + Send + CiphertextHandler> {
 pub struct VsssStreamReceivers {
     pub index: usize,
     pub ciphertext_receiver: channel::Receiver<S>,
+}
+
+impl crate::cut_and_choose::CiphertextSourceProvider for Vec<VsssStreamReceivers> {
+    type Source = channel::Receiver<S>;
+    type Error = ();
+
+    fn source_for(&self, index: usize) -> Result<Self::Source, Self::Error> {
+        self.iter()
+            .find_map(|x| x.index.eq(&index).then_some(x.ciphertext_receiver.clone()))
+            .ok_or(())
+    }
 }
 
 // A hacky way to get the binary representation of an input

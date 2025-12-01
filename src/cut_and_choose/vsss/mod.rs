@@ -1,5 +1,8 @@
 pub mod adaptor;
 pub mod core;
+pub mod evaluator;
+pub mod garbler;
+pub mod groth16;
 pub mod protocol;
 pub mod types;
 
@@ -8,11 +11,17 @@ pub use core::{
 };
 
 pub use adaptor::{AdaptorInfo, SignatureBytes, WideAdaptorInfo};
+pub use evaluator::Evaluator;
+pub use garbler::{Garbler, InstanceWideLabelLookup};
 pub use protocol::{
     Challenge, EvaluatorAdaptorSigs, FinalizeChallenge, FinalizedVsssInstance, OpenVsssInstance,
     SetupBroadcast, SetupResponse, VsssCommit, VsssStreamReceivers, encode_input,
 };
 pub use types::{Canonical, transpose};
+
+pub use crate::cut_and_choose::ciphertext_repository::{
+    FileCiphertextHandler, FileCiphertextHandlerProvider,
+};
 
 #[cfg(test)]
 mod tests {

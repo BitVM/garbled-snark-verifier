@@ -75,9 +75,5 @@ pub mod ark {
     pub use ark_snark::{CircuitSpecificSetupSNARK, SNARK};
 }
 
-// Re-export OpenCommit from cut_and_choose for backward compatibility
-pub use cut_and_choose::{OpenCommit, groth16 as groth16_cut_and_choose};
-pub use groth16_cut_and_choose::{CommitPhaseOne, CommitPhaseTwo, Garbler, OpenForInstance};
-
 #[cfg(feature = "sp1-soldering")]
 pub mod sp1_soldering;

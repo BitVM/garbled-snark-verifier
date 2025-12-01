@@ -10,15 +10,14 @@ use ark_ec::AffineRepr;
 use ark_ff::AdditiveGroup;
 use crossbeam::channel;
 use garbled_snark_verifier::{
-    CommitPhaseOne, CommitPhaseTwo, EvaluatedWire, OpenForInstance, S,
+    EvaluatedWire, S,
     ark::{
         self, Bn254, CircuitSpecificSetupSNARK, Groth16 as ArkGroth16, ProvingKey as ArkProvingKey,
         SNARK, UniformRand,
     },
     circuit::{CiphertextHandler, CiphertextSender, CircuitBuilder},
-    cut_and_choose::FileCiphertextHandlerProvider,
+    cut_and_choose::vanilla::{FileCiphertextHandlerProvider, OpenForInstance, groth16 as ccn},
     garbled_groth16,
-    groth16_cut_and_choose::{self as ccn, EvaluatorCaseInput},
     test_utils::DummyCircuit,
 };
 use rand::{Rng, SeedableRng};
@@ -26,8 +25,8 @@ use rand_chacha::ChaCha20Rng;
 use tracing::{error, info};
 
 // Configuration constants - modify these as needed
-const TOTAL_INSTANCES: usize = 181;
-const FINALIZE_INSTANCES: usize = 7;
+const TOTAL_INSTANCES: usize = 4;
+const FINALIZE_INSTANCES: usize = 2;
 const OUT_DIR: &str = "target/cut_and_choose";
 const K_CONSTRAINTS: u32 = 5; // 2^k constraints
 const IS_PROOF_CORRECT: bool = true;
@@ -45,13 +44,13 @@ use garbled_snark_verifier::hashers::{
 /// Messages emitted by the Garbler during Setup (spec Steps 1–4).
 enum SetupBroadcast {
     /// Step 1.2 — `Commit₁(i)` for every instance (ciphertext hash, inputs, outputs, constants).
-    Commit1(Vec<CommitPhaseOne<AesCcrGateHasher, ExampleLabelHasher>>),
+    Commit1(Vec<ccn::CommitPhaseOne<AesCcrGateHasher, ExampleLabelHasher>>),
     /// Step 1.4 — `Commit₂(i)` records with nonce-injected input commitments.
-    Commit2(Vec<CommitPhaseTwo<ExampleLabelHasher>>),
+    Commit2(Vec<ccn::CommitPhaseTwo<ExampleLabelHasher>>),
     /// Step 3 — seeds for all challenge instances (open set).
     OpenSeeds(Vec<(usize, ccn::Seed)>),
     /// All evaluator input labels for all finalized instances.
-    AllInputs(Vec<EvaluatorCaseInput>),
+    AllInputs(Vec<ccn::EvaluatorCaseInput>),
 }
 
 /// Messages emitted by the Evaluator during Setup.
@@ -153,9 +152,9 @@ fn run_garbler(
     let mut seed_rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
 
     info!(
-        "Garbler: {total}/{to_finalize}",
+        "Garbler: {total}/{finalized_count}",
         total = cfg.total(),
-        to_finalize = cfg.to_finalize(),
+        finalized_count = cfg.finalized_count(),
     );
 
     let mut g = ccn::Garbler::create(&mut seed_rng, cfg.clone());
@@ -266,7 +265,7 @@ fn run_evaluator(
 ) -> Vec<(usize, EvaluatedWire)> {
     let mut rng = ChaCha20Rng::seed_from_u64(rand::thread_rng().r#gen());
 
-    let finalize = cfg.to_finalize();
+    let finalize = cfg.finalized_count();
 
     // Step 1.2 — receive Commit₁ batch.
     let SetupBroadcast::Commit1(commits) = g2e_rx.recv().expect("recv commits") else {
