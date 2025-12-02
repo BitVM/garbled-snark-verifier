@@ -590,6 +590,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Slow; run manually or in nightly"]
     fn test_groth16_verify_no_public_inputs_true() {
         use crate::test_utils::DummyCircuitNoPublicInputs;
 
@@ -1022,11 +1023,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Slow; run manually or in nightly"]
     fn test_small_verify_true_uncompressed() {
         assert!(run_small_verify(VerifyFlow::Uncompressed, 10101, |_| {}));
     }
 
     #[test]
+    #[ignore = "Slow; run manually or in nightly"]
     fn test_small_verify_true_compressed() {
         assert!(run_small_verify(VerifyFlow::Compressed, 20202, |_| {}));
     }
