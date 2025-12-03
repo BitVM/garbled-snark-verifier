@@ -26,7 +26,7 @@ pub use sha256::{
 
 /// Trait for gate hashers used in garbling/degarbling.
 ///
-/// Each hasher may have associated seed data (e.g., salt for SwankyAesHasher).
+/// Each hasher may have associated seed data.
 /// Stateless hashers use `Seed = ()`.
 pub trait GateHasher: HashWithGate<1> + HashWithGate<2> + Clone + Debug + Send + Sync {
     /// Data needed to reconstruct this hasher. `()` for stateless hashers, `S` for SwankyAes.
@@ -162,7 +162,6 @@ impl HashWithGate<1> for AesCcrGateHasher {
 }
 
 impl AesCcrGateHasher {
-    /// Create a new SwankyAesHasher with the given salt.
     pub fn new(salt: S) -> Self {
         Self { salt }
     }

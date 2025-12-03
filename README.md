@@ -1,201 +1,126 @@
-# Garbled SNARK Verifier Circuit
-
-## Gate Count Metrics
-
-Gate counts are automatically measured for k=6 (64 constraints) on every push to `main` and published as dynamic badges.
+# Garbled SNARK Verifier (BitVM)
 
 ![Total Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/total.json)
 ![Non-Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/nonfree.json)
 ![Free Gates](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/BitVM/garbled-snark-verifier/gh-badges/badge_data/free.json)
 
-⚡ Performance (cut‑and‑choose oriented; developer laptop, AES‑NI)
-- ⏱️ Per‑instance garbling: 11,174,708,821 gates in ~5m50s → ≈32M gates/s (≈31 ns/gate).
-- 🧩 16‑instance C&C on 8 physical cores: overall garbling finished in ~11m58s → ≈249M gates/s aggregate. Wall‑clock time ≈ ceil(total_instances / physical_cores) × per_instance_time.
-- 🔐 Focus: choose `total` (instances) for cut‑and‑choose soundness; runtime then scales as above. The monitor reports per‑instance progress and overall ETA.
-- 💾 Memory (per garbling task): typically < 200 MB peak RSS. Total memory ≈ per‑instance usage × number of concurrently active instances (≈ physical cores).
-- 🧪 Build flags: x86_64 with AES/SSE/AVX2/PCLMULQDQ enabled; see `.cargo/config.toml`. If AES‑NI is unavailable, prefer the BLAKE3 hasher in examples that allow selecting it.
+Rust reference implementation of a streaming garbled-circuit Groth16 verifier over BN254, aimed at conditional reveal / cut-and-choose flows (e.g. for Bitcoin-style protocols). It comes with three runnable protocols:
+- **Vanilla cut-and-choose** (all finalized inputs revealed).
+- **Soldering (SP1)** cut-and-choose (single base input, deltas proven by a zkVM).
+- **VSSS + adaptor signatures** cut-and-choose (wide-label commitments for Bitcoin bridging).
 
+## Techniques and features
+- Half-gates garbling + Free-XOR.
+- Multi-instance cut-and-choose wrapper (vanilla / soldering / VSSS).
+- Static-key AES-based hash/PRF for gate labels (optional BLAKE3).
+- Streaming, two-pass allocator to keep memory bounded on large circuits.
 
-A streaming garbled-circuit implementation of a Groth16 verifier over BN254. It targets large, real‑world verifier circuits while keeping memory bounded via a two‑pass streaming architecture. The crate supports three execution modes: direct boolean execution, garbling, and evaluation (2PC/MPC‑style).
+## Key references
+- Groth16 zk-SNARK: J. Groth, “On the Size of Pairing-Based Non-Interactive Arguments”, EUROCRYPT 2016.
+- Half-gates garbling: S. Zahur, M. Rosulek, D. Evans, “Two Halves Make a Whole: Reducing Data Transfer in Garbled Circuits Using Half Gates”, EUROCRYPT 2015.
+- Free-XOR optimization: V. Kolesnikov, T. Schneider, “Improved Garbled Circuit: Free XOR Gates and Applications”, ICALP 2008.
+- Fixed-key AES garbling: M. Bellare, V. T. Hoang, S. Keelveedhi, P. Rogaway, “Efficient Garbling from a Fixed-Key Blockcipher”, IEEE S&P 2013.
+- Streaming garbled circuits: Y. Huang, D. Evans, J. Katz, L. Malka, “Faster Secure Two-Party Computation Using Garbled Circuits”, USENIX Security 2011.
 
-**Background**
-- **What:** Encode a SNARK verifier (Groth16 on BN254) as a boolean circuit and run it as a garbled circuit. The verifier’s elliptic‑curve and pairing arithmetic is expressed with reusable gadgets (Fq/Fr/Fq2/Fq6/Fq12, G1/G2, Miller loop, final exponentiation).
-- **How:**
-  - Use Free‑XOR and half‑gates (Zahur–Rosulek–Evans) to make XOR family gates free and reduce AND to two ciphertexts.
-  - Keep field arithmetic in Montgomery form to minimize reductions and wire width churn; convert only at the edges when needed.
-  - Run a two‑phase streaming pipeline: first collect a compact “shape” of wire lifetimes (credits), then execute once with precise allocation and immediate reclamation. Garbling and evaluation synchronize via a streaming channel of ciphertexts.
+## What this project gives you (quick answers)
+- **Purpose**: Run a Groth16 verifier as a garbled circuit with cut-and-choose security, then plug its verdict into Bitcoin-style conditional release.
+- **Protocol menu**: choose vanilla, soldering, or VSSS depending on how “revealed” your finalized inputs may be.
+- **Scalability**: two-pass streaming garbling keeps memory bounded on 10B+ gate circuits.
+- **Determinism**: the same circuit executes in three modes (`Execute`, `Garble`, `Evaluate`) for debugging and testing.
+- **Docs + code**: runnable examples mirror the specs in `docs/` so you can trace every message.
 
-**Intended Use**
-- Explore/benchmark streaming garbling on a non‑trivial circuit (Groth16 verifier).
-- Reuse BN254 gadgets for experiments or educational purposes.
-- Work with deterministic, testable building blocks that mirror arkworks semantics.
+## How the protocol works (conceptual)
+1) **Garbled verifier**: Groth16 verification is compiled to boolean gates (BN254 arithmetic gadgets) and garbled with Free-XOR + half-gates.  
+2) **Cut-and-choose**: Garbler commits to many circuit instances; Evaluator opens a random subset to check correctness and keeps the rest for evaluation.  
+3) **Reveal policy** (pick one):  
+   - *Vanilla*: Garbler sends all input labels for every finalized instance.  
+   - *Soldering*: Garbler sends one base-instance input; an SP1 proof plus per-instance deltas binds every finalized instance to the same committed inputs.  
+   - *VSSS*: Inputs are secret-shared as “wide labels”; adaptor signatures on Bitcoin transactions reveal just enough to reconstruct the finalized inputs.  
+4) **Evaluation**: Evaluator consumes ciphertext streams and labels, evaluates the garbled verifier, and learns the committed verdict label (`L_valid` or `L_invalid`).  
+5) **Bitcoin glue**: Verdict labels can gate on-chain actions (e.g., publish `L_invalid` to disprove).
 
-**Core Concepts**
-- **WireId / Wires:** Logical circuit wires carried through streaming contexts; gadgets implement `WiresObject` to map rich types to wire vectors.
-- **S / Delta:** Garbled labels and global offset for Free‑XOR; AES‑NI or BLAKE3 is used as the PRF/RO for half‑gates.
-- **Modes:** `Execute` (booleans, for testing), `Garble` (produce ciphertexts + constants), `Evaluate` (consume ciphertexts + constants).
-- **Components:** Functions annotated with `#[component]` become cached, nested circuit components; a component‑keyed template pool and a metadata pass compute per‑wire fanout totals and derive per‑wire "credits" (remaining‑use counters) for tight memory reuse.
+## Tech stack and assumptions
+- **Language / toolchain**: Rust 1.90 (`rust-toolchain.toml`).
+- **Crypto**: arkworks Groth16 (BN254); half-gates garbling with AES-CCR or BLAKE3 as PRF; Free-XOR. Montgomery field arithmetic gadgets.
+- **Parallelism**: rayon + crossbeam; streaming allocator keeps RSS low (typically <200 MB per garbling task).
+- **Optional**: SP1 zkVM for soldering proofs (`sp1-soldering-program/`);
+- **Hardware**: x86_64 with AES/SSE/AVX2/PCLMULQDQ recommended; software AES fallback works but is slower.
 
-**Terminology**
-- **Fanout (total):** Total number of downstream reads/uses a wire will have within a component.
-- **Credits (remaining):** The runtime counter that starts at the fanout total and is decremented on each read; when it reaches 1, the next read returns ownership and frees storage.
-
-**Project Structure**
-- `src/core`: fundamental types and logic (`S`, `Delta`, `WireId`, `Gate`, `GateType`).
-- `src/circuit`: streaming builder, modes (`Execute`, `Garble`, `Evaluate`), finalization, and tests.
-- `src/gadgets`: reusable gadgets: `bigint/u254`, BN254 fields and groups, pairing ops, and `groth16` verifier composition.
-- `src/math`: focused math helpers (Montgomery helpers).
-- `circuit_component_macro/`: proc‑macro crate backing `#[component]` ergonomics; trybuild tests live under `tests/`.
-
-## API Overview
-
-### 1. Streaming Garbling Architecture
-
-The implementation uses a **streaming wire-based** circuit construction model that processes circuits incrementally to manage memory efficiently:
-
-- **Wire-Based Model**: All computations flow through `WireId` references representing circuit wires. Wires are allocated incrementally and evaluated/garbled in streaming fashion, avoiding the need to hold the entire circuit in memory.
-
-- **Component Hierarchy**: Circuits are organized as hierarchical components that track input/output wires and gate counts. Components support caching for wire reuse optimization.
-
-- **Three Execution Modes**:
-  - `Execute`: Direct boolean evaluation for testing correctness
-  - `Garble`: Generate garbled circuit tables with Free-XOR optimization  
-  - `Evaluate`: Execute garbled circuit with garbled inputs for MPC
-
-### 2. Component Macro
-
-The `#[component]` procedural macro transforms regular Rust functions into circuit component gadgets, automatically handling wire management and component nesting:
-
-```rust
-#[component]
-fn and_gate(ctx: &mut impl CircuitContext, a: WireId, b: WireId) -> WireId {
-    let c = ctx.issue_wire();
-    ctx.add_gate(Gate::and(a, b, c));
-    c
-}
-
-#[component]
-fn full_adder(ctx: &mut impl CircuitContext, a: WireId, b: WireId, cin: WireId) -> (WireId, WireId) {
-    let sum1 = xor_gate(ctx, a, b);
-    let carry1 = and_gate(ctx, a, b);
-    let sum = xor_gate(ctx, sum1, cin);
-    let carry2 = and_gate(ctx, sum1, cin);
-    let carry = or_gate(ctx, carry1, carry2);
-    (sum, carry)
-}
-```
-
-The macro automatically:
-- Collects input parameters into wire lists
-- Creates child components with proper input/output tracking
-- Manages component caching and wire allocation
-- Supports up to 16 input parameters
-
-See `circuit_component_macro/` for details and compile‑time tests.
-
-## Examples
+## Installation
 
 ### Prerequisites
-- Rust toolchain (latest stable)
-- Clone this repository
+- [Rust](https://rustup.rs/) (see `rust-toolchain.toml` for version)
+- Git
+- x86_64 CPU with AES-NI recommended
 
-### Groth16 Verifier (Execute)
-
+### Clone and build
 ```bash
-# Info logging for progress
-RUST_LOG=info cargo run --example groth16_mpc --release
-
-# Quieter/faster
-cargo run --example groth16_mpc --release
+git clone https://github.com/BitVM/garbled-snark-verifier.git
+cd garbled-snark-verifier
+cargo build --release
 ```
 
-Does:
-- Generates a Groth16 proof with arkworks
-- Verifies it using the streaming verifier (execute mode)
-- Prints result and basic stats
-
-### Garble + Evaluate (Pipeline)
+### SP1 toolchain (required for `sp1-soldering` feature)
+If you want to run the soldering protocol with SP1 proofs, install the full [SP1 toolchain](https://docs.succinct.xyz/docs/sp1/getting-started/install):
 ```bash
-# Default (AES hasher; warns if HW AES is unavailable)
-RUST_LOG=info cargo run --example groth16_garble --release
-
-# Use BLAKE3 hasher instead of AES
-RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3
+curl -L https://sp1up.succinct.xyz | bash
+sp1up
 ```
-- Runs a complete two‑phase demo in one binary:
-  - Pass 1: Garbles the verifier and streams ciphertexts to a hasher thread (reports garbling throughput and a ciphertext hash).
-  - Pass 2: Spawns a garbler thread and an evaluator thread and streams ciphertexts over a channel to evaluate the same circuit shape.
-- Prints a commit from the garbler with output label hashes and the ciphertext hash, and the evaluator verifies both the result label and ciphertext hash match.
-- Tip: tweak the example’s `k` (constraint count) and `CAPACITY` (channel buffer) constants in `examples/groth16_garble.rs` to scale workload and tune throughput.
-
-### Live Gate Monitor (Cut-and-Choose)
-Two processes: (1) run the cut-and-choose demo and log stderr, (2) run the monitor.
-
-- Process #1 (cut-and-choose + log): `RUST_LOG=info cargo run --example groth16_cut_and_choose --release 2> cc.log`
-- Process #2 (monitor): `python3 .scripts/gates_monitor.py cc.log`
-  - Follows `garble:` progress lines emitted during the first garbling pass and auto-detects the total instance count from `Starting cut-and-choose with <N> instances`.
-  - Tracks per-instance throughput, ETA, and completion timing. Adjust the sliding window with `WINDOW_SEC=<seconds>`.
-  - Ignores the `regarble:` stage so that only the initial garbling effort is measured.
-  - Tweak log frequency via `src/core/progress.rs::GATE_LOG_STEP`.
-  - The demo spins up a pinned Rayon pool sized to your physical core count (`num_cpus::get_physical()`), so parallelism is managed automatically. Adjust `total` only to change the cut-and-choose security parameter (number of candidate instances).
-- Example run (developer laptop, 16 instances ≈178.8B gates): ~5m50s per garbling pass, 11m58s cumulative (~249M gates/s sustained). Adjust `total` primarily to meet your cut-and-choose soundness target—the monitor helps confirm the resulting wall-clock cost.
-
-#### C&C Sizing (What matters)
-- Security parameter: `total` (number of candidate instances) — pick this first based on desired soundness; `to_finalize` is how many are kept private and fully evaluated (1 in our demo).
-- Parallelism: managed automatically by a pinned Rayon pool sized to physical cores; you don’t need to tune threads.
-- Back‑of‑the‑envelope ETA: `ceil(total / physical_cores) × T_instance` where `T_instance` is your per‑instance garbling time (≈5m50s in the example run). The monitor gives a real‑time view of this.
-
-#### Hasher selection
-- The garbling/evaluation PRF for half‑gates can be selected via `--hasher`:
-  - `aes` (default): AES‑based PRF (uses AES‑NI when available; warns and uses software fallback otherwise).
-  - `blake3`: BLAKE3‑based PRF.
-- Example: `cargo run --example groth16_garble --release -- --hasher blake3`.
-
-### Focused Micro‑benchmarks
-- `fq_inverse_many` – stress streaming overhead in Fq inverse gadgets.
-- `g1_multiplexer_flame` – profile hot G1 multiplexer logic (works well with `cargo flamegraph`).
-
-Note: Performance depends on the chosen example size and logging. The design focuses on scaling via streaming; larger gate counts benefit from the two‑pass allocator and component template cache.
-
-## Current Status
-
-- Groth16 verifier gadget implemented and covered by deterministic tests (true/false cases) using arkworks fixtures.
-- Streaming modes: `Execute`, `Garble`, and `Evaluate` are implemented with integration tests, including a garble→evaluate pipeline example.
-- BN254 gadget suite: Fq/Fr/Fq2/Fq6/Fq12 arithmetic, G1/G2 group ops, Miller loop, and final exponentiation in Montgomery form.
-- Component macro crate is integrated; trybuild tests validate signatures and errors.
-
-Planned/ongoing work:
-- Continue tuning the two‑pass allocator, component template LRU, and wire crediting to keep peak memory low at high gate counts.
-- Extend examples and surface metrics (gate counts, memory, throughput) for reproducible performance tracking.
-
-## Architecture Overview
-
+Verify the installation:
+```bash
+cargo prove --version
+cargo +succinct --version
 ```
-src/
-├── core/                 # S, Delta, WireId, Gate, GateType
-├── circuit/              # Streaming builder, modes, finalization, tests
-│   └── streaming/        # Two‑pass meta + execution, templates, modes
-├── gadgets/              # Basic, bigint/u254, BN254 fields, groups, pairing, Groth16
-└── math/                 # Montgomery helpers and small math utils
 
-circuit_component_macro/  # #[component] proc‑macro + tests
-```
+## Pick a protocol track (examples)
+- **Vanilla cut-and-choose** — evaluator receives all finalized inputs (baseline correctness check).  
+  `RUST_LOG=info cargo run --example gsv_vanilla --release`
+- **Soldering (SP1)** — single base input; SP1 proof enforces input consistency across finalized instances (see `docs/gsv_soldering.md`).  
+  `RUST_LOG=info cargo run --example gsv_soldering --release --features sp1-soldering`
+- **VSSS + adaptor signatures** — wide-label commitments for Bitcoin bridging (see `docs/gsv_vsss.md`).  
+  `RUST_LOG=info cargo run --example gsv_vsss --release --features vsss`
+- **Minimal verifier demo** — prove+verify without C&C.  
+  `RUST_LOG=info cargo run --example groth16_mpc --release`
+- **Garble → evaluate pipeline** — single binary runs both passes.  
+  `RUST_LOG=info cargo run --example groth16_garble --release -- --hasher blake3`
+- **Cut-and-choose monitor** — live throughput/ETA from logs.  
+  `RUST_LOG=info cargo run --example groth16_cut_and_choose --release 2> cc.log`  
+  `python3 .scripts/gates_monitor.py cc.log`
+
+## Architecture (mental model)
+- **Two-pass streaming**: Pass 1 collects circuit “shape” (wire fanouts → credits). Pass 2 garbles/evaluates once with immediate wire reclamation; ciphertexts stream via bounded channels.
+- **Gadgets**: BN254 fields/groups (Montgomery), Miller loop, final exponentiation, Groth16 verifier wiring.
+- **Modes**: `Execute` (boolean eval), `Garble` (produce ciphertexts + constants), `Evaluate` (consume ciphertexts).
+- **Components**: `#[component]` macro caches circuit templates; deterministic layouts for reproducibility.
+
+## Repository map
+- `src/core` — wire/label types, gates, PRF plumbing.
+- `src/circuit` — streaming builder, two-pass allocator, modes, tests.
+- `src/gadgets` — bigint/u254, BN254 fields/groups, pairing, Groth16 verifier.
+- `src/math` — Montgomery helpers.
+- `examples/` — protocol drivers (`gsv_vanilla`, `gsv_soldering`, `gsv_vsss`), pipeline demos, monitors.
+- `docs/` — protocol specs (`gsv_soldering.md`, `gsv_vsss.md`).
+- `sp1-soldering-program/` — SP1 zkVM for soldering proofs.
+- `circuit_component_macro/` — `#[component]` proc-macro + trybuild tests.
+
+## Performance snapshot (developer laptop, AES-NI)
+- Per-instance garbling: ~11.2B gates in ~3m 20s (~57M gates/s).
+- Memory: <200 MB RSS per garbling task; total ≈ per-instance × concurrent instances.
+- Hasher: AES by default;
 
 ## Testing
-
-Run the test suite to verify component functionality:
-
 ```bash
-# All unit/integration/macro tests
+# Full workspace
 cargo test --workspace --all-targets
 
-# Focus on Groth16 tests with output
+# Focused Groth16 verifier tests
 RUST_BACKTRACE=1 cargo test test_groth16_verify -- --nocapture
 
-# Release mode for heavy computations
+# Heavier coverage
 cargo test --release
 ```
 
 ## Contributing
+PRs and issues welcome. If you extend the Bitcoin glue (soldering or VSSS/adaptor flows), cite the corresponding doc (`docs/gsv_soldering.md` or `docs/gsv_vsss.md`) so reviewers can track protocol alignment. 
 
-Contributions are welcome. If you find a bug, have an idea, or want to improve performance or documentation, please open an issue or submit a pull request. For larger changes, start a discussion in an issue first so we can align on the approach. Thank you for helping improve the project.
+See `LICENCE` for licensing.
