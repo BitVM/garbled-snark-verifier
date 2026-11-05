@@ -36,9 +36,14 @@ The original default feature selection and SP1 behavior are retained.
 Local Python Boolean-mirror run: 8 test groups passed. This includes 32,768
 exhaustive small-width addition predicates, 6,144 small-width multiplication
 predicates, full-width random/edge cases, all 256 single-bit wrong addition
-outputs on both fields, and noncanonical inputs. Those results establish the
-Python mirror only. Rust compilation was unavailable in the local environment;
-check the new GitHub Actions logs for Rust and native-proof outcomes.
+outputs on both fields, and noncanonical inputs.
+
+GitHub Actions run 42109054369 passed all 8 Python groups, all 4 Rust tests,
+and native compressed proof generation/verification. It measured 49,200
+ciphertext bytes for an addition predicate and 11,518,000 for multiplication.
+The native two-step proof was 10,592 bytes. See [M1 evidence](nova-bitvm3-m1-results.md)
+for the source revision, exact measurements and scope. Local Rust compilation
+was unavailable; these Rust outcomes come from the GitHub-hosted runner.
 
 CI runs one test thread and limits build/Rayon concurrency to two. It captures
 peak RSS and elapsed time with /usr/bin/time. The allocator's 32,768-wire reserve
@@ -63,9 +68,10 @@ cargo run --release --manifest-path nova-bitvm3/Cargo.toml --features native-ref
 
 ## Next milestone
 
-1. Import complete Pallas/Vesta point arithmetic from the audited reference
+1. Import complete Pallas/Vesta point arithmetic from the tested reference
    semantics in zk-rusto-no-bitcoino PR #18 (commit 474299439e178da7b965d6c3716bdb8320e082d3),
    with canonical infinity, on-curve checks and exceptional-case coverage.
+   Optimize the multiplication kernel before scaling to full verifier MSMs.
 2. Match Nova 0.76's exact transcript byte encoding, domain separation and
    challenge derivation. Trace both primary and secondary verification paths;
    transcript challenges cannot enter as unverified witness values.
