@@ -77,3 +77,6 @@ pub mod ark {
 
 #[cfg(feature = "sp1-soldering")]
 pub mod sp1_soldering;
+
+/// Experimental Pasta arithmetic for Nova/Spartan/IPA; no complete verifier yet.
+pub mod nova;

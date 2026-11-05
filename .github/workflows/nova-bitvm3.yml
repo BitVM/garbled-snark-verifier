@@ -1,0 +1,49 @@
+name: Nova BitVM3 kernels and native reference
+on:
+  push:
+    branches: ['feat/nova-bitvm3-*']
+  pull_request:
+    paths: ['src/nova.rs', 'src/lib.rs', 'nova-bitvm3/**', 'Cargo.toml', 'build.rs', '.github/workflows/nova-bitvm3.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nova-bitvm3-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_JOBS: '2'
+      RAYON_NUM_THREADS: '2'
+      RUSTFLAGS: '-C debuginfo=0'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare evidence
+        run: mkdir -p nova-bitvm3/results
+      - name: Boolean reference
+        run: |
+          set -o pipefail
+          python3 nova-bitvm3/reference.py 2>&1 | tee nova-bitvm3/results/python.txt
+      - name: Toolchain and dependency evidence
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustc +1.90.0 --version > nova-bitvm3/results/rustc.txt
+          cargo +1.90.0 generate-lockfile --manifest-path nova-bitvm3/Cargo.toml
+          cargo +1.90.0 tree --locked --manifest-path nova-bitvm3/Cargo.toml --features native-reference > nova-bitvm3/results/dependencies.txt
+      - name: Execute and garble/evaluate Pasta kernels
+        run: |
+          set -o pipefail
+          /usr/bin/time -v -o nova-bitvm3/results/kernels-time.txt cargo +1.90.0 test --release --locked --manifest-path nova-bitvm3/Cargo.toml --lib -- --nocapture --test-threads=1 2>&1 | tee nova-bitvm3/results/kernels.txt
+      - name: Real Nova compressed proof reference
+        run: |
+          set -o pipefail
+          /usr/bin/time -v -o nova-bitvm3/results/native-time.txt cargo +1.90.0 run --release --locked --manifest-path nova-bitvm3/Cargo.toml --features native-reference --bin nova-reference -- nova-bitvm3/results/native 2>&1 | tee nova-bitvm3/results/native.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nova-bitvm3-${{ github.sha }}
+          path: |
+            nova-bitvm3/results/
+            nova-bitvm3/Cargo.lock

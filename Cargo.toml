@@ -18,7 +18,7 @@ resolver = "2"
 
 [features]
 default = ["tracing_max_level", "tracing_scopes", "vsss", "sp1-soldering", "test-utils"]
-sp1-soldering = ["sp1-prover", "sp1-core-machine", "sp1-core-executor", "sp1-primitives", "sp1-stark", "dirs", "bincode"]
+sp1-soldering = ["sp1-prover", "sp1-core-machine", "sp1-core-executor", "sp1-primitives", "sp1-stark", "dirs", "bincode", "dep:sp1-build", "dep:sp1-sdk"]
 test-utils = []
 vsss = ["ark-secp256k1"]
 
@@ -69,8 +69,8 @@ sp1-prover = { version = "5.2", features = ["native-gnark"], optional = true }
 sp1-stark = { version = "5.2", optional = true }
 
 [build-dependencies]
-sp1-build = "5.2"
-sp1-sdk = "5.2"
+sp1-build = { version = "5.2", optional = true }
+sp1-sdk = { version = "5.2", optional = true }
 
 [dev-dependencies]
 ark-ec = "0.5.0"
@@ -90,28 +90,21 @@ features = ["user-hooks"]
 
 [profile.flamegraph]
 inherits = "release"
-debug = true           # Essential for symbol resolution
-codegen-units = 1      # Better inlining visibility
-lto = "fat"           # Cross-crate optimization
-panic = "abort"       # Faster execution, smaller binary
+debug = true
+codegen-units = 1
+lto = "fat"
+panic = "abort"
 
 [package.metadata.cargo-udeps.ignore]
-# `cargo-husky` is intentionally present for git hooks and should be ignored by udeps
-development = [
-    "cargo-husky",
-    # Used in vsss integration-style tests gated behind the `vsss` feature, which is disabled in the CI udeps run.
-    "bitcoin",
-    "bitcoin-script",
-    "bitvm",
-]
+development = ["cargo-husky", "bitcoin", "bitcoin-script", "bitvm"]
 normal = ["aes"]
 
 [profile.release]
-lto = "thin"        # try "fat" if you can afford link time
-codegen-units = 1   # maximize inlining decisions
+lto = "thin"
+codegen-units = 1
 panic = "abort"
 incremental = false
-strip = "symbols"   # if you don't need debug symbols in release
+strip = "symbols"
 
 [[example]]
 name = "gsv_soldering"
